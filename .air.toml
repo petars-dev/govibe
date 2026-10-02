@@ -1,0 +1,26 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # Delegate to the Makefile so templ generation always runs before the build.
+  cmd = "make air-build"
+  bin = "tmp/govibe-dev"
+  include_ext = ["go", "templ", "yml", "yaml"]
+  exclude_dir = ["tmp", "docs", ".git", ".idea"]
+  # Skip templ's generated output so it doesn't retrigger a rebuild loop.
+  exclude_regex = ["_templ\\.go$"]
+  delay = 1000
+  stop_on_error = true
+  send_interrupt = true
+  kill_delay = "500ms"
+  log = "build-errors.log"
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = false
+
+[screen]
+  clear_on_rebuild = true
+  keep_scroll = true

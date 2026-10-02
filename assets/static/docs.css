@@ -1,0 +1,102 @@
+/* Docs-site-specific layout. Shared tokens/header/toggle live in theme.css. */
+
+.docs-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 0;
+  min-height: calc(100vh - 52px);
+}
+
+.docs-sidebar {
+  background: var(--bg-elev);
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  position: sticky; top: 52px; align-self: start; height: calc(100vh - 52px); overflow: auto;
+}
+.sidebar-group { margin-bottom: 12px; }
+.sidebar-title { font-weight: 600; margin-bottom: 8px; opacity: 0.9; }
+.docs-sidebar ul { list-style: none; margin: 0; padding: 0; }
+.docs-sidebar .nav-link {
+  display: block; padding: 6px 8px; border-radius: 6px; color: var(--text);
+}
+.docs-sidebar .nav-link:hover { background: rgba(255,255,255,0.05); text-decoration: none; }
+.docs-sidebar .nav-link.active { background: rgba(59,130,246,0.15); color: var(--link); border: 1px solid rgba(59,130,246,0.35); }
+
+.docs-content {
+  padding: 24px;
+  min-width: 0;
+}
+
+.index-list { margin: 0; padding-left: 0; list-style: none; }
+.index-list li { margin: 8px 0; }
+.index-list a { font-weight: 500; }
+.nav-list { list-style: none; margin: 0; padding: 0; }
+
+.md-content {
+  max-width: 860px;
+}
+.breadcrumb { margin-bottom: 12px; }
+.back-link { color: var(--muted); }
+.back-link:hover { color: var(--link); text-decoration: none; }
+.md-content h1, .md-content h2, .md-content h3, .md-content h4, .md-content h5, .md-content h6 {
+  line-height: 1.25; margin: 1.6em 0 0.6em; font-weight: 650;
+  scroll-margin-top: 68px; /* keep the target clear of the sticky header when deep-linked */
+}
+.md-content h1 { font-size: 2rem; }
+.md-content h2 { font-size: 1.6rem; }
+.md-content h3 { font-size: 1.3rem; }
+.md-content p { margin: 1em 0; color: var(--text); }
+.md-content a { color: var(--link); }
+.md-content a:hover { color: var(--link-hover); }
+
+/* Heading anchor links: hidden "#" that appears on hover, for shareable deep links. */
+.md-content h1, .md-content h2, .md-content h3, .md-content h4, .md-content h5, .md-content h6 {
+  position: relative;
+}
+.md-content .heading-anchor {
+  position: absolute; left: -1.1em; top: 0.05em;
+  opacity: 0; color: var(--muted); font-weight: 400; text-decoration: none;
+}
+.md-content h1:hover .heading-anchor,
+.md-content h2:hover .heading-anchor,
+.md-content h3:hover .heading-anchor,
+.md-content h4:hover .heading-anchor,
+.md-content h5:hover .heading-anchor,
+.md-content h6:hover .heading-anchor,
+.md-content .heading-anchor:focus {
+  opacity: 1;
+}
+
+.md-content blockquote {
+  margin: 1em 0; padding: 0.5em 1em; border-left: 3px solid var(--border); color: var(--muted); background: var(--bg-elev); border-radius: 4px;
+}
+.md-content code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; border: 1px solid var(--border); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.95em; }
+
+.md-content .code-block { position: relative; }
+.md-content .code-block pre { margin: 0; }
+.md-content pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; overflow: auto; }
+.md-content pre code { background: transparent; border: 0; padding: 0; }
+.md-content .copy-btn {
+  position: absolute; top: 8px; right: 8px;
+  padding: 4px 8px; font-size: 12px; line-height: 1.4;
+  background: var(--bg-elev); color: var(--muted); border: 1px solid var(--border); border-radius: 6px;
+  cursor: pointer; opacity: 0; transition: opacity 0.12s ease;
+}
+.md-content .code-block:hover .copy-btn,
+.md-content .copy-btn:focus {
+  opacity: 1;
+}
+.md-content .copy-btn:hover { color: var(--link); border-color: var(--link); }
+.md-content .copy-btn[data-copied="1"] { color: #3fb950; border-color: #3fb950; }
+
+.md-content hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+.md-content ul, .md-content ol { padding-left: 1.25em; }
+.md-content table { width: 100%; border-collapse: collapse; margin: 1.2em 0; }
+.md-content th, .md-content td { border: 1px solid var(--border); padding: 8px 10px; }
+.md-content thead th { background: var(--bg-elev); }
+.md-content img { max-width: 100%; height: auto; border-radius: 6px; }
+
+@media (max-width: 900px) {
+  .docs-layout { grid-template-columns: 1fr; }
+  .docs-sidebar { position: relative; top: auto; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+}
