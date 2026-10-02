@@ -1,5 +1,7 @@
 tmp
-govibe
+/govibe
 .vscode
 .idea
 
+# Embedded Cayley store: derived data, rebuilt by the graph indexer on every boot.
+docs/graph/*.bolt

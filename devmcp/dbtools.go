@@ -5,7 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"trace-loop/os/storage/dbexplorer"
+	"petars-dev/govibe/storage/dbexplorer"
 )
 
 func registerDBTools(srv *mcp.Server, ex *dbexplorer.Explorer) {

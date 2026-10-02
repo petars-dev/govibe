@@ -10,7 +10,7 @@ import (
 	"github.com/cayleygraph/cayley/graph"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"trace-loop/os/storage/dbexplorer"
+	"petars-dev/govibe/storage/dbexplorer"
 )
 
 // NewHandler builds the MCP server and returns an http.Handler for it, ready

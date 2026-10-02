@@ -1,12 +1,12 @@
 package migrations
 
 import (
-    "context"
-    "database/sql"
-    "embed"
-    "fmt"
+	"context"
+	"database/sql"
+	"embed"
+	"fmt"
 
-    "github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3"
 )
 
 //go:embed sql/*.sql
@@ -19,22 +19,22 @@ var migrations embed.FS
 // goose (Up here, and the migrate CLI commands) calls this first rather than
 // relying on that default.
 func SetDialect(dialect string) error {
-    if dialect == "" {
-        dialect = "mysql"
-    }
-    if err := goose.SetDialect(dialect); err != nil {
-        return fmt.Errorf("unsupported database type %q: %w", dialect, err)
-    }
-    return nil
+	if dialect == "" {
+		dialect = "mysql"
+	}
+	if err := goose.SetDialect(dialect); err != nil {
+		return fmt.Errorf("unsupported database type %q: %w", dialect, err)
+	}
+	return nil
 }
 
 // Up runs up migrations embedded into the binary against the given dialect.
 func Up(ctx context.Context, db *sql.DB, dialect string) error {
-    if err := SetDialect(dialect); err != nil {
-        return err
-    }
-    goose.SetBaseFS(migrations)
-    return goose.UpContext(ctx, db, "sql")
+	if err := SetDialect(dialect); err != nil {
+		return err
+	}
+	goose.SetBaseFS(migrations)
+	return goose.UpContext(ctx, db, "sql")
 }
 
 // MigrationsFS exposes the embed.FS for external tooling (e.g., CLI).

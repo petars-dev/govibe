@@ -29,7 +29,9 @@ Dev-only, like everything under `/dev/*`: indexing never runs when `cfg.IsProd()
 7. **No tests exist.** The indexer needs golden tests from day one, since agents will trust its output.
 8. **Existing pieces to reuse:** `chi.Walk` (exact runtime routes), `dbexplorer` (schema
    introspection incl. FKs), `templ/parser/v2` and `goldmark` (already deps), `mcp.AddResource` /
-   `AddPrompt` (available in go-sdk v1.8.0), `Store.ApplyDeltas` (atomic add/delete).
+   `AddPrompt` (available in go-sdk v1.8.0), `Store.ApplyDeltas` (atomic add/delete; tolerant
+   `IgnoreDup`/`IgnoreMissing` mode only: a failed strict transaction corrupts the in-process node
+   cache, see the Writer contract in `docs/public/GRAPH_SCHEMA.md`).
 
 ## Goals
 - A fresh, deterministic snapshot of the project graph after every boot, with zero manual steps.
@@ -89,9 +91,10 @@ package --imports--> package
 doc/spec --covers|mentions--> code, route, config key, or table
 ```
 
-Use exact, deterministic subject IDs (for example `route:GET /api/hello`,
+Use exact, deterministic subject IDs (for example `route:GET:/api/hello`,
 `func:controllers.HelloAPI`, `table:users`, and `file:controllers/api.go`) and a single vocabulary
-module. Structural relations are IRIs; descriptive attributes such as line number, source, SQL
+module. IDs never contain spaces, control characters, `"` or `\` (percent-encoded): Cayley's default
+N-Quads wire format mis-parses them, which is why the route ID separator is `:` and not a space. Structural relations are IRIs; descriptive attributes such as line number, source, SQL
 operation, inference confidence, and docs are literals. Each generated quad must carry the owning
 layer label. Reindexing replaces only quads with that label, using a sorted diff and atomic deltas;
 unlabelled and user-authored quads must survive. Keep generated output stable across identical
@@ -141,15 +144,23 @@ are planned additions, not capabilities an agent should assume exist until imple
   Quads with any other label (including the `/dev/graph` "Add a quad" form) are never touched.
 - Per layer: build the new quad set in memory, read the existing quads for that label, diff, and
   `ApplyDeltas` only the difference. Idempotent, atomic per layer, and the diff gives "what changed".
+  Deletes must carry the exact label, and `ApplyDeltas` runs with `IgnoreDup` and `IgnoreMissing`
+  (never `ApplyTransaction`); the full recipe is the Writer contract in `GRAPH_SCHEMA.md`.
 - Layer output is deterministic (no timestamps, sorted); volatile data lives only on the meta node.
 
 ### Vocabulary (prefixed IRIs, defined once in `vocab.go`, documented in `GRAPH_SCHEMA.md`)
+**`docs/public/GRAPH_SCHEMA.md` is the authority** (decided in Phase 0); where it and the table below
+differ, it wins. Differences so far: route IDs are `route:GET:/path`; Go types are `typ:`; the package
+attribute is `arch_layer` (values `controllers`, `business`, `storage`, `middleware`, `wiring`, `dev`,
+`views`, `support`); the column data-type attribute is `data_type` because `type` is the kind
+predicate; new predicates `has_layer`, `has_item`, `registers`.
+
 | Kind | IRI example | Key attributes |
 | --- | --- | --- |
-| package | `pkg:controllers` | layer (`controllers`/`business`/`storage`/`wiring`/`dev`), doc |
+| package | `pkg:controllers` | arch_layer (`controllers`/`business`/`storage`/`wiring`/`dev`/…), doc |
 | file | `file:controllers/devdb.go` | lines, generated |
 | func / type | `func:controllers.DevDBMeta` | file, line, exported, doc (first sentence), signature |
-| route | `route:GET /dev/db/api/meta` | method, path, dev_only |
+| route | `route:GET:/dev/db/api/meta` | method, path, dev_only |
 | middleware | `mw:middleware.RequestLogger` | |
 | template | `tmpl:home.Home` | file |
 | mcp_tool | `tool:graph_query` | description, input schema |
@@ -166,14 +177,17 @@ Predicates: `type`, `name`, `defined_in`, `in_package`, `imports`, `calls`, `han
 `covers`, `about`. Attribute predicates (`line`, `doc`, `default`, …) use literal objects so the
 UI can hide them.
 
-**Spike first:** confirm how IRI vs string vs typed-literal objects round-trip through Cayley's
-`/v2/read?format=json` and Gizmo (`g.V()`, `.Has`, `.Regex`), because the visualizer and every
-agent query depend on it.
+**Spike (done, Phase 0):** IRI vs string vs typed-literal round trips through `/v2/read?format=json`,
+N-Quads and Gizmo are recorded in `GRAPH_SCHEMA.md` ("Spike results") and pinned by
+`storage/graphdb/contract_test.go`. Corrections to this spec: Gizmo treats a bare `'x'` as a string, so
+IRIs are queried as `g.V('<pkg:controllers>').Out('<imports>')` or with `g.IRI(...)`; pattern matching
+is `Filter(regex(p, true))` / `Filter(like(p))`, not `.Regex`; `Count()` returns null, so counts use
+`g.Emit(...ToArray().length)`.
 
 ### Layers
 | Layer | Source | Notes |
 | --- | --- | --- |
-| `code` | `go/parser` + `go/ast` over repo (skip `_templ.go`, `tmp/`, `.git`) | packages, files, funcs, types, imports, layer classification, godoc first sentence. AST only: fast, no type-check |
+| `code` | `go/parser` + `go/ast` over repo (skip `_templ.go`, `tmp/`, `.git`, `vendor/`, every `testdata/`, and any directory with its own `go.mod`) | packages, files, funcs, types, imports, layer classification, godoc first sentence. AST only: fast, no type-check |
 | `routes` | runtime `chi.Walk(router)` + `runtime.FuncForPC(...).FileLine` mapped onto `code` funcs | exact truth incl. conditional `/dev/*` routes and per-route middleware chain; closures resolve to their enclosing func by file:line |
 | `templates` | `templ/parser/v2` on `*.templ` | components, component→component calls, controller→template `renders` |
 | `config` | `yaml.v3` Node on `config/env.yml` + selector scan of `cfg.X.Y` | key → env var → default; key → struct field → usage sites; secrets flagged |
@@ -251,17 +265,21 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
 - Layer timing and counts logged at info; budget: AST layers < 500 ms on this repo.
 
 ## Phases & Tasks
-0. **Phase 0: Groundwork (≈½ day)**
+0. **Phase 0: Groundwork (≈½ day), done**
    - Anchor `.gitignore` (`/govibe`) so `cmd/govibe/` is tracked; untrack and ignore `docs/graph/*.bolt`.
    - Spike: IRI/literal round-trip via `/v2/read` and Gizmo; decide final vocabulary.
    - Write `docs/public/GRAPH_SCHEMA.md` skeleton; fixture mini-module for golden tests.
    - *Done when:* vocabulary agreed, `git status` no longer lists the bolt file or hides `cmd/`.
+   - *Delivered:* `.gitignore`; `storage/graphdb/contract_test.go` (the spike, as a regression test);
+     `docs/public/GRAPH_SCHEMA.md`; `business/services/codegraph/testdata/fixture/`. The vocabulary
+     still needs the owner's sign-off, and `GRAPH_SCHEMA.md` ends with the decisions deferred to later
+     phases.
 1. **Phase 1: Indexer core + `code` layer (MVP)**
    - `business/services/codegraph`: `vocab.go`, label-scoped diff writer (`ApplyDeltas`), fingerprints,
      `meta` node, async boot hook in `routes.NewRouter`, `POST /dev/graph/reindex`.
    - `code` layer via `go/ast`; layer classification; `imports` edges.
    - Golden N-Quads test on the fixture; invariant test on the real repo (no dangling refs).
-   - *Done when:* `g.V('pkg:controllers').Out('imports').All()` works after `make air`, restarts
+   - *Done when:* `g.V('<pkg:controllers>').Out('<imports>').All()` works after `make air`, restarts
      reproduce identical quads, and a manual quad survives a reindex.
 2. **Phase 2: Runtime + config + docs layers**
    - `routes` (chi.Walk + middleware + FuncForPC mapping), `templates`, `config`, `mcp`, `docs`
@@ -310,7 +328,7 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
 
 | Item | Implemented | Skipped | Why |
 | --- | --- | --- | --- |
-| Phase 0 groundwork (.gitignore, spike, vocab) | No | | Planned |
+| Phase 0 groundwork (.gitignore, spike, vocab) | Yes | | Vocabulary awaits sign-off; spike corrected route IDs, Gizmo query forms, and the writer API (see `GRAPH_SCHEMA.md`) |
 | Indexer core + `code` layer | No | | Planned |
 | `routes`/`templates`/`config`/`mcp`/`docs` layers | No | | Planned |
 | `db` layer (live + static + inferred + code↔table) | No | | Planned |

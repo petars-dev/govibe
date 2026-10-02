@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"trace-loop/os/storage/dbexplorer"
+	"petars-dev/govibe/storage/dbexplorer"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
