@@ -18,6 +18,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -174,7 +175,46 @@ func (r *Report) Failed() bool {
 // completed at all (the root is unreadable, the context is cancelled, or the
 // meta layer could not be written), and the Report is then partial or nil.
 func (x *Indexer) Run(ctx context.Context) (*Report, error) {
-	return x.run(ctx, true)
+	return x.run(ctx, true, nil)
+}
+
+// LayerNames are the layers the indexer builds, in build order (the `meta` layer
+// that records the runs is written after every run and is not one of them).
+func (x *Indexer) LayerNames() []string {
+	names := make([]string, len(x.layers))
+	for i, l := range x.layers {
+		names[i] = l.name()
+	}
+	return names
+}
+
+// RunLayers rebuilds the named layers whatever their fingerprints say, the
+// layers built on them (they resolve against what the named ones wrote, so a
+// rebuilt `code` layer leaves `routes` pointing at functions that may be gone),
+// and any other layer that is stale. With no names it is Run. A name may carry
+// the `layer:` prefix; an unknown name is an error that lists the real ones, and
+// nothing runs.
+func (x *Indexer) RunLayers(ctx context.Context, names []string) (*Report, error) {
+	if len(names) == 0 {
+		return x.run(ctx, true, nil)
+	}
+	only := map[string]bool{}
+	for _, n := range names {
+		name := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(n), labelPrefix))
+		if !slices.Contains(x.LayerNames(), name) {
+			return nil, fmt.Errorf("unknown layer %q; layers: %s", n, strings.Join(x.LayerNames(), ", "))
+		}
+		only[name] = true
+	}
+	// Layers are listed in build order, so one pass finds every dependent.
+	for _, l := range x.layers {
+		for _, d := range l.deps() {
+			if only[d] {
+				only[l.name()] = true
+			}
+		}
+	}
+	return x.run(ctx, false, only)
 }
 
 // Refresh rebuilds only the layers that are stale: those whose inputs, or
@@ -185,7 +225,7 @@ func (x *Indexer) Run(ctx context.Context) (*Report, error) {
 // restart. A layer that failed is retried only once its inputs change; an
 // explicit Run retries it at once.
 func (x *Indexer) Refresh(ctx context.Context) (*Report, error) {
-	return x.run(ctx, false)
+	return x.run(ctx, false, nil)
 }
 
 // Stale lists the layers Refresh would rebuild, in build order.
@@ -207,7 +247,10 @@ func (x *Indexer) Stale(ctx context.Context) ([]string, error) {
 	return stale, nil
 }
 
-func (x *Indexer) run(ctx context.Context, force bool) (*Report, error) {
+// run rebuilds every layer when force is set, else the layers in only and the
+// stale ones. A run that names layers ignores cached indexes, as an explicit
+// reindex does.
+func (x *Indexer) run(ctx context.Context, force bool, only map[string]bool) (*Report, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 
@@ -217,14 +260,14 @@ func (x *Indexer) run(ctx context.Context, force bool) (*Report, error) {
 		return nil, fmt.Errorf("graph index: root %q: %w", x.opts.Root, err)
 	}
 
-	w := newWorld(ctx, x, root, force)
+	w := newWorld(ctx, x, root, force || only != nil)
 	// Fingerprints are taken before any input is read, so an edit that lands
 	// mid-run leaves the stored fingerprint older than the content and the
 	// layer reads as stale on the next check, never falsely fresh.
 	fps := x.fingerprints(w)
 	toRun := map[string]bool{}
 	for _, l := range x.layers {
-		if force || x.isStale(l, fps[l.name()]) {
+		if force || only[l.name()] || x.isStale(l, fps[l.name()]) {
 			toRun[l.name()] = true
 		}
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cayleygraph/quad"
 
+	"petars-dev/govibe/business/services/codegraph"
 	"petars-dev/govibe/storage/graphdb"
 )
 
@@ -28,7 +29,27 @@ func callTool(t *testing.T, h http.Handler, name, args string) string {
 	return rec.Body.String()
 }
 
-// Every graph_query first lets the graph catch up with edits; the hook is
+// fakeIndexer counts the refreshes the graph tools ask for.
+type fakeIndexer struct {
+	refresh   func()
+	refreshes int
+}
+
+func (f *fakeIndexer) Refresh(context.Context) (*codegraph.Report, error) {
+	f.refreshes++
+	if f.refresh != nil {
+		f.refresh()
+	}
+	return nil, nil
+}
+
+func (f *fakeIndexer) RunLayers(context.Context, []string) (*codegraph.Report, error) {
+	return &codegraph.Report{}, nil
+}
+func (f *fakeIndexer) Stale(context.Context) ([]string, error) { return nil, nil }
+func (f *fakeIndexer) LayerNames() []string                    { return []string{"code"} }
+
+// Every graph_query first lets the graph catch up with edits; the indexer is
 // optional.
 func TestGraphQueryRefreshesFirst(t *testing.T) {
 	store, err := graphdb.Open(t.TempDir())
@@ -40,22 +61,21 @@ func TestGraphQueryRefreshesFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	calls := 0
-	h := NewHandler(nil, store.QuadStore, func(ctx context.Context) {
-		calls++
+	ix := &fakeIndexer{refresh: func() {
 		// What a refresh does: the graph changes before the query runs.
 		_ = store.AddQuad(quad.Make(quad.IRI("pkg:b"), quad.IRI("name"), quad.String("fresh"), nil))
-	})
+	}}
+	h := NewHandler(nil, store.QuadStore, ix)
 	out := callTool(t, h, "graph_query", `{"query":"g.V(g.IRI('pkg:b')).Out(g.IRI('name')).All()"}`)
-	if calls != 1 {
-		t.Errorf("refresh called %d times, want once per call", calls)
+	if ix.refreshes != 1 {
+		t.Errorf("refresh called %d times, want once per call", ix.refreshes)
 	}
 	if !strings.Contains(out, "fresh") {
 		t.Errorf("the query did not see what the refresh wrote: %s", out)
 	}
 	callTool(t, h, "graph_query", `{"query":"g.V().All()"}`)
-	if calls != 2 {
-		t.Errorf("refresh called %d times after two calls", calls)
+	if ix.refreshes != 2 {
+		t.Errorf("refresh called %d times after two calls", ix.refreshes)
 	}
 
 	// No hook: still works.

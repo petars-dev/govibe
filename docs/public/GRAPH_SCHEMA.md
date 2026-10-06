@@ -5,7 +5,7 @@ inserted, how nodes are named, and how to query them. The plan lives in
 [SPEC_GRAPH_INDEXER](/dev/docs/specs/graph-indexer); this file is the reference the indexer, its tests,
 and agents work from.
 
-> **Status: Phase 3 (the `db` layer).** Every boot, every `POST /dev/graph/reindex`, and (for stale
+> **Status: Phase 4 (the agent surface).** Every boot, every `POST /dev/graph/reindex`, and (for stale
 > layers only) every `/dev/graph` page load and `graph_query` call fills the store with the `code`,
 > `routes`, `templates`, `config`, `mcp`, `db` and `docs` layers plus the `meta` layer: packages, files,
 > functions, types and imports; routes, middleware and their handlers; templ components; config keys and
@@ -14,7 +14,7 @@ and agents work from.
 > writes which table; docs, specs and their status rows, with what they mention. The `findings`, `calls`
 > and `git` layers are not built yet. Don't assume a node or predicate exists until its layer is marked
 > *implemented* in [Layers](#layers). Hand-added quads (the "Add a quad" form) are never touched by a
-> reindex.
+> reindex. Agents do not need Gizmo for the common questions: see [Agent tools](#agent-tools).
 
 ## Spike results
 
@@ -560,6 +560,84 @@ g.Emit(g.V().Has(g.IRI('type'), g.IRI('kind:func')).ToArray().length)
 - A result without an `id` (`{}`) means a node whose name could not be resolved: see F8.
 - `/v2/read` JSON escapes `<` as `<`; a JSON parser undoes it.
 
+## Agent tools
+
+The MCP server at `/dev/mcp` answers the common questions without Gizmo. The tools do not query the
+store: each call first brings stale layers up to date, then reads every quad under a `layer:*` label into
+an in-memory `Model` (`codegraph.Load`: about 20 ms for 4,500 quads, so nothing is cached) and works in Go.
+Hand-added quads are not part of the model (`graph_query` still sees them). Every answer says what graph it
+came from (`as_of`: when it was indexed, at which git sha, dirty or not).
+
+| Tool | Answers | Inputs |
+| --- | --- | --- |
+| `graph_schema` | what the graph holds, how fresh it is, which tool answers what, example queries | none |
+| `graph_context` | one-call briefing on a file, package, symbol, route, table, template, config key, spec... | exactly one of `path`, `symbol`, `route`, `table`, `node` |
+| `graph_impact` | what is affected if it changes, and which docs mention it | `node`, `depth` (exact hops, default 3, max 6), `limit`, `kinds` |
+| `graph_path` | how one node reaches another | `from`, `to`, `max_depth` |
+| `graph_search` | nodes by words in their ID, name, path, title, signature or doc | `text`, `kinds`, `limit` |
+| `graph_neighbors` | the nodes and edges around a node, to depth 3 | `node`, `direction`, `predicates`, `depth`, `limit` |
+| `graph_findings` | findings (layering, stale docs, unused config...) | `severity`, `rule` (a trailing `*` matches a prefix), `limit` |
+| `graph_reindex` | rebuild layers now | `layers` (those and the layers built on them; none means all) |
+| `graph_query` | a raw Gizmo query | `query`, `limit` |
+
+Also: the resources `govibe://graph/overview` (the architecture rendered from the graph: layers and their
+packages, imports between layers, routes with handlers, tools, tables, config, specs, what is not covered)
+and `govibe://graph/schema` (what `graph_schema` returns), and the prompt `explain-change` (changed `paths`
+and/or a unified `diff` in; per file what it defines and affects, the docs that mention it, and the docs the
+SKILL.md rule says to update, out). All output is bounded and says when it is cut (`truncated`, `total`).
+
+### Confidence and method
+
+Without call edges (the `calls` layer, Phase 6) the graph cannot say which function calls which. What it
+can say, it says with a confidence from 0 to 100 and the `method` that produced it, so an estimate is never
+read as a fact:
+
+| Method | Confidence | Found how |
+| --- | --- | --- |
+| `edge` | 100 | a stored edge (`handled_by`, `imports` of a package, `renders`, `uses_config`, `fk_to`, ...) |
+| `sql_literal` | 90 | `reads_table` / `writes_table`: SQL strings in `storage` and `business` code |
+| `db_tag` | 90 | `maps_to`: `db:"col"` tags |
+| `inferred` | the annotation's own figure | `implicit_ref` (see the `ann:` node: `name_match`, ...) |
+| `table_level` | 70 | a column changed: the readers of its table, since SQL is matched to tables, not columns |
+| `package_imports` | 60 for a package, 50 for a route or tool | the package that holds the affected code is imported by this one, or the route / tool is registered in it: **possible, not proven**, with the import chain in `through` |
+| `package_scope` | 30 | same package as an affected helper function, which its neighbours may call |
+
+`graph_impact` reports the exact dependents (reverse dependency edges) to the requested depth, then adds the
+package-level reach: the importers of every package that holds affected code that outside code can use (an
+unexported function has none), and the routes and tools registered in those packages. Same-package routes
+appear only when a touched *function* is neither a handler nor a tool's registrar (a type, or a handler, is
+not taken to be called by its neighbours). For a table, `access` on a route is `read`, `write` or `read+write`;
+it is the union over the functions of the packages it reaches, since the graph cannot tell which function a
+route calls. `graph_path` runs in two tiers: exact dependency edges first, then, if that finds nothing, hops
+through a function's file and package (`kind: containment`) and package imports (`kind: imports`), flagged
+`inferred` with confidence 50. It tries `from` depends on `to`, then the reverse, and always lists the steps
+from `from` to `to`. A `graph_context` of a route or function says what its package reaches (`reach`): a
+table listed there is possible; no table listed means none is reached by anything the package imports, apart
+from SQL built at run time. Imports are known per package, not per file, so a handler in a package
+that also holds a database-touching handler shows that table too: those false positives go away with the
+`calls` layer (or file-level imports), and a table that is absent now will not appear then.
+
+### Reference resolution
+
+A tool that takes a node accepts what an agent has in hand, tried in this order, the first rule that finds
+anything winning: a node ID (also in angle brackets); a route (`GET /api/hello`, `GET:/api/hello`, a bare
+path for all methods, or a concrete URL, matched against `{param}` and `*` patterns; a route registered for
+every method answers any method); a repository path (file, package directory, doc, spec or migration; a
+`:line` suffix, `./`, an absolute path inside the repo or a Go import path also work); a bare name with an ID
+prefix implied (`orders` is `table:orders`, `server.port` is `cfg:server.port`, `orders.user_id` is a column);
+a Go symbol (`pkg.Name`, `dir/pkg.Name`, `Type.Method`, or a bare function, type, method or component name);
+the same ignoring case. A reference that fits several nodes is an error that lists them; one that fits none
+comes back with the nearest names.
+
+### Findings contract (for Phase 5)
+
+`graph_findings` and the `findings` of a `graph_context` read `finding` nodes as they will be written:
+`finding:<rule>:<subject id>` with `type kind:finding`, `rule`, `severity` and `message` literals, and an
+`about` edge to the subject, under label `layer:findings` with a `layer:findings` run node. Severities are
+ranked `error`/`high`/`critical`, then `warning`/`medium`, then `info`/`low`; anything else last. Until the layer
+runs, `graph_findings` answers `available: false` with a note that nothing was checked, and a briefing says
+the same: an empty list is never "clean".
+
 ## Fixture
 
 `business/services/codegraph/testdata/fixture/` is a miniature GoVibe-shaped app (module
@@ -611,6 +689,8 @@ Decided no later than the phase named.
 | 2 | `documents` and unresolved doc references | Neither is emitted. `documents` needs an explicit convention to mean more than `mentions`. A doc mention that resolves to nothing leaves no trace, so the Phase 5 stale-docs finding needs the docs layer to record it (for example an `unresolved_ref` literal on the doc) before it can be derived. |
 | ~~3~~ | ~~How is an *inferred* edge marked? A triple has no room for method or confidence.~~ **Decided (Phase 3):** the edge stays a plain triple; each inferred edge has an annotation node `ann:<hash>` with `subject` and `object` (edges to the nodes), `predicate` (the predicate's name, a string), `method` and `confidence` (0 to 100), and `via` for a junction. | |
 | 5 | Drift as findings | The graph holds the facts a finding needs (`source`, `drift`, `applied`, `key`, the indexes, `implicit_ref`); the findings layer (Phase 5) turns them into rules: table without a primary key, foreign key column without an index, `_id` column with no foreign key, migration and live drift. |
-| 5 | Final layering rule and allow-list | The rule under [Package classification](#package-classification). |
+| 5 | Final layering rule and allow-list | The rule under [Package classification](#package-classification). The `govibe://graph/overview` resource already names the imports the provisional rule forbids, derived from `arch_layer`; the findings layer takes that over. |
+| 5 | The `finding` shape | As read by the agent tools: [Findings contract](#findings-contract-for-phase-5). Phase 5 adds `PredAbout` and the `rule`, `severity`, `message` predicates to `vocab.go`. |
+| 6 | Sharper reach before the `calls` layer | File-level import edges (`file --imports--> pkg`) from the code layer would let a route's reach start at its handler's file instead of its whole package. Not done: it changes the code layer's output and goldens, and the `calls` layer supersedes it. |
 
 The `graph_query` tool description now shows the `'<iri>'` idiom (done in Phase 1).

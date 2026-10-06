@@ -131,19 +131,17 @@ func NewRouter() http.Handler {
 			r.Post("/dev/graph/reindex", controllers.DevGraphReindex(indexer))
 		}
 
-		// MCP server (streamable HTTP) exposing db_* and graph_query tools to
-		// local agents, mounted only once at least one backing store exists.
+		// MCP server (streamable HTTP) exposing the db_* and graph_* tools to local
+		// agents, mounted only once at least one backing store exists.
 		if explorer != nil || quadStore != nil {
-			var refresh func(context.Context)
+			// With an indexer, every graph tool first brings stale layers up to date,
+			// and graph_reindex can rebuild them. (A typed nil must not become a
+			// non-nil interface, hence the explicit variable.)
+			var graphIndexer devmcp.GraphIndexer
 			if indexer != nil {
-				// Every graph MCP call first brings stale layers up to date.
-				refresh = func(ctx context.Context) {
-					if _, err := indexer.Refresh(ctx); err != nil {
-						logrus.WithError(err).Warn("graph index: refresh before graph_query failed")
-					}
-				}
+				graphIndexer = indexer
 			}
-			r.Handle("/dev/mcp", devmcp.NewHandler(explorer, quadStore, refresh))
+			r.Handle("/dev/mcp", devmcp.NewHandler(explorer, quadStore, graphIndexer))
 			logrus.Info("embedded MCP server enabled at /dev/mcp")
 		}
 	}

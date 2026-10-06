@@ -18,7 +18,7 @@ Directory Layout
 - storage: DB access and migrations (mariadb driver wrapper, goose migrations, dev-only dbexplorer, dev-only graphdb)
 - business: actions (single-function business logic) and services (packages)
 - business/services/codegraph: dev-only graph indexer that fills the /dev/graph store with the project's own structure (Go code, routes and their handlers, templates, config keys and their use, MCP tools, the database schema and who reads which table, docs and specs) on every boot, and refreshes stale layers on page load and graph_query
-- devmcp: dev-only MCP server (official Go SDK) mounted at /dev/mcp, exposing db_* and graph_query tools to local agents
+- devmcp: dev-only MCP server (official Go SDK) mounted at /dev/mcp, exposing db_* tools and the graph_* agent surface (graph_schema first, then graph_context, graph_impact, graph_path, graph_search, graph_neighbors, graph_findings, graph_reindex, and the raw graph_query) plus two resources and the explain-change prompt to local agents
 
 Key Constraints
 - Controllers contain no business logic. They only call actions/services and render responses.
@@ -63,8 +63,15 @@ Dev-Only Tooling (never mounted in production)
   plans; gated insert/reset mutations). See `storage/dbexplorer` and `controllers/devdb*.go`.
 - `/dev/mcp`: MCP server (official Go SDK, `github.com/modelcontextprotocol/go-sdk`) over
   stateless streamable HTTP, exposing `db_list_tables`, `db_describe_table`, `db_query`,
-  `db_explain`, `db_sample_rows`, `db_insert_test_row`, `db_reset_test_data`, and `graph_query`
+  `db_explain`, `db_sample_rows`, `db_insert_test_row`, `db_reset_test_data`, and the graph tools
   to local agents. See `devmcp/`.
+  - **Agents: start with `graph_schema`** (what the project graph holds, how fresh it is, which tool answers which
+    question). Then `graph_context` (a file, package, symbol, route or table, in one call), `graph_impact` (what is
+    affected if it changes, and which docs to update), `graph_path` (how a route reaches a table), `graph_search`,
+    `graph_neighbors`, `graph_findings`, `graph_reindex`; `graph_query` runs a raw Gizmo query. Every answer carries a
+    confidence: 100 is a stored edge, lower is an estimate from package imports (call edges are not indexed yet),
+    possible and not proven. Resources `govibe://graph/overview` (architecture map) and `govibe://graph/schema`, and
+    the prompt `explain-change` (paths or a diff in, impact and docs to update out) come from the same graph.
 - All three are wired in `routes/routes.go` behind `!cfg.IsProd()`.
 
 Adding Features

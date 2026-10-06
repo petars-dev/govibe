@@ -124,9 +124,10 @@ The graph must support answering these without manually following source files:
 4. For a package or file, return direct imports and reverse dependents so an agent can estimate
    change impact.
 
-At present the MCP implementation exposes only `graph_query` for read-only Gizmo queries (plus
-`db_*` tools when a MariaDB connection is configured). The higher-level graph tools/resources below
-are planned additions, not capabilities an agent should assume exist until implemented.
+Since Phase 4 the MCP server exposes the higher-level graph tools, the two resources and the
+`explain-change` prompt below, besides `graph_query` and the `db_*` tools. They work without a `calls`
+layer by estimating reach from package imports and saying so (see the Phase 4 deviations), so the
+acceptance examples above are answered as far as the data goes, with the missing hops labelled.
 
 ### Triggers
 1. **Boot (default):** after `routes.NewRouter` finishes wiring, run the indexer in a goroutine
@@ -388,11 +389,66 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
        reads afresh), since it can change with no file changing; a database that cannot be reached makes
        the layer `partial`, not failed.
      - Row estimates and auto-increment positions are left out of the snapshot (volatile, and row-derived).
-4. **Phase 4: Agent surface**
+4. **Phase 4: Agent surface, done**
    - `graph_schema`, `graph_context`, `graph_impact`, `graph_search`, `graph_neighbors`,
      `graph_path`, `graph_findings`, `graph_reindex`, resources, `explain-change` prompt; update
      server `Instructions` to point at `graph_schema` first.
    - *Done when:* an agent can answer "what breaks if I change table X / file Y" in ≤ 2 tool calls.
+   - *Delivered:* the read side of `business/services/codegraph`: `model.go` (`Load`, `Model`, freshness),
+     `resolve.go` (references an agent has in hand: `GET /api/hello`, `controllers/api.go:14`,
+     `orderstore.Store.List`, `orders`), `agent_search.go` (`Search`, `Neighbors`), `agent_impact.go`,
+     `agent_path.go`, `agent_context.go`, `agent_schema.go` (`Schema`, the kind and predicate vocabulary,
+     example queries, `Findings`), `agent_render.go` (`Overview`, `ExplainChange`); `Indexer.RunLayers` and
+     `LayerNames`. In `devmcp`: the eight tools (`graph_reindex` only when an indexer is wired), `graph_query`
+     (its description sends agents to `graph_schema`, and it is marked read-only), the resources
+     `govibe://graph/overview` and `govibe://graph/schema`, the prompt `explain-change`, and new server
+     `Instructions` that start with `graph_schema`. `devmcp.NewHandler` takes the indexer (`GraphIndexer`)
+     in place of the refresh function; `routes.go` hands it over. Tool results are bounded and say when they
+     are cut. 54 new tests: the model, the resolver, every tool against the fixture (and against this
+     repository's own graph), the example queries run as Gizmo, the vocabulary checked against every
+     predicate that occurs, and every tool, resource and the prompt over the real MCP handler (output-schema
+     validation, empty results, errors). Verified against a running server in a scratch copy: all tools over
+     HTTP in 30-190 ms per call (a docs reindex ~300 ms), a doc edited on disk visible in the next `graph_context`
+     with no restart, `explain-change` fed this change's own `git diff`, and the "what breaks" questions in one
+     call: `graph_impact` of `controllers/api.go` (its route, then the importing packages), of the package
+     `storage/dbexplorer`, and, on the fixture, of `table:orders`.
+   - *Deviations from the plan:*
+     - **No call edges, so reach is estimated, and labelled.** `graph_impact` and `graph_path` cannot follow
+       calls (the `calls` layer is Phase 6). They return exact dependents (stored edges, confidence 100; 90 for
+       edges read from SQL strings and db tags), and then package-level reach (the importers of the package
+       that holds affected code, and the routes and tools registered in them): method `package_imports` or
+       `package_scope`, confidence 60 or less, with the import chain in `through`. Acceptance 1's "its call to
+       `business/actions.Hello`" is reported as the handler's package importing that package, not as a call;
+       acceptance 2 and 3 return the route → handler → package → imports → storage function → table chain with
+       its package-level hops flagged, and a route's access to a table is `read+write` whenever its package
+       holds both, since the graph cannot say which function it calls. The reach is a superset: "no table is
+       reached" (as for `GET /api/hello` on this repo) is sound apart from SQL built at run time, while a table
+       that is listed may be a false positive (on the fixture `GET /api/hello` lists `orders` because the
+       `controllers` package, which also holds `GetOrder`, imports `orderstore`). File-level imports would
+       narrow that before the `calls` layer exists; not done, since it changes the code layer's output.
+     - **`graph_findings` reads a layer that does not exist.** It, and the `findings` of a `graph_context`,
+       follow the contract Phase 5 will write (GRAPH_SCHEMA.md, "Findings contract") and answer
+       `available: false` with a note until then, so an empty list is never read as "clean". The tests
+       feed it findings written by hand.
+     - **`graph_context` also takes `node`**, any ID or reference, besides `path`, `symbol`, `route` and
+       `table`, so a config key, tool, spec or migration needs no fifth tool. `graph_impact`,
+       `graph_path` and `graph_neighbors` take the same references.
+     - **The model is read per call, not cached.** `codegraph.Load` reads all quads into memory: 21 ms for
+       4,500 quads. It is revisited if the graph passes about 50,000 quads (cache by a generation counter
+       on the indexer).
+     - **`graph_reindex {layers}` rebuilds the named layers and the layers built on them**, plus any that
+       are stale (`Indexer.RunLayers`): rebuilding `code` alone left `routes` pointing at functions an edit had
+       removed. `POST /dev/graph/reindex` still rebuilds everything.
+     - **`graph_impact`'s depth bounds only the exact hops.** The package-level reach is the full import
+       closure, bounded by `limit`; the weakest evidence is dropped first and `by_kind` still counts all of it.
+     - **The vocabulary served by `graph_schema` is written in Go** (`kindDocs`, `predicateDocs`), not parsed
+       from GRAPH_SCHEMA.md, and tests fail when a kind or predicate that occurs has no entry, in the fixture
+       or in this repository's graph. GRAPH_SCHEMA.md stays the authority.
+     - **The overview names the imports that break the provisional layering rule** (today
+       `controllers → storage/dbexplorer`), derived from `arch_layer`; Phase 5's findings take that over.
+     - The tools see only quads under a `layer:*` label: hand-added quads are visible to `graph_query` alone.
+       The SDK returns each result as structured content and as a text copy, so a response is twice its size on
+       the wire; clients that read only text still get everything.
 5. **Phase 5: Findings + human surface**
    - `findings` rules; UI presets, filters, inspector, freshness banner, findings panel, reports,
      `/dev/db` cross-links.
@@ -409,6 +465,10 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
 - `EXPLAIN` the SQL literals found in code to flag full scans as findings.
 - Optional deterministic N-Quads snapshot export for agents without a running server.
 - Column-level lineage for `maps_to` beyond tag matching.
+- File-level import edges from the code layer, to start a route's package-level reach at its handler's file
+  (fewer false positives until the `calls` layer exists).
+- Cache the agent tools' `Model` by an indexer generation counter, if the graph grows past ~50,000 quads.
+- `POST /dev/graph/reindex?layers=...`, matching `graph_reindex`.
 - Support Postgres/SQLite dialects in the static migration parser (`DATABASE_TYPE`).
 
 ## Decisions defaulted here (flip any of these)
@@ -427,7 +487,7 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
 | Indexer core + `code` layer | Yes | | Writer applies adds then deletes (two batches) and verifies by read-back because of Cayley F11; fingerprints are stored but the skip-if-fresh logic waits for Phase 2; test files and templ-only packages are not indexed (see Phase 1 deviations) |
 | `routes`/`templates`/`config`/`mcp`/`docs` layers | Yes | | Routes collapse catch-alls to `ANY` and resolve by file:line; fingerprints include dependencies; `documents` and unresolved doc references are deferred (see Phase 2 deviations) |
 | `db` layer (live + static + inferred + code↔table) | Yes | | No ER preset yet (Phase 5 UI); drift recorded as `source`/`drift` on elements; route → table needs the `calls` layer (see Phase 3 deviations) |
-| Agent MCP tools/resources/prompt | No | | Planned |
+| Agent MCP tools/resources/prompt | Yes | | Reach beyond stored edges is estimated from package imports and labelled (no `calls` layer); `graph_findings` is `available: false` until Phase 5 (see Phase 4 deviations) |
 | Findings + human UI/reports | No | | Planned |
 | `calls`/`git` layers, CLI, CI | No | | Planned, opt-in |
 | Indexing in production | No | Skipped | Everything under `/dev/*` is gated on `!cfg.IsProd()` by design |
