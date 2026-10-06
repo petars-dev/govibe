@@ -157,6 +157,7 @@ type RoutesReport struct {
 	AppRoutes int        `json:"app_routes"`
 	DevRoutes int        `json:"dev_routes"`
 	Routes    []RouteRow `json:"routes"` // application routes first, then /dev
+	Calls     bool       `json:"calls"`  // the call graph is indexed, so each route lists the tables it reaches
 }
 
 // RouteRow is one route.
@@ -169,12 +170,20 @@ type RouteRow struct {
 	LibHandler string         `json:"lib_handler,omitempty"` // what serves it when that is not application code
 	Middleware []ReportRef    `json:"middleware,omitempty"`
 	Docs       []ReportRef    `json:"docs,omitempty"`
+	Tables     []RouteTable   `json:"tables,omitempty"` // with the calls layer: what the handler's calls reach
 	Findings   FindingSummary `json:"findings"`
+}
+
+// RouteTable is a table a route's handler reaches through its calls.
+type RouteTable struct {
+	Table      ReportRef `json:"table"`
+	Access     string    `json:"access"`
+	Confidence int       `json:"confidence"`
 }
 
 // RoutesReport builds the route table.
 func (m *Model) RoutesReport(o LinkOptions) *RoutesReport {
-	rep := &RoutesReport{AsOf: m.AsOf(), Notes: m.notesFor("routes", "code", "docs", "findings"), Routes: []RouteRow{}}
+	rep := &RoutesReport{AsOf: m.AsOf(), Notes: m.notesFor("routes", "code", "docs", "findings"), Routes: []RouteRow{}, Calls: m.hasCalls()}
 	for _, n := range m.byKind["route"] {
 		row := RouteRow{
 			Route: m.reportRef(n, o), Method: n.Str("method"), Path: n.Str("path"), Dev: n.Bool("dev_only"),
@@ -183,6 +192,12 @@ func (m *Model) RoutesReport(o LinkOptions) *RoutesReport {
 		if h := m.nodes[n.first("handled_by")]; h != nil {
 			ref := m.reportRef(h, o)
 			row.Handler = &ref
+			if rep.Calls {
+				tables, _ := m.tablesByCalls(h, true)
+				for _, t := range tables {
+					row.Tables = append(row.Tables, RouteTable{Table: m.reportRef(m.nodes[t.Table.ID], o), Access: t.Access, Confidence: t.Confidence})
+				}
+			}
 		} else {
 			row.LibHandler = n.Str("handler")
 		}

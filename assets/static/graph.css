@@ -26,6 +26,7 @@ html.theme-light .gv-body { --gv-error: #cf222e; --gv-warning: #9a6700; --gv-inf
 .gv-pill.partial, .gv-pill.stale { border-color: var(--gv-warning); color: var(--gv-warning); }
 .gv-pill.error { border-color: var(--gv-error); color: var(--gv-error); }
 .gv-pill.skipped { border-style: dashed; }
+.gv-pill.off { border-style: dotted; opacity: .65; }
 .gv-sev { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
 .gv-sev::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: currentColor; display: inline-block; }
 .gv-sev.error { color: var(--gv-error); } .gv-sev.warning { color: var(--gv-warning); } .gv-sev.info { color: var(--gv-info); }

@@ -17,7 +17,7 @@ Directory Layout
 - routes: central route wiring (routes.go)
 - storage: DB access and migrations (mariadb driver wrapper, goose migrations, dev-only dbexplorer, dev-only graphdb)
 - business: actions (single-function business logic) and services (packages)
-- business/services/codegraph: dev-only graph indexer that fills the /dev/graph store with the project's own structure (Go code, routes and their handlers, templates, config keys and their use, MCP tools, the database schema and who reads which table, docs and specs) on every boot, and refreshes stale layers on page load and graph_query
+- business/services/codegraph: dev-only graph indexer that fills the /dev/graph store with the project's own structure (Go code, routes and their handlers, templates, config keys and their use, MCP tools, the database schema and who reads which table, docs and specs) on every boot, and refreshes stale layers on page load and graph_query. Two opt-in layers (off by default) add the call graph (which function calls which, so a route's path to a table is exact) and git history (last commit, churn, files that change together); `govibe graph index` builds the same graph offline and gates CI on its findings
 - devmcp: dev-only MCP server (official Go SDK) mounted at /dev/mcp, exposing db_* tools and the graph_* agent surface (graph_schema first, then graph_context, graph_impact, graph_path, graph_search, graph_neighbors, graph_findings, graph_reindex, and the raw graph_query) plus two resources and the explain-change prompt to local agents
 
 Key Constraints
@@ -55,6 +55,8 @@ Configuration
     breaks migrations against any other database — this is always set explicitly instead.
   - DEV_DB_ALLOW_MUTATIONS: if true (and MARIADB_DSN is set, and not production), enables the
     `/dev/db` UI/API and MCP test-data mutation tools (`db_insert_test_row`, `db_reset_test_data`).
+  - GRAPH_CALLS, GRAPH_GIT: if true, switch on the opt-in `calls` and `git` layers of the project graph at boot
+    (default false; `graph_reindex` naming one of them switches it on without a restart).
   - Example feature: `mail.smtp.*` values can be defined and loaded dynamically.
 
 Dev-Only Tooling (never mounted in production)
@@ -69,8 +71,10 @@ Dev-Only Tooling (never mounted in production)
     question). Then `graph_context` (a file, package, symbol, route or table, in one call), `graph_impact` (what is
     affected if it changes, and which docs to update), `graph_path` (how a route reaches a table), `graph_search`,
     `graph_neighbors`, `graph_findings`, `graph_reindex`; `graph_query` runs a raw Gizmo query. Every answer carries a
-    confidence: 100 is a stored edge, lower is an estimate from package imports (call edges are not indexed yet),
-    possible and not proven. Resources `govibe://graph/overview` (architecture map) and `govibe://graph/schema`, and
+    confidence: 100 is a stored edge or a plain call, lower is a call through an interface or, with the `calls` layer
+    off, an estimate from package imports (possible, not proven). With `calls` on (`GRAPH_CALLS=true`, or `graph_reindex`
+    with layers `["calls"]`) reach from a route to a table is a chain of calls and "no table is reached" is a measured
+    answer; with `git` on, `graph_context` and `graph_impact` also say what usually changes with a file. Resources `govibe://graph/overview` (architecture map) and `govibe://graph/schema`, and
     the prompt `explain-change` (paths or a diff in, impact and docs to update out) come from the same graph.
 - All three are wired in `routes/routes.go` behind `!cfg.IsProd()`.
 
@@ -91,6 +95,7 @@ CLI
   - `govibe migrate up` applies embedded goose migrations.
   - `govibe migrate down` applies one down migration.
   - `govibe migrate status` prints migration status.
+  - `govibe graph index` indexes the project into a graph store (`--dir`, a scratch directory while a dev server holds the default one) and prints each layer's status and the findings. `--calls` and `--git` switch on the opt-in layers; `--fail-on error --baseline docs/graph/baseline.json` exits 1 on a finding the baseline does not accept (what CI runs: `.github/workflows/graph.yml`, locally `make graph-check`); `--update-baseline` accepts what is there; `--format json|github`. Exit 2 means indexing itself failed.
 - To add new commands: add a `cmd_*.go` file in `cmd/govibe`, define a `cobra.Command`, and register it in `init()` (see `cmd_migrate.go`).
 
 Testing

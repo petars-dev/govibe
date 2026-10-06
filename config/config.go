@@ -37,6 +37,11 @@ type Config struct {
 		DB struct {
 			AllowMutations bool `yaml:"allow_mutations"`
 		} `yaml:"db"`
+		// Graph switches on the opt-in layers of the project graph.
+		Graph struct {
+			Calls bool `yaml:"calls"`
+			Git   bool `yaml:"git"`
+		} `yaml:"graph"`
 	} `yaml:"dev"`
 }
 

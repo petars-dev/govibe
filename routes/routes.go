@@ -122,7 +122,9 @@ func NewRouter() http.Handler {
 		// schema through it, and it is handed this very router for the routes
 		// layer (read only once the router is fully wired).
 		if quadStore != nil {
-			opts := codegraph.Options{Root: ".", Router: r}
+			// The opt-in layers (the call graph, git history) cost more than parsing, so
+			// they are on only when config asks; graph_reindex can switch one on later.
+			opts := codegraph.Options{Root: ".", Router: r, Calls: cfg.Dev.Graph.Calls, Git: cfg.Dev.Graph.Git}
 			if explorer != nil {
 				opts.Schema = explorer.Snapshot
 			}

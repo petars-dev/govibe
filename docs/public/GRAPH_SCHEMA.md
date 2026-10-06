@@ -5,17 +5,21 @@ inserted, how nodes are named, and how to query them. The plan lives in
 [SPEC_GRAPH_INDEXER](/dev/docs/specs/graph-indexer); this file is the reference the indexer, its tests,
 and agents work from.
 
-> **Status: Phase 5 (findings and the human surface).** Every boot, every `POST /dev/graph/reindex`, and
+> **Status: Phase 6 (depth).** Every boot, every `POST /dev/graph/reindex`, and
 > (for stale layers only) every `/dev/graph` page load, data call and `graph_query` call fills the store
 > with the `code`, `routes`, `templates`, `config`, `mcp`, `db`, `docs` and `findings` layers plus the
 > `meta` layer: packages, files, functions, types and imports; routes, middleware and their handlers; templ
 > components; config keys and environment variables with their usage; MCP tools; the database schema
 > (tables, columns, indexes, foreign keys, migrations, relations the schema implies but does not declare)
 > and which code reads and writes which table; docs, specs and their status rows, with what they mention
-> and what they name that no longer exists; and the findings derived from all of it. The `calls` and `git`
-> layers are not built yet. Don't assume a node or predicate exists until its layer is marked
-> *implemented* in [Layers](#layers). Hand-added quads (the "Add a quad" form) are never touched by a
-> reindex. Agents do not need Gizmo for the common questions: see [Agent tools](#agent-tools).
+> and what they name that no longer exists; and the findings derived from all of it. Two **opt-in**
+> layers cost more than parsing and are off unless asked for: `calls` (which function calls which, so a
+> route's path to a table is exact: [the call graph](#the-phase-6-layers)) and `git` (last commit, churn and
+> the files that change together). A layer that is off holds no quads and says so (status `off`). Don't
+> assume a node or predicate exists until its layer is marked *implemented* in [Layers](#layers). Hand-added
+> quads (the "Add a quad" form) are never touched by a reindex. Agents do not need Gizmo for the common
+> questions: see [Agent tools](#agent-tools). `govibe graph index` builds the same graph offline, and gates
+> CI on its findings: see [The CLI and the CI gate](#the-cli-and-the-ci-gate).
 
 ## Spike results
 
@@ -109,7 +113,7 @@ run) and **opaque**: never parse one, follow edges and attributes instead.
 | column | `kind:column` | `col:<table>.<column>` | `col:orders.user_id` | db | 3 |
 | index | `kind:index` | `idx:<table>.<name>`; the primary key is `idx:<table>.PRIMARY` | `idx:orders.ix_orders_user` | db | 3 |
 | migration | `kind:migration` | `mig:<file name without .sql>` (decided: the version alone, `0001`, is not what people call it) | `mig:0001_init` | db | 3 |
-| annotation | `kind:annotation` | `ann:<12 hex characters>`: a hash of the subject, predicate and object of the inferred edge it describes | `ann:31db341e624c` | db | 3 |
+| annotation | `kind:annotation` | `ann:<12 hex characters>`: a hash of the subject, predicate and object of the inferred edge it describes | `ann:31db341e624c` | db, calls, git | 3, 6 |
 | finding | `kind:finding` | `finding:<rule>:<subject id>`, and `#<detail>` when one rule finds several problems on one node (the detail is what tells them apart: the other package of a bad import, the line and text of a stale reference) | `finding:layering:pkg:controllers#pkg:storage/dbexplorer` | findings | 5 |
 | rule | `kind:rule` | `rule:<name>` | `rule:layering` | findings | 5 (new) |
 
@@ -171,9 +175,10 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `implicit_ref` | column → column, table → table (inferred; the edge's annotation says how sure) | db | 3 | final |
 | `many_to_many` | table → table, in both directions, through a junction table (inferred; see its annotation) | db | 3 | final |
 | `introduced_in` | table, column, index → migration (absent for something only a live database has) | db | 3 | final |
-| `subject`, `object` | annotation → the column or table an inferred edge starts and ends at | db | 3 | final (new) |
-| `via` | annotation → the junction table of a `many_to_many` edge | db | 3 | final (new) |
-| `calls` | func → func | calls | 6 | provisional |
+| `subject`, `object` | annotation → the column, table, function or file an inferred edge starts and ends at | db, calls, git | 3, 6 | final (new) |
+| `via` | annotation → the junction table of a `many_to_many` edge, or the interface type an `interface_dispatch` call goes through | db, calls | 3, 6 | final (new) |
+| `calls` | func → func. A plain call (the compiler resolves it) is a bare edge; a call through an interface the module declares is one edge per type that could implement it, each with an annotation (method `interface_dispatch`, `confidence` 80 down to 30, `via` the interface). Calls inside a closure belong to the declared function that contains it | calls | 6 | final |
+| `co_changed_with` | file, doc, spec → file, doc, spec: the other changed in commits that changed this one, in both directions as each end sees it. Always annotated (method `co_change`, `confidence` the percentage of the subject's commits that also touched the object, `together` the number of commits that touched both) | git | 6 | final (new) |
 | `about` | finding → the node at fault (exactly one) | findings | 5 | final |
 
 ### Attribute predicates
@@ -192,7 +197,7 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `external_imports` | int: distinct import paths with no package node: the standard library, third-party modules, and module packages the code layer does not index (a package holding only generated `*_templ.go`) | package | 1 |
 | `generated` | bool: the file carries the `// Code generated ... DO NOT EDIT.` marker | file | 1 |
 | `git_sha`, `dirty`, `indexed_at`, `duration_ms`, `indexer_version`, `quads`, `added`, `removed` | string, bool, time, int, string, int, int, int. `git_sha` and `dirty` are absent when git is unavailable. `quads`, `added` and `removed` total the data layers (not `meta`) and are relative to the previous run | build | 1 |
-| `quads`, `fingerprint`, `status`, `duration_ms`, `indexed_at`, `added`, `removed`, `error` | int, string, string, int, time, int, int, string. `status` is `ok`, `partial` (indexed, but some inputs were skipped, e.g. a file that does not parse), `skipped` (not applicable here: the `routes` layer with no router wired; nothing was written or deleted, and `note` says why) or `error` (nothing was written; the layer's previous quads stay). `quads`, `added` and `removed` are absent on `error` and `skipped`; `note` appears only on `skipped`. `fingerprint` is 16 hex characters over the sorted path, mtime and size of the layer's inputs, taken before they are read | layer run | 1 |
+| `quads`, `fingerprint`, `status`, `duration_ms`, `indexed_at`, `added`, `removed`, `error` | int, string, string, int, time, int, int, string. `status` is `ok`, `partial` (indexed, but some inputs were skipped, e.g. a file that does not parse), `skipped` (not applicable here: the `routes` layer with no router wired; nothing was written or deleted, and `note` says why), `off` (an opt-in layer that is not switched on: it holds no quads, whatever an earlier run left is removed, and `note` says how to switch it on) or `error` (nothing was written; the layer's previous quads stay). `quads`, `added` and `removed` are absent on `error` and `skipped`; `note` appears only on `skipped`. `fingerprint` is 16 hex characters over the sorted path, mtime and size of the layer's inputs, taken before they are read | layer run | 1 |
 | `method`, `dev_only` | string (`GET`, `POST`, ..., or `ANY`), bool (the path is `/dev` or under `/dev/`) | route | 2 |
 | `handler` | string: the Go runtime's name for a handler that is **not** application code (`net/http.StripPrefix`, `github.com/modelcontextprotocol/go-sdk/mcp.(*StreamableHTTPHandler).ServeHTTP`); present exactly when `handled_by` is absent, so a route with no code link still says what serves it | route | 2 |
 | `description`, `input_schema` | string, string (JSON). The schema is derived from the handler's input struct: `json` names, `omitempty` makes a property optional, the `jsonschema` tag is its description; `{"type":"object"}` for `struct{}`; absent when the handler does not name a struct of the registering package | MCP tool | 2 |
@@ -216,7 +221,10 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `cardinality` | string: `one_to_one` when the column is a single-column foreign key that is itself unique (a primary key or unique index of that column alone), else `one_to_many`. Only on single-column foreign keys | column | 3 (new) |
 | `fk_name`, `on_delete`, `on_update` | string, string, string: the constraint's name and referential actions, on the foreign key's (first) source column. `fk_name` is absent for a constraint the migrations left unnamed and no database has named; the rules are absent when a migration wrote none and no database reports one | column | 3 (new) |
 | `version`, `applied` | string (`0002`, as in the file name), bool. `applied` is read from goose's `goose_db_version` and absent when there is no database or it has no such table | migration | 3 |
-| `predicate`, `method`, `confidence` | string (the inferred predicate), string, int 0 to 100: how an inferred edge was inferred and how sure that is. `method` is `name_match`, `junction_pk` or `junction_unique` | annotation | 3 (new) |
+| `predicate`, `method`, `confidence` | string (the inferred predicate), string, int 0 to 100: how an inferred edge was inferred and how sure that is. `method` is `name_match`, `junction_pk`, `junction_unique`, `interface_dispatch` or `co_change` | annotation | 3, 6 (new) |
+| `together` | int: commits that touched both ends of a `co_changed_with` edge | annotation | 6 (new) |
+| `last_commit`, `last_commit_at`, `last_subject` | string (the first 12 characters of the newest commit's hash), time, string (its subject line, at most 120 characters): the newest commit within the history window that touched it | file, doc, spec | 6 (new) |
+| `commits`, `churn`, `authors` | int, int, int: commits within the window that touched it, lines added plus lines deleted by them, and how many distinct people made them. Author names and addresses are read to count and **never stored** | file, doc, spec | 6 (new) |
 | `rule`, `severity`, `message` | string, string, string: the rule's name, `error` / `warning` / `info`, and what is wrong and what to do about it. A finding also has `name` (its rule's title) and, when it points at a place, `path` and `line` | finding | 5 |
 | `severity`, `title`, `description`, `checked`, `note` | string, string, string, bool, string: on a rule node, its default severity, what a finding of it is called, what it looks for, whether it ran on this graph, and (when it did not) why: a layer it reads is not built, or `not applicable: ...` | rule | 5 (new) |
 | `unresolved_ref` | string, `"<line>:<text>"`, repeatable: something the document names that does not exist (see [what the docs layer reads](#what-the-phase-2-layers-read)). Only on a doc, and on a spec's status rows | doc, spec item | 5 (new) |
@@ -269,8 +277,8 @@ for: `controllers/devdb.go` importing `storage/dbexplorer` is the one this repos
 | docs | `layer:docs` | doc, spec, spec item | goldmark over `docs/public`, `docs/specs`, `README.md`, `SKILL.md` | 2 | **implemented** |
 | db | `layer:db` | table, column, index, migration, annotation | the migrations in `storage/migrations/sql`, merged with the live database's schema when one is configured | 3 | **implemented** |
 | findings | `layer:findings` | finding, rule | derived from the other layers (it reads what they wrote) | 5 | **implemented** |
-| calls | `layer:calls` | (`calls` edges) | `x/tools/go/packages` | 6, opt-in | planned |
-| git | `layer:git` | (file attributes) | `git log` | 6, opt-in | planned |
+| calls | `layer:calls` | (`calls` edges, and the annotations of the ones through an interface) | `golang.org/x/tools/go/packages`: the module, type-checked | 6, opt-in | **implemented** |
+| git | `layer:git` | (file, doc and spec attributes, `co_changed_with` edges and their annotations) | `git log` | 6, opt-in | **implemented** |
 
 The code layer never walks `tmp/`, `.git/`, `vendor/`, any `testdata/` directory, or a directory
 containing its own `go.mod`. Without that rule the [fixture](#fixture) would leak into the real graph.
@@ -297,6 +305,8 @@ calls), so nothing is parsed twice. A layer points only at nodes it can resolve 
 | mcp | code | none (it reads the code index) |
 | db | code | every `.sql` under `storage/migrations/sql`, and the live schema (see below) |
 | docs | code, routes, templates, config, mcp, db | `README.md`, `SKILL.md`, every `.md` under `docs/public` and `docs/specs`, and whether each file those documents name is on disk (see below) |
+| calls (opt-in) | code | `go.sum` (type-checking reads the Go sources the code layer stands for, and the dependencies' checksums) |
+| git (opt-in) | code, templates, docs | the commit `HEAD` points at, and whether the clone is shallow (the work tree is not part of the history) |
 | findings | every layer above | none: the rules read what the other layers wrote, so it is stale whenever any of them is |
 
 A layer's fingerprint (16 hex characters, on `layer:<name>`) hashes its own inputs (path, mtime, size)
@@ -316,7 +326,9 @@ stale; no document has to change.
 | Trigger | What runs |
 | --- | --- |
 | server boot (after the router is wired, in a goroutine) | every layer |
-| `POST /dev/graph/reindex` | every layer, ignoring caches |
+| `POST /dev/graph/reindex`, `graph_reindex` with no layers | every layer that is on, ignoring caches |
+| `graph_reindex` naming `calls` or `git` | that layer, **and it stays on** for as long as the server runs: asking for an opt-in layer by name is how it is switched on without a restart |
+| `govibe graph index` | every layer that is on, into the store `--dir` names (offline: no router, so `routes` is skipped) |
 | `GET /dev/graph` (the page), every `/dev/graph/data/*` and `/dev/graph/reports/*` call, and every `graph_query` and graph tool call | only the stale layers, usually none: a freshness check is a few milliseconds |
 
 This is what makes an edit to `docs/**`, which the dev server's file watcher ignores, show up on the next
@@ -470,10 +482,60 @@ ones marked implemented.
   the one the type's name points at (`Order` to `orders`, `OrderItem` to `order_items`); a struct that fits
   several tables and is named for none of them maps to nothing. Not seen: SQL built at run time
   (`"SELECT * FROM " + table`, `fmt.Sprintf`), SQL held in a package-level map or struct, and SQL outside
-  `storage` and `business`. The full route-to-table path needs the `calls` layer (Phase 6): until then a
-  route reaches its handler (`handled_by`), and the tables are reached from the functions that use them.
+  `storage` and `business`. The route-to-table path needs the opt-in `calls` layer (see [the Phase 6
+  layers](#the-phase-6-layers)): without it a route reaches its handler (`handled_by`), and the tables are
+  reached from the functions that use them.
 - *The tables mentioned in docs* resolve too: a backticked table name, `table.column`, a migration ID, or
   the path of a migration file.
+
+### The Phase 6 layers
+
+Both are opt-in: `Options.Calls` / `Options.Git` (config `dev.graph.calls` / `dev.graph.git`, environment
+`GRAPH_CALLS` / `GRAPH_GIT`, flags `--calls` / `--git`), or `graph_reindex` naming the layer, which switches it
+on until the server restarts. A layer that is off has status `off`, no quads and a note that says how to switch
+it on; whatever a run in which it was on left in the store is removed, so a reader never mistakes old call
+edges for the code as it is. An off layer is recorded once per process and is not "rebuilt" by a reindex of
+what it would depend on.
+
+**calls.** The module is loaded and type-checked with `golang.org/x/tools/go/packages` (one `go list`, then the
+type checker over the module's own sources; the dependencies are read as export data, so a warm build cache
+makes it about a second for this repository, and the Go toolchain must be on the `PATH`). Each call
+expression in the body of a declared function or method is resolved by the compiler, and an edge is recorded
+when both ends are functions the code layer indexed:
+
+- A call the compiler resolves (a function, a method on a concrete type, a method expression, an
+  instantiated generic function, a promoted method of an embedded struct, `go f()`, `defer f()`) is a plain
+  `calls` edge: certain, with no annotation.
+- A call through an interface **declared in the module** is linked to the method of every module type that
+  could be on the other end (the named, non-generic types whose pointer implements the interface: class
+  hierarchy analysis). Each such edge has an annotation: method `interface_dispatch`, `via` the interface
+  type, and a `confidence` that falls with the number of candidates (the caller's own type counts, though an
+  edge to the caller itself is dropped): 1 candidate 80, 2 candidates 70, 3 or 4 candidates 60, 5 to 8 candidates 50,
+  more 30. An interface with more than 24 candidates is not expanded, and the layer is `partial` and names it.
+  Interfaces the module does not declare (`error`, `io.Reader`, `http.Handler`) are not expanded: nothing in
+  the module is worth linking to.
+- A closure has no node, so a call inside one belongs to the declared function that contains it, as a
+  handler closure's route does. A handler factory `ListOrders(svc)` therefore calls whatever the handler
+  it returns calls.
+- A pair that is called both ways is stored once, as the surer evidence (the plain call). A function that
+  calls itself has no edge to itself.
+- Not seen, and not guessed: calls through function values (a callback, a handler in a variable or a map,
+  a method value), reflection, calls from package-level initializers (they have no caller node), calls into
+  generated templ output (it has no node; `renders` covers it), and files that do not match the build
+  context. The layer is `partial` and names every package that did not type-check, so a package that does not
+  compile is missing edges, not a clean bill; it fails (and keeps its previous quads) only when none of the
+  module's packages type-checked or `go list` cannot run.
+
+**git.** `git log` over the newest 1,000 non-merge commits (renames are not followed), read once per `HEAD`
+and reused while only other layers' inputs change. Each file the graph has a node for (a `.go` or `.templ`
+file, a doc or a spec) gets its `last_commit`, `last_commit_at`, `last_subject`, `commits`, `churn` and
+`authors`. Two files **co-change** when at least 3 commits touched both and those are at least 30% of the
+first file's commits; a commit that touches more than 40 files is a bulk change (a format, a move) and counts
+as no evidence about any pair. Each file keeps its 5 strongest partners, as `co_changed_with` edges annotated
+with the percentage and the commit count; the relation is directional (`a.go` changing with `b.go` in 80%
+of its commits does not mean the reverse). Authors' addresses are used to count people and are not stored, and
+a path git quotes is left out. In a shallow clone the layer is `partial` (the history is cut: CI needs
+`fetch-depth: 0`); outside a git work tree, or with no commit yet, it is `skipped` and removes what it wrote.
 
 ## Writer contract
 
@@ -575,6 +637,24 @@ g.V().Has(g.IRI('applied'), false).All()
 g.V(g.IRI('table:orders')).Out(g.IRI('introduced_in')).All()
 ```
 
+```js
+// Phase 6 (the opt-in layers): who calls whom, from a route down to a table
+g.V(g.IRI('route:GET:/api/orders')).Out(g.IRI('handled_by')).Out(g.IRI('calls')).All()
+g.V(g.IRI('func:storage/orderstore.Store.List')).In(g.IRI('calls')).All()
+g.V(g.IRI('route:GET:/api/orders')).Out(g.IRI('handled_by')).Out(g.IRI('calls')).Out(g.IRI('calls')).Out(g.IRI('reads_table')).All()
+
+// the calls that go through an interface, how sure each is, and which interface
+g.V().Has(g.IRI('type'), g.IRI('kind:annotation')).Has(g.IRI('method'), 'interface_dispatch').Out(g.IRI('confidence')).All()
+g.V().Has(g.IRI('subject'), g.IRI('func:business/services/orders.Service.List')).Out(g.IRI('via')).All()
+
+// the git layer: history of a file, and what changes with it
+g.V(g.IRI('file:business/actions/hello.go')).Out(g.IRI('commits')).All()
+g.V(g.IRI('file:business/actions/hello.go')).Out(g.IRI('co_changed_with')).All()
+
+// which layers are switched off
+g.V().Has(g.IRI('status'), 'off').All()
+```
+
 Rebuild on demand with `curl -X POST localhost:8080/dev/graph/reindex` (the response lists each layer's
 status, whether it was rebuilt, and its quad counts).
 
@@ -616,12 +696,12 @@ came from (`as_of`: when it was indexed, at which git sha, dirty or not).
 | --- | --- | --- |
 | `graph_schema` | what the graph holds, how fresh it is, which tool answers what, example queries | none |
 | `graph_context` | one-call briefing on a file, package, symbol, route, table, template, config key, spec... | exactly one of `path`, `symbol`, `route`, `table`, `node` |
-| `graph_impact` | what is affected if it changes, and which docs mention it | `node`, `depth` (exact hops, default 3, max 6), `limit`, `kinds` |
+| `graph_impact` | what is affected if it changes, which docs mention it, and (git layer) what usually changes with it | `node`, `depth` (exact hops, default 3, max 6; with the calls layer 6 and 10), `limit`, `kinds` |
 | `graph_path` | how one node reaches another | `from`, `to`, `max_depth` |
 | `graph_search` | nodes by words in their ID, name, path, title, signature or doc | `text`, `kinds`, `limit` |
 | `graph_neighbors` | the nodes and edges around a node, to depth 3 | `node`, `direction`, `predicates`, `depth`, `limit` |
 | `graph_findings` | findings (layering, stale docs, unused config...) | `severity`, `rule` (a trailing `*` matches a prefix), `limit` |
-| `graph_reindex` | rebuild layers now | `layers` (those and the layers built on them; none means all) |
+| `graph_reindex` | rebuild layers now | `layers` (those and the layers built on them; none means every layer that is on; naming `calls` or `git` switches it on) |
 | `graph_query` | a raw Gizmo query | `query`, `limit` |
 
 Also: the resources `govibe://graph/overview` (the architecture rendered from the graph: layers and their
@@ -632,34 +712,62 @@ SKILL.md rule says to update, out). All output is bounded and says when it is cu
 
 ### Confidence and method
 
-Without call edges (the `calls` layer, Phase 6) the graph cannot say which function calls which. What it
-can say, it says with a confidence from 0 to 100 and the `method` that produced it, so an estimate is never
-read as a fact:
+What the graph says about reach, it says with a confidence from 0 to 100 and the `method` that produced it, so
+an estimate is never read as a fact:
 
 | Method | Confidence | Found how |
 | --- | --- | --- |
-| `edge` | 100 | a stored edge (`handled_by`, `imports` of a package, `renders`, `uses_config`, `fk_to`, ...) |
+| `edge` | 100 | a stored edge (`handled_by`, `imports` of a package, `renders`, `uses_config`, `fk_to`, a plain `calls` edge, ...) |
 | `sql_literal` | 90 | `reads_table` / `writes_table`: SQL strings in `storage` and `business` code |
 | `db_tag` | 90 | `maps_to`: `db:"col"` tags |
 | `inferred` | the annotation's own figure | `implicit_ref` (see the `ann:` node: `name_match`, ...) |
+| `interface_dispatch` | 80, 70, 60, 50 or 30, by the number of candidates | a `calls` edge through an interface the module declares: the callee is one of the types that could be on the other end |
 | `table_level` | 70 | a column changed: the readers of its table, since SQL is matched to tables, not columns |
-| `package_imports` | 60 for a package, 50 for a route or tool | the package that holds the affected code is imported by this one, or the route / tool is registered in it: **possible, not proven**, with the import chain in `through` |
-| `package_scope` | 30 | same package as an affected helper function, which its neighbours may call |
+| `package_imports` | 60 for a package, 50 for a route or tool | the package that holds the affected code is imported by this one, or the route / tool is registered in it: **possible, not proven**, with the import chain in `through` (only when the calls layer is off, or for a changed type) |
+| `package_scope` | 30 | same package as an affected helper function, which its neighbours may call (only when the calls layer is off) |
 
-`graph_impact` reports the exact dependents (reverse dependency edges) to the requested depth, then adds the
-package-level reach: the importers of every package that holds affected code that outside code can use (an
-unexported function has none), and the routes and tools registered in those packages. Same-package routes
-appear only when a touched *function* is neither a handler nor a tool's registrar (a type, or a handler, is
-not taken to be called by its neighbours). For a table, `access` on a route is `read`, `write` or `read+write`;
-it is the union over the functions of the packages it reaches, since the graph cannot tell which function a
-route calls. `graph_path` runs in two tiers: exact dependency edges first, then, if that finds nothing, hops
-through a function's file and package (`kind: containment`) and package imports (`kind: imports`), flagged
-`inferred` with confidence 50. It tries `from` depends on `to`, then the reverse, and always lists the steps
-from `from` to `to`. A `graph_context` of a route or function says what its package reaches (`reach`): a
+A chain is as sure as its weakest hop.
+
+**With the calls layer off** the graph cannot say which function calls which. `graph_impact` reports the exact
+dependents (reverse dependency edges) to the requested depth (default 3), then adds the package-level reach:
+the importers of every package that holds affected code that outside code can use (an unexported function has
+none), and the routes and tools registered in those packages. Same-package routes appear only when a touched
+*function* is neither a handler nor a tool's registrar. For a table, `access` on a route is `read`, `write` or
+`read+write`; it is the union over the functions of the packages it reaches. `graph_path` runs in two tiers:
+exact dependency edges first, then, if that finds nothing, hops through a function's file and package
+(`kind: containment`) and package imports (`kind: imports`), flagged `inferred` with confidence 50. A
+`graph_context` of a route or function says what its package reaches (`reach`, method `package_imports`): a
 table listed there is possible; no table listed means none is reached by anything the package imports, apart
-from SQL built at run time. Imports are known per package, not per file, so a handler in a package
-that also holds a database-touching handler shows that table too: those false positives go away with the
-`calls` layer (or file-level imports), and a table that is absent now will not appear then.
+from SQL built at run time. Imports are known per package, not per file, so a handler in a package that also
+holds a database-touching handler shows that table too.
+
+**With the calls layer on** reach is a walk over stored edges, and those false positives are gone (on the
+fixture, `GET /api/hello` no longer lists `orders`; on this repository a change to `actions.Hello` names the
+two routes that call it, where the package-level estimate named 31):
+
+- `graph_impact` follows `calls` backwards. The default depth is 6 (maximum 10), since a route is typically
+  four or five hops from a table (table, store function, service, handler, route). Each route and tool carries
+  the chain that reaches it in `through` (entry point first, the changed node last). `access` on a route, tool
+  or function is the union over **every** call path that reaches the table, not the first one the search found.
+  Wiring packages (`routes`, `main`, `cmd`) are listed when they call something affected and not followed
+  further, since everything is eventually called from them. A changed type is followed through its methods;
+  where the type itself is used is still estimated from package imports (a use of a type is not a call).
+- `graph_path` between a route, function, tool or table is a chain of stored edges or nothing: the package-level
+  tier is not tried, and "not found" is an answer (`No chain of calls ...`). Each step carries its `confidence`,
+  `method` and, for an interface call, `via`; the path's `confidence` is its weakest step's. The surest
+  chain wins (plain calls, then 90, 60, and the rest), then the shortest.
+- `graph_context` of a function or a route lists what it `calls` and who it is `called_by` (surest first, with
+  `via`), and its `reach` is the tables its calls reach: method `calls`, each table with the chain of
+  functions that gets there (`via`), the functions that touch it, its `access` and `confidence`;
+  `functions_reached` says how many functions the walk covered, so "no table is reached" is a measured
+  statement ("neither do the 2 functions it calls"), not an absence of data.
+- The request-flow view runs from each handler down the calls that lead to a table (and only those: a helper
+  that touches no table is left out), with an interface call dashed and labelled with its confidence. The routes
+  report has a "Tables reached" column.
+
+With the git layer on, `graph_context` of a file, doc, spec, function or type has `history` (its file's last
+commit, commits, churn, authors and `co_changed`), and `graph_impact` has `co_changed`: what usually changes with
+the files that hold the changed code, which is where to look for the docs and files to update.
 
 ### Reference resolution
 
@@ -693,7 +801,8 @@ rule:<name>                              type kind:rule
 ```
 
 Severities are `error` (breaks a rule the project states), `warning` (wrong or stale) and `info` (a smell).
-`graph_findings` ranks `error`/`high`/`critical`, then `warning`/`medium`, then `info`/`low`.
+`graph_findings` ranks `error`/`high`/`critical`, then `warning`/`medium`, then `info`/`low`. Each finding
+carries the `path` and `line` the rule knows (a layering finding: where the forbidden import is first used).
 
 **A rule that did not run has not looked.** A rule whose layers are not built (say, `docs.route_undocumented`
 in an offline run with no router) is recorded with `checked=false` and the reason, and the layer is
@@ -767,6 +876,50 @@ layers, the rule, and the violations). Report rows carry stable anchors (`Anchor
 the findings link straight to them. The database explorer's table view shows a "Referenced by" panel from
 `/dev/graph/data/table`.
 
+## The CLI and the CI gate
+
+`govibe graph index` is the offline counterpart of the boot indexer and of `POST /dev/graph/reindex`: it
+indexes the project into a store, prints what each layer did, and can turn the findings into an exit status.
+
+```sh
+go build -o govibe ./cmd/govibe
+./govibe graph index --dir /tmp/govibe-graph --calls --git     # what is wrong with the project?
+./govibe graph index --dir /tmp/govibe-graph --fail-on error --baseline docs/graph/baseline.json   # the gate
+./govibe graph index --fail-on error --baseline docs/graph/baseline.json --update-baseline         # accept what is there
+make graph-check                                                # the same gate as CI, locally
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--root` | the repository root (the directory holding `go.mod`), default `.` |
+| `--dir` | the store's directory, default `docs/graph`. **Use a scratch directory** while a dev server runs: it holds the default store's lock, and the command then says so and points at `POST /dev/graph/reindex` |
+| `--calls`, `--git` | switch on the opt-in layers (`--git` needs the full history: a shallow clone makes the layer `partial`) |
+| `--fail-on` | `error`, `warning`, `info` or `none` (default): exit 1 when a finding at or above that severity is not in the baseline |
+| `--baseline` | a JSON file of accepted findings (IDs, with their rule and message so a review shows what is accepted) |
+| `--update-baseline` | write the findings at or above `--fail-on` (`error` if none) to `--baseline` and exit 0 |
+| `--format` | `text`, `json` (the report and the gate verdict), or `github` (text plus a workflow annotation, `::error file=...,line=...`, for each new finding) |
+| `--verbose` | log every layer as it is indexed (quiet by default: the report says it) |
+
+**Exit status**: 0 on success, 1 when the gate finds a new finding, 2 when indexing itself failed (a layer
+ended in `error`, the store is locked, the baseline file is missing, a flag is wrong). A run in which a layer
+failed never passes: a project that was not checked is not a clean one. Rules that did not run (offline there
+is no router, so `docs.route_undocumented` cannot) are listed in the report, and a graph with no findings layer
+is an error.
+
+**The baseline.** Only a *new* finding fails: a project is rarely clean on the day a gate is switched on, and a
+gate that fails on day one gets switched off. `docs/graph/baseline.json` is the known debt (today: the one
+layering violation `controllers/devdb.go` has, importing `storage/dbexplorer`), committed and reviewed like any
+other change. The gate keys on finding IDs, so a finding that moves to another line stays accepted, and a
+baseline entry that no finding matches any more is reported as paid debt (`--update-baseline` drops it). A
+finding whose ID carries a line (a stale reference in a doc) is a new finding when the line moves: gate on
+`error`, whose rule has stable IDs, and keep `warning` for the report.
+
+**CI** (`.github/workflows/graph.yml`): on every push to `main` and every pull request, check out, set up Go
+from `go.mod`, and run `go run ./cmd/govibe graph index --dir "$RUNNER_TEMP/govibe-graph" --calls --fail-on
+error --baseline docs/graph/baseline.json --format github`. The scratch `--dir` cannot collide with a dev
+server's lock; `--calls` makes the job also check that the module type-checks; each new finding shows up as an
+annotation on the line it is about. Add `--git` and `fetch-depth: 0` to index history too.
+
 ## Fixture
 
 `business/services/codegraph/testdata/fixture/` is a miniature GoVibe-shaped app (module
@@ -789,7 +942,7 @@ the `routes` layer is fed the runtime facts its router would report (`fixtureRou
 | `business/services/codegraph/testdata/fixture/mcp/mcp.go` | a stand-in for the MCP SDK (the fixture is standard-library only) |
 | `business/services/codegraph/testdata/fixture/docs/**`, `business/services/codegraph/testdata/fixture/README.md` | an architecture page with every kind of mention (path, route, symbol, `Type.Method`, config key and group, environment variable, tool, template, links, a stale reference), a guide, and `SPEC_HELLO.md` whose status table has implemented, planned, partial and skipped rows, and one implemented row (`Audit trail`) that names a file that does not exist (`docs.spec_missing`) |
 | `business/services/codegraph/testdata/fixture/controllers/hello.go` | acceptance query 1: `HelloAPI` calls `actions.Hello`, and no table is reachable |
-| `business/services/codegraph/testdata/fixture/controllers/orders.go` | acceptance query 2: `ListOrders` goes handler → service → store (clean); `GetOrder` calls the store directly (**layering violation**, on purpose); handler factories returning closures; unexported `writeJSON` |
+| `business/services/codegraph/testdata/fixture/controllers/orders.go` | acceptance query 2: `ListOrders` goes handler → service → store (clean); `GetOrder` calls the store directly (**layering violation**, on purpose); handler factories returning closures; unexported `writeJSON`. For the calls layer: a call inside each closure, a call through the `Lister` interface (two candidates, the store and the service itself: confidence 70), and `HomePage`'s call into generated output (no edge) |
 | `business/services/codegraph/testdata/fixture/business/actions/hello.go` | single-function action; a two-sentence doc for first-sentence extraction |
 | `business/services/codegraph/testdata/fixture/business/services/orders/orders.go` | interface type, struct type, pointer and value receivers, an unexported method |
 | `business/services/codegraph/testdata/fixture/storage/orderstore/orderstore.go` | SQL as package constants and as literals in function bodies (a join, an `INSERT ... SELECT`, a `+` concatenation, a raw string, a `DELETE`) and one dynamic statement that names no table; `db:"…"` struct tags (a struct that maps to one table, one that fits several and maps to none) |
@@ -820,6 +973,9 @@ Decided no later than the phase named.
 | ~~5~~ | ~~Drift as findings~~ **Decided (Phase 5):** `db.no_primary_key`, `db.fk_unindexed`, `db.missing_fk`, `db.drift` and `db.unapplied`; the last two apply only when a live database was read. | |
 | ~~5~~ | ~~Final layering rule and allow-list~~ **Decided (Phase 5):** the table under [Package classification](#package-classification), in `layering.go`; `wiring` and `dev` are the allow-list. The overview and the layers report read the same function. | |
 | ~~5~~ | ~~The `finding` shape~~ **Decided (Phase 5):** [Findings](#findings). One deviation from the first draft: a finding whose rule has several problems on one node carries a `#<detail>` suffix, and there is a `rule` kind so that "did not run" is part of the graph. | |
-| 6 | Sharper reach before the `calls` layer | File-level import edges (`file --imports--> pkg`) from the code layer would let a route's reach start at its handler's file instead of its whole package. Not done: it changes the code layer's output and goldens, and the `calls` layer supersedes it. |
+| ~~6~~ | ~~Sharper reach before the `calls` layer~~ **Decided (Phase 6):** not done. File-level import edges would change the code layer's output and goldens, and the `calls` layer (opt-in) supersedes them: with it a route's reach is exact. Without it the package-level estimate stays, labelled. | |
+| ~~6~~ | ~~How is a call through an interface represented?~~ **Decided (Phase 6):** one `calls` edge per candidate type, each annotated (`interface_dispatch`, a confidence that falls with the number of candidates, `via` the interface), using the Phase 0 annotation decision. Interfaces the module does not declare are not expanded. | |
+| ~~6~~ | ~~What happens to an opt-in layer that is off?~~ **Decided (Phase 6):** it has status `off`, holds no quads (an earlier run's are removed), is never stale, and asking for it by name (`graph_reindex`) switches it on for the life of the server. | |
+| 6 | Findings from the opt-in layers | None yet: no rule reads `calls` or `git`, so the findings layer does not depend on them. Candidates (a handler that reaches storage through a call, a hot file with open findings) are in the spec's backlog. |
 
 The `graph_query` tool description now shows the `'<iri>'` idiom (done in Phase 1).

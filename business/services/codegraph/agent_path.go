@@ -14,10 +14,16 @@ import (
 //  1. Exact: dependency edges only. A path here is made of edges the graph holds.
 //  2. Package-level, only if tier 1 finds nothing: a function may also be walked
 //     out to its file and package, and a package in to the files and functions
-//     it holds. Without call edges (the `calls` layer, Phase 6) that is the only
+//     it holds. Without call edges (the opt-in `calls` layer) that is the only
 //     way to get from a handler to the storage code its package imports. The
 //     result is flagged `inferred`, with confidence 50, and says which hops are
-//     package-level.
+//     package-level. With call edges, a route, function, tool or table is
+//     connected by the calls it makes or by nothing: tier 2 is not tried between
+//     them, and "not found" is an answer.
+//
+// Each hop carries how sure it is (a stored edge 100, an edge read from SQL strings
+// 90, a call through an interface 80 or less), and a path is as sure as its weakest
+// hop. Among paths, the one whose weakest hop is strongest wins, then the shortest.
 //
 // Both orientations are tried (A depends on B, then B on A), exact before
 // inferred, and the steps are always reported from A to B.
@@ -39,6 +45,12 @@ type PathStep struct {
 	// Kind: edge (a dependency), imports (package imports package) or
 	// containment (a function in its file, a file in its package, a table's columns).
 	Kind string `json:"kind"`
+	// Confidence and Method say how sure an edge is and how it was found; they are
+	// absent on the hops that are only membership or imports.
+	Confidence int    `json:"confidence,omitempty"`
+	Method     string `json:"method,omitempty"`
+	// Via is the interface a call goes through.
+	Via string `json:"via,omitempty"`
 }
 
 // PathResult is the output of graph_path.
@@ -130,7 +142,7 @@ func (m *Model) pathNeighbors(n *Node, forward, packageLevel bool) []PathStep {
 
 // shortestPath is a breadth-first search from src to dst. It returns the steps
 // in order and whether dst was reached.
-func (m *Model) shortestPath(src, dst string, forward, packageLevel bool, maxDepth int) ([]PathStep, bool) {
+func (m *Model) shortestPath(src, dst string, forward, packageLevel bool, maxDepth, floor int) ([]PathStep, bool) {
 	if src == dst {
 		return nil, true
 	}
@@ -143,6 +155,11 @@ func (m *Model) shortestPath(src, dst string, forward, packageLevel bool, maxDep
 			for _, st := range m.pathNeighbors(m.nodes[id], forward, packageLevel) {
 				if seen[st.To] || m.nodes[st.To] == nil {
 					continue
+				}
+				if floor > 0 && st.Kind == "edge" {
+					if conf, _ := m.stepConfidence(st); conf < floor {
+						continue
+					}
 				}
 				seen[st.To] = true
 				parent[st.To] = st
@@ -169,7 +186,8 @@ func (m *Model) shortestPath(src, dst string, forward, packageLevel bool, maxDep
 func flip(steps []PathStep) []PathStep {
 	out := make([]PathStep, len(steps))
 	for i, s := range steps {
-		out[len(steps)-1-i] = PathStep{From: s.To, Predicate: s.Predicate, To: s.From, Reverse: !s.Reverse, Kind: s.Kind}
+		out[len(steps)-1-i] = PathStep{From: s.To, Predicate: s.Predicate, To: s.From, Reverse: !s.Reverse, Kind: s.Kind,
+			Confidence: s.Confidence, Method: s.Method, Via: s.Via}
 	}
 	return out
 }
@@ -228,13 +246,29 @@ func (m *Model) Path(q PathQuery) (*PathResult, error) {
 		return res, nil
 	}
 
-	for _, tier := range []bool{false, true} {
+	// Between code, routes, tools and tables, call edges say everything there is to
+	// say: package-level inference would only guess where the call graph already
+	// knows.
+	calls := m.hasCalls()
+	tiers := []bool{false, true}
+	if calls && callGraphKinds[from.Kind] && callGraphKinds[to.Kind] {
+		tiers = []bool{false}
+	}
+	for _, tier := range tiers {
 		for _, forward := range []bool{true, false} {
 			src, dst := from.ID, to.ID
 			if !forward {
 				src, dst = to.ID, from.ID
 			}
-			steps, ok := m.shortestPath(src, dst, true, tier, depth)
+			// The surest path first: one whose weakest hop is a stored edge or a plain
+			// call, then one that goes through an interface, then anything.
+			var steps []PathStep
+			var ok bool
+			for _, floor := range pathFloors(calls) {
+				if steps, ok = m.shortestPath(src, dst, true, tier, depth, floor); ok {
+					break
+				}
+			}
 			if !ok {
 				continue
 			}
@@ -245,8 +279,9 @@ func (m *Model) Path(q PathQuery) (*PathResult, error) {
 			} else {
 				res.Depends, steps = "to_depends_on_from", flip(steps)
 			}
+			m.annotateSteps(steps)
 			res.Steps = steps
-			res.Confidence = 100
+			res.Confidence = pathConfidence(steps)
 			if res.Inferred {
 				res.Confidence = 50
 			}
@@ -259,6 +294,12 @@ func (m *Model) Path(q PathQuery) (*PathResult, error) {
 	// Nothing links them, even at package level.
 	res.FromReaches = m.reachSide(from, true)
 	res.ToReachedBy = m.reachSide(to, false)
+	if len(tiers) == 1 && calls {
+		res.Note = fmt.Sprintf("No chain of calls and stored edges links them in either direction within %d hops. "+
+			"Apart from calls through function values, reflection and SQL built at run time, neither depends on the other. "+
+			"`from_reaches` is what %s depends on by exact edges; `to_reached_by` is what depends on %s by exact edges.", depth, from.ID, to.ID)
+		return res, nil
+	}
 	res.Note = fmt.Sprintf("No chain of dependency edges links them in either direction within %d hops, even through package imports and shared packages. "+
 		"Apart from dynamic dispatch and SQL built at run time, neither depends on the other. "+
 		"`from_reaches` is what %s depends on by exact edges; `to_reached_by` is what depends on %s by exact edges.", depth, from.ID, to.ID)
@@ -275,6 +316,60 @@ func firstNot(set map[string]bool, ns ...*Node) *Node {
 	return nil
 }
 
+// callGraphKinds are the kinds the call graph connects exactly.
+var callGraphKinds = map[string]bool{"route": true, "mcp_tool": true, "func": true, "table": true}
+
+// pathFloors are the confidences a search tries, surest first. Without call edges
+// every stored edge is 90 or more except an inferred relation, so one search
+// (floor 0) is the old behaviour.
+func pathFloors(calls bool) []int {
+	if calls {
+		return []int{90, 60, 0}
+	}
+	return []int{0}
+}
+
+// stepConfidence is how sure the edge behind a step is. Steps that are only
+// membership or imports are not edges and say nothing.
+func (m *Model) stepConfidence(st PathStep) (int, string) {
+	if st.Kind != "edge" {
+		return 0, ""
+	}
+	from, to := st.From, st.To
+	if st.Reverse {
+		from, to = st.To, st.From
+	}
+	return m.edgeConfidence(from, st.Predicate, to)
+}
+
+// annotateSteps fills in each edge's confidence and method, and the interface a
+// call goes through.
+func (m *Model) annotateSteps(steps []PathStep) {
+	for i := range steps {
+		st := &steps[i]
+		st.Confidence, st.Method = m.stepConfidence(*st)
+		if st.Predicate == "calls" && st.Method == methodDispatch {
+			from, to := st.From, st.To
+			if st.Reverse {
+				from, to = to, from
+			}
+			_, _, st.Via = m.callInfo(from, to)
+		}
+	}
+}
+
+// pathConfidence is the weakest edge on the path; a path with no edge (only
+// membership) is as sure as it can be.
+func pathConfidence(steps []PathStep) int {
+	conf := 100
+	for _, s := range steps {
+		if s.Confidence > 0 && s.Confidence < conf {
+			conf = s.Confidence
+		}
+	}
+	return conf
+}
+
 func (m *Model) pathNodes(from *Node, steps []PathStep) []NodeRef {
 	out := []NodeRef{m.Ref(from)}
 	for _, s := range steps {
@@ -287,9 +382,9 @@ func (m *Model) pathNodes(from *Node, steps []PathStep) []NodeRef {
 // package-level hop could equally have been.
 func (m *Model) pathNote(res *PathResult, to *Node) string {
 	if !res.Inferred {
-		return ""
+		return m.callPathNote(res)
 	}
-	note := "No call edges are indexed (the `calls` layer is Phase 6), so this is the package-level path: it follows imports and code that shares a package, " +
+	note := "No call edges are indexed (the opt-in `calls` layer is off), so this is the package-level path: it follows imports and code that shares a package, " +
 		"and shows that a call is possible, not that one is made. Hops of kind `imports` and `containment` are the package-level ones."
 	if n := len(res.Steps); n > 0 {
 		last := res.Steps[n-1]
@@ -347,4 +442,35 @@ func (m *Model) reachSide(n *Node, forward bool) []NodeRef {
 		frontier = next
 	}
 	return out
+}
+
+// callPathNote explains the hops of an exact path that are not certain: the
+// calls that go through an interface, and the edges read from SQL strings.
+func (m *Model) callPathNote(res *PathResult) string {
+	var dispatch []string
+	sql := false
+	for _, st := range res.Steps {
+		if st.Method == methodDispatch {
+			via := ""
+			if st.Via != "" {
+				via = " through " + m.pathLabel(st.Via)
+			}
+			from, to := st.From, st.To
+			if st.Reverse {
+				from, to = to, from
+			}
+			dispatch = append(dispatch, fmt.Sprintf("%s calls %s%s (confidence %d)", m.pathLabel(from), m.pathLabel(to), via, st.Confidence))
+		}
+		if st.Method == methodSQL {
+			sql = true
+		}
+	}
+	var parts []string
+	if len(dispatch) > 0 {
+		parts = append(parts, "Not every hop is certain: "+strings.Join(dispatch, "; ")+". A call through an interface is linked to each type that could implement it, so the path may run through a sibling instead.")
+	}
+	if sql {
+		parts = append(parts, "The table hop is read from the SQL strings in the function (confidence 90); SQL built at run time is not seen.")
+	}
+	return strings.Join(parts, " ")
 }

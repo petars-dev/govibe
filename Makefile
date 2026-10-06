@@ -8,7 +8,7 @@ LOG_LEVEL ?= info
 # Tooling paths (can be overridden):
 AIR_BIN ?= $(shell go env GOPATH)/bin/air
 
-.PHONY: dev run build tidy templ tailwind docs cli cli-migrate cli-serve cli-generate air air-build
+.PHONY: dev run build tidy templ tailwind docs cli cli-migrate cli-serve cli-generate graph-index graph-check air air-build
 
 tidy:
 	go mod tidy
@@ -45,6 +45,15 @@ cli-serve: cli
 
 cli-generate: cli
 	./govibe generate
+
+# Project graph, offline (see docs/specs/SPEC_GRAPH_INDEXER.md). Both use a scratch
+# store, so they work while a dev server holds the real one.
+graph-index: cli
+	./govibe graph index --dir "$${TMPDIR:-/tmp}/govibe-graph" --calls --git
+
+# The CI gate: fail on an error finding that docs/graph/baseline.json does not accept.
+graph-check: cli
+	./govibe graph index --dir "$${TMPDIR:-/tmp}/govibe-graph" --calls --fail-on error --baseline docs/graph/baseline.json
 
 # Air integration (single dev tool):
 air:

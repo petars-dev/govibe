@@ -145,8 +145,12 @@ func TestRefreshRebuildsOnlyStaleLayers(t *testing.T) {
 	// The layers that did not run kept their own records.
 	meta := facts{storedLabel(t, h, metaLayer)}
 	for _, l := range layerNames(ix) {
-		if got := meta.one(t, "layer:"+l, "status"); got != quad.Value(quad.String("ok")) {
-			t.Errorf("layer %s status = %v", l, got)
+		want := "ok"
+		if l == callsLayerName || l == gitLayerName {
+			want = "off" // opt-in, and nothing here switched them on
+		}
+		if got := meta.one(t, "layer:"+l, "status"); got != quad.Value(quad.String(want)) {
+			t.Errorf("layer %s status = %v, want %s", l, got, want)
 		}
 	}
 }
@@ -173,7 +177,7 @@ func TestRefreshReport(t *testing.T) {
 		if !l.Ran && (l.Added != 0 || l.Removed != 0) {
 			t.Errorf("layer %s did not run but reports +%d/-%d", l.Name, l.Added, l.Removed)
 		}
-		if l.Status != statusOK && l.Status != statusPartial {
+		if l.Status != statusOK && l.Status != statusPartial && l.Status != statusOff {
 			t.Errorf("layer %s status %s", l.Name, l.Status)
 		}
 	}

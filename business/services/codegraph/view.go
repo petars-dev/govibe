@@ -30,7 +30,7 @@ type PresetInfo struct {
 // "manual" (quads added by hand) is not drawn from the model: see ManualView.
 var ViewPresets = []PresetInfo{
 	{"architecture", "Architecture", "Packages in their architecture layers, and who imports whom. A red edge is an import that breaks the layering rule."},
-	{"request_flow", "Request flow", "Each route, the middleware it runs, the function that handles it, and what that renders."},
+	{"request_flow", "Request flow", "Each route, the middleware it runs, the function that handles it, and what that renders. With the calls layer, also the calls down to the tables it reads and writes (dashed: a call through an interface)."},
 	{"db_er", "Database ER", "Tables and the relations between them: declared foreign keys (solid), and relations the schema implies (dashed)."},
 	{"docs_coverage", "Docs ↔ code", "Which docs and specs mention which packages, routes, tables and tools. An orange outline means no doc mentions it."},
 	{"config_usage", "Config → usage", "Config keys, the environment variables behind them, and the packages that read them."},
@@ -428,18 +428,27 @@ func (b *viewBuilder) requestFlow() {
 		return a.ID < c.ID
 	})
 	b.cols = []string{"route", "middleware", "handler", "renders / registers"}
+	last := 3 // the column of what a handler leads to
+	calls := m.hasCalls()
+	if calls {
+		b.cols = []string{"route", "middleware", "handler", "calls", "tables, renders, tools"}
+		last = 4
+	}
 	for _, r := range routes {
 		b.add(r, 0)
 		if h := m.nodes[r.first("handled_by")]; h != nil {
 			b.add(h, 2)
 			b.link(r, h, "handled_by")
 			for _, t := range m.out(h, "renders") {
-				b.add(t, 3)
+				b.add(t, last)
 				b.link(h, t, "renders")
 			}
 			for _, t := range m.out(h, "registers") {
-				b.add(t, 3)
+				b.add(t, last)
 				b.link(h, t, "registers")
+			}
+			if calls {
+				b.callChains(h, last)
 			}
 		}
 		for _, mw := range m.out(r, "uses_mw") {
@@ -449,6 +458,48 @@ func (b *viewBuilder) requestFlow() {
 				b.add(impl, 2)
 				b.link(mw, impl, "implemented_by")
 			}
+		}
+	}
+}
+
+// callChains adds what a handler calls on the way to a table: each function
+// that reads or writes one, the functions between it and the handler, and the
+// tables. Helpers that touch no table (a JSON writer) are left out, so the chain
+// is the request's way to its data and not the handler's whole call tree.
+func (b *viewBuilder) callChains(h *Node, last int) {
+	m := b.m
+	walk := m.callWalk(h.ID, true, 4)
+	ids := make([]string, 0, len(walk))
+	for id := range walk {
+		if id != h.ID {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if walk[ids[i]].depth != walk[ids[j]].depth {
+			return walk[ids[i]].depth < walk[ids[j]].depth
+		}
+		return ids[i] < ids[j]
+	})
+	for _, id := range ids {
+		f := m.nodes[id]
+		reads, writes := m.out(f, "reads_table"), m.out(f, "writes_table")
+		if len(reads)+len(writes) == 0 {
+			continue
+		}
+		path := chain(walk, id)
+		for i := 1; i < len(path); i++ {
+			from, to := m.nodes[path[i-1]], m.nodes[path[i]]
+			b.add(to, 3)
+			b.link(from, to, "calls", b.edgeFlags(from, to, "calls"))
+		}
+		for _, t := range reads {
+			b.add(t, last)
+			b.link(f, t, "reads_table")
+		}
+		for _, t := range writes {
+			b.add(t, last)
+			b.link(f, t, "writes_table")
 		}
 	}
 }
@@ -697,6 +748,12 @@ func (b *viewBuilder) edgeFlags(from, to *Node, pred string) func(*ViewEdge) {
 			e.Violation = layerVerdict(from.Str("arch_layer"), to.Str("arch_layer")) != ""
 		case "implicit_ref", "many_to_many":
 			e.Inferred, e.Confidence = true, b.m.annotationOf(from.ID, pred, to.ID).conf
+		case "calls":
+			if conf, _, _ := b.m.callInfo(from.ID, to.ID); conf < 100 {
+				e.Inferred, e.Confidence = true, conf
+			}
+		case "co_changed_with":
+			e.Inferred, e.Confidence = true, b.m.annotations()[from.ID+"\x00co_changed_with\x00"+to.ID].conf
 		}
 	}
 }

@@ -10,12 +10,19 @@ import "sort"
 //     ...), at most `depth` hops. Confidence 100, or 90 where the edge itself comes
 //     from matching SQL literals or db tags, and the annotation's own figure for an
 //     inferred relation.
-//   - Package-level: without call edges (the `calls` layer is Phase 6) nothing says
-//     which function calls which, so a function that is affected puts its whole
+//   - Package-level: without call edges (the opt-in `calls` layer is off) nothing
+//     says which function calls which, so a function that is affected puts its whole
 //     package in play. Importers of that package (confidence 60) and the routes
 //     and MCP tools registered by code in those packages (50; 30 inside the
 //     package itself) are possible, not proven, and each says so (method
 //     `package_imports` / `package_scope`) and shows the import chain it rests on.
+//
+// With the calls layer the second tier is not needed for code: the walk over `calls`
+// edges is exact (a call through an interface is an edge of lower confidence, method
+// `interface_dispatch`), reaches the routes and tools that run the changed code at
+// any depth the call chain needs, and says which way each route touches a table
+// (the union over every path, not the first one found). A type keeps the package-level
+// estimate, because a use of a type is not a call.
 //
 // Docs that mention the changed code are listed apart: they are what to update,
 // not what breaks.
@@ -91,6 +98,7 @@ type ImpactResult struct {
 	ByMethod      map[string]int `json:"by_method,omitempty"`
 	Docs          []DocHit       `json:"docs,omitempty"`
 	DocsTruncated bool           `json:"docs_truncated,omitempty"`
+	CoChanged     []CoChange     `json:"co_changed,omitempty"` // files, docs and specs that usually change with the changed code (the git layer)
 	Truncated     bool           `json:"truncated,omitempty"`
 	Notes         []string       `json:"notes,omitempty"`
 	AsOf          string         `json:"as_of"`
@@ -99,6 +107,10 @@ type ImpactResult struct {
 const (
 	defaultImpactDepth = 3
 	maxImpactDepth     = 6
+	// With call edges a route is typically four or five hops from the table it
+	// reads (table, store function, service, handler, route), so the walk goes deeper.
+	defaultCallsDepth  = 6
+	maxCallsDepth      = 10
 	defaultImpactLimit = 100
 	maxImpactLimit     = 500
 	maxDocHits         = 25
@@ -150,7 +162,7 @@ func (m *Model) annotations() map[string]annotation {
 	m.annIdx = map[string]annotation{}
 	for _, a := range m.byKind["annotation"] {
 		key := a.first("subject") + "\x00" + a.Str("predicate") + "\x00" + a.first("object")
-		m.annIdx[key] = annotation{conf: a.Int("confidence"), method: a.Str("method"), via: a.first("via")}
+		m.annIdx[key] = annotation{conf: a.Int("confidence"), method: a.Str("method"), via: a.first("via"), together: a.Int("together")}
 	}
 	return m.annIdx
 }
@@ -212,7 +224,10 @@ func (m *Model) dependents(x *Node, seedIsPkg bool) []step {
 		add(m.in(x, "handled_by"), "handled_by", 100, methodEdge, 0)
 		add(m.in(x, "implemented_by"), "implemented_by", 100, methodEdge, 0)
 		add(m.out(x, "registers"), "registers", 100, methodEdge, 0)
-		add(m.in(x, "calls"), "calls", 100, methodEdge, 0)
+		for _, c := range m.in(x, "calls") {
+			conf, method, _ := m.callInfo(c.ID, x.ID)
+			out = append(out, step{to: c, via: "calls", conf: conf, method: method})
+		}
 	case "middleware":
 		add(m.in(x, "uses_mw"), "uses_mw", 100, methodEdge, 0)
 	case "template":
@@ -304,16 +319,31 @@ func (m *Model) Impact(q ImpactQuery) (*ImpactResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	depth := q.Depth
+	calls := m.hasCalls()
+	depth, deepest := q.Depth, maxImpactDepth
+	if calls {
+		deepest = maxCallsDepth
+	}
 	switch {
 	case depth <= 0:
 		depth = defaultImpactDepth
-	case depth > maxImpactDepth:
-		depth = maxImpactDepth
+		if calls {
+			depth = defaultCallsDepth
+		}
+	case depth > deepest:
+		depth = deepest
 	}
 	limit := clampLimit(q.Limit, defaultImpactLimit, maxImpactLimit)
 
 	seeds := m.impactSeeds(target)
+	if calls && target.Kind == "type" {
+		// A type's methods are part of it, and callers can be followed from them.
+		seeds = append(seeds, m.typeMethods(target)...)
+	}
+	isSeed := map[string]bool{}
+	for _, s := range seeds {
+		isSeed[s.ID] = true
+	}
 	seen := map[string]*Affected{}
 	for _, s := range seeds {
 		seen[s.ID] = nil // a seed is not "affected"
@@ -338,6 +368,12 @@ func (m *Model) Impact(q ImpactQuery) (*ImpactResult, error) {
 		for _, f := range frontier {
 			for _, st := range m.dependents(f.n, target.Kind == "package") {
 				if _, dup := seen[st.to.ID]; dup {
+					continue
+				}
+				if calls && st.via == "calls" && !isSeed[f.n.ID] && m.isWiring(f.n) {
+					// Composition roots (routes, main, cmd) call everything, so whatever
+					// changes reaches them: they are listed when they call an affected
+					// function, and not followed further.
 					continue
 				}
 				a := &Affected{NodeRef: m.Ref(st.to), Depth: d, Via: st.via, From: f.n.ID, Confidence: f.conf, Method: f.method}
@@ -387,17 +423,31 @@ func (m *Model) Impact(q ImpactQuery) (*ImpactResult, error) {
 		t.helper = t.helper || n.Kind == "func" && len(n.In["handled_by"]) == 0 && len(n.Out["registers"]) == 0
 		t.access |= acc
 	}
+	// With call edges, code is traced exactly and the package-level estimate is only
+	// for what a call edge cannot show: where a type is used.
+	touches := func(kind string) bool {
+		if calls {
+			return kind == "type"
+		}
+		return kind == "func" || kind == "type" || kind == "package"
+	}
 	for _, s := range seeds {
-		if s.Kind == "func" || s.Kind == "type" || s.Kind == "package" {
+		if touches(s.Kind) {
 			touch(s, 0)
 		}
 	}
 	for _, a := range affected {
-		if a.Kind == "func" || a.Kind == "type" {
+		// Where an affected type is used is a guess; with call edges the code that
+		// matters (what reads the table the type maps to) is already exact.
+		if !calls && (a.Kind == "func" || a.Kind == "type") {
 			touch(m.nodes[a.ID], access[a.ID])
 		}
 	}
 	m.packageReach(tp, seen, &affected, access, target.Kind == "package")
+	if calls {
+		m.refineAccess(seeds, affected)
+		m.chainEntryPoints(affected, seen, isSeed)
+	}
 
 	res := &ImpactResult{Target: m.Ref(target), SeedCount: len(seeds), Depth: depth, AsOf: m.AsOf(),
 		ByKind: map[string]int{}, ByMethod: map[string]int{}}
@@ -440,6 +490,7 @@ func (m *Model) Impact(q ImpactQuery) (*ImpactResult, error) {
 	}
 
 	res.Docs, res.DocsTruncated = m.docsFor(m.docTargets(target, seeds), maxDocHits)
+	res.CoChanged = m.coChangedWith(seeds)
 	res.Notes = m.impactNotes(target, seeds, affected)
 	return res, nil
 }
@@ -642,9 +693,14 @@ func (m *Model) impactNotes(target *Node, seeds []*Node, affected []*Affected) [
 			codeish = true
 		}
 	}
-	if codeish && !m.layerBuilt("calls") {
-		notes = append(notes, "No call edges are indexed (the `calls` layer is Phase 6), so reach beyond the exact edges is estimated from packages: "+
+	switch {
+	case codeish && !m.hasCalls():
+		notes = append(notes, "No call edges are indexed (the opt-in `calls` layer is off: set GRAPH_CALLS=true, or call graph_reindex with layers [\"calls\"]), so reach beyond the exact edges is estimated from packages: "+
 			"anything with method `"+methodPkgImport+"` or `"+methodPkgScope+"` is possible, not proven, and rests on the import chain in `through`.")
+	case codeish:
+		notes = append(notes, "Callers come from the `calls` layer: a plain call is certain, a call through an interface is linked to each type that could implement it (method `"+methodDispatch+
+			"`, confidence 80 down to 30). Not seen: calls through function values (callbacks, handlers held in variables), reflection, and SQL built at run time. "+
+			"Wiring packages (routes, main, cmd) are listed when they call something affected and not followed further. Entry points (routes, tools) carry the chain that reaches them in `through`.")
 	}
 	pkgLevel := false
 	for _, a := range affected {
@@ -652,14 +708,17 @@ func (m *Model) impactNotes(target *Node, seeds []*Node, affected []*Affected) [
 			pkgLevel = true
 		}
 	}
-	if codeish && !pkgLevel {
+	if codeish && !pkgLevel && !m.hasCalls() {
 		notes = append(notes, "No route, tool or importing package was found through package imports.")
 	}
 	if target.Kind == "table" || target.Kind == "column" {
 		notes = append(notes, "Readers and writers come from SQL strings in `storage` and `business` code; SQL built at run time is not seen.")
 	}
-	if (target.Kind == "func" || target.Kind == "type") && !exportedCode(target) {
+	if (target.Kind == "func" || target.Kind == "type") && !exportedCode(target) && !m.hasCalls() {
 		notes = append(notes, "This is unexported: only code in its own package can use it, and callers inside a package are not indexed (no `calls` layer); same-package routes and tools are listed with method `"+methodPkgScope+"`.")
+	}
+	if target.Kind == "type" && m.hasCalls() {
+		notes = append(notes, "A type is used without being called: its methods are followed through `calls`, and where the type itself is used is estimated from package imports (method `"+methodPkgImport+"`).")
 	}
 	notes = append(notes, m.warnings(layersFor(target)...)...)
 	return notes

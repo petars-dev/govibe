@@ -69,7 +69,8 @@ func TestWholeGraphInvariants(t *testing.T) {
 	includes(t, "packages that use a config key", q(`g.V(g.IRI('cfg:server.port')).In(g.IRI('uses_config')).Has(g.IRI('type'), g.IRI('kind:package')).All()`),
 		"<pkg:.>", "<pkg:cmd/govibe>", "<pkg:config>")
 	includes(t, "docs that mention a route", q(`g.V(g.IRI('route:GET:/api/hello')).In(g.IRI('mentions')).All()`), "<doc:SKILL.md>")
-	equal(t, "this spec's status", q(`g.V(g.IRI('spec:graph-indexer')).Out(g.IRI('status')).All()`), "in_progress")
+	// complete: every row of its status table is implemented or deliberately skipped (it read in_progress until Phase 6).
+	equal(t, "this spec's status", q(`g.V(g.IRI('spec:graph-indexer')).Out(g.IRI('status')).All()`), "complete")
 	includes(t, "what the dev-db spec skipped",
 		q(`g.V(g.IRI('spec:dev-db-explorer')).Out(g.IRI('has_item')).Has(g.IRI('status'), 'skipped').All()`),
 		"<item:dev-db-explorer/production-exposure>")

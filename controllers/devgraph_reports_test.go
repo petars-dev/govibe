@@ -270,3 +270,19 @@ func TestEditorHrefOnlyLetsEditorLinksThrough(t *testing.T) {
 		}
 	}
 }
+
+// With the call graph on, the routes report lists the tables each route reaches.
+func TestRoutesReportShowsTablesWhenCallsAreIndexed(t *testing.T) {
+	h, _ := reportsRouter(t, "..", codegraph.Options{Router: thisRepoRouter(), Calls: true}, true)
+	code, body, _ := get(t, h, "/dev/graph/reports/routes")
+	if code != http.StatusOK || !strings.Contains(body, "<th>Tables reached</th>") {
+		t.Fatalf("%d: %.600s", code, mainOf(body))
+	}
+	if !strings.Contains(body, "HelloAPI") || !strings.Contains(body, "none</span>") {
+		t.Errorf("the hello route reaches no table: %.800s", mainOf(body))
+	}
+	h, _ = reportsRouter(t, "..", codegraph.Options{Router: thisRepoRouter()}, true)
+	if _, body, _ := get(t, h, "/dev/graph/reports/routes"); strings.Contains(body, "Tables reached") {
+		t.Error("no call graph, no column")
+	}
+}

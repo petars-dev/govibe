@@ -156,15 +156,16 @@ const reportsHTML = `
 
 {{define "routes"}}<p class="count">{{.AppRoutes}} application {{plural .AppRoutes "route" "routes"}}, {{.DevRoutes}} dev {{plural .DevRoutes "route" "routes"}} (under <code>/dev</code>).</p>
 <div class="tablewrap"><table class="rep-table">
-<thead><tr><th>Method</th><th>Path</th><th>Handler</th><th>Middleware</th><th>Documented in</th><th>Findings</th></tr></thead>
+<thead><tr><th>Method</th><th>Path</th><th>Handler</th><th>Middleware</th>{{if .Calls}}<th>Tables reached</th>{{end}}<th>Documented in</th><th>Findings</th></tr></thead>
 <tbody>{{range .Routes}}<tr id="{{.Route.Anchor}}"{{if .Dev}} class="dev"{{end}}>
 <td><span class="method">{{.Method}}</span></td>
 <td class="mono"><a href="{{.Route.GraphURL}}">{{.Path}}</a>{{if .Dev}} <span class="badge">dev</span>{{end}}</td>
 <td>{{if .Handler}}<a href="{{.Handler.GraphURL}}">{{.Handler.Label}}</a><br>{{template "place" .Handler}}{{else if .LibHandler}}<span class="mono">{{.LibHandler}}</span> <span class="badge">library</span>{{else}}<span class="muted">—</span>{{end}}</td>
 <td>{{if .Middleware}}<ul class="plain">{{range .Middleware}}<li>{{template "ref" .}}</li>{{end}}</ul>{{else}}<span class="muted">none</span>{{end}}</td>
+{{if $.Calls}}<td>{{if .Tables}}<ul class="plain">{{range .Tables}}<li><a href="{{.Table.PageURL}}">{{.Table.Label}}</a> <span class="muted">{{.Access}}{{if lt .Confidence 100}}, {{.Confidence}}%{{end}}</span></li>{{end}}</ul>{{else}}<span class="muted">none</span>{{end}}</td>{{end}}
 <td>{{template "docs" .Docs}}</td>
 <td>{{template "findings" .Findings}}</td>
-</tr>{{else}}<tr><td colspan="6" class="muted">No routes in the graph: the routes layer is built from the running router.</td></tr>{{end}}</tbody></table></div>{{end}}
+</tr>{{else}}<tr><td colspan="{{if $.Calls}}7{{else}}6{{end}}" class="muted">No routes in the graph: the routes layer is built from the running router.</td></tr>{{end}}</tbody></table></div>{{end}}
 
 {{define "config"}}<p class="count">{{len .Keys}} config {{plural (len .Keys) "key" "keys"}} ({{.Sensitive}} sensitive, {{.Undeclared}} read in code but not declared, {{.UnusedCount}} declared but never read). Secrets are never shown: a sensitive setting has no default in the graph.</p>
 <div class="tablewrap"><table class="rep-table">

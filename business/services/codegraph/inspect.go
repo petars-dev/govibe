@@ -192,6 +192,7 @@ func (m *Model) Status(stale []string) *Status {
 		case statusSkipped:
 			s.Notes = append(s.Notes, "The "+l.Name+" layer was skipped: "+l.Note)
 		}
+		// A layer that is off (opt-in, not switched on) is not news: its pill says so.
 	}
 	if len(stale) > 0 {
 		s.Notes = append(s.Notes, "Stale layers: "+strings.Join(stale, ", ")+".")

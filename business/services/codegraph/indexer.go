@@ -33,7 +33,7 @@ import (
 
 // IndexerVersion is recorded on the build node. Bump it when the shape of any
 // layer's output changes.
-const IndexerVersion = "4"
+const IndexerVersion = "5"
 
 // Layer run statuses, as stored on `layer:<name>`.
 const (
@@ -41,6 +41,7 @@ const (
 	statusPartial = "partial" // indexed, but some inputs were skipped (see warnings)
 	statusError   = "error"   // nothing written; the layer's previous quads are untouched
 	statusSkipped = "skipped" // not applicable here (e.g. no router wired); previous quads untouched
+	statusOff     = "off"     // an opt-in layer that is not switched on: it holds no quads
 )
 
 // Options configure an Indexer.
@@ -60,6 +61,15 @@ type Options struct {
 	// migrations alone. A failing Schema does not fail the layer; it falls back
 	// to the migrations and says so.
 	Schema func(ctx context.Context) (*dbexplorer.Snapshot, error)
+
+	// Calls and Git switch on the opt-in layers: `calls` type-checks the module to
+	// index which function calls which, `git` reads `git log`. Both cost more than
+	// the layers that only parse, so they are off unless asked for; an explicit
+	// RunLayers of one switches it on for the life of the Indexer. A layer that is
+	// off holds no quads (whatever an earlier run left is removed) and reports
+	// the status `off`.
+	Calls bool
+	Git   bool
 
 	// liveTTL overrides how long a live schema read is reused (tests).
 	liveTTL time.Duration
@@ -87,6 +97,11 @@ type layer interface {
 	build(ctx context.Context, w *world) (*layerOutput, error)
 }
 
+// optInLayer is implemented by a layer that is off unless it is asked for: it
+// costs more than parsing (see Options.Calls and Options.Git). optIn says how to
+// switch it on, for the note a layer that is off carries.
+type optInLayer interface{ optIn() string }
+
 // settlingLayer is implemented by a layer whose fingerprint also covers
 // something only its own build discovers (the docs layer: which files the
 // documents name, and whether they exist). The fingerprint taken before the
@@ -99,6 +114,7 @@ type layerOutput struct {
 	quads    []quad.Quad
 	warnings []string // inputs that were skipped; makes the run "partial"
 	skipped  string   // why the layer does not apply; nothing is written, status "skipped"
+	clear    bool     // with skipped: also remove what the layer wrote before
 }
 
 // Indexer builds the graph layers and writes them into one quad store.
@@ -107,8 +123,13 @@ type Indexer struct {
 	writer *writer
 	layers []layer
 
-	mu        sync.Mutex // one run at a time: boot, HTTP reindex, page loads and agents overlap
-	state     map[string]LayerReport
+	mu       sync.Mutex // one run at a time: boot, HTTP reindex, page loads and agents overlap
+	state    map[string]LayerReport
+	enabled  map[string]bool // the opt-in layers that are switched on
+	gitCache struct {
+		head string
+		hist *gitHistory
+	}
 	codeCache struct {
 		fp  string
 		idx *codeIndex
@@ -131,9 +152,36 @@ func New(qs graph.QuadStore, opts Options) *Indexer {
 	return &Indexer{
 		opts:   opts,
 		writer: newWriter(qs),
-		layers: []layer{codeLayer{}, routesLayer{}, templatesLayer{}, configLayer{}, mcpLayer{}, dbLayer{}, docsLayer{}, findingsLayer{}},
+		layers: []layer{codeLayer{}, routesLayer{}, templatesLayer{}, configLayer{}, mcpLayer{}, dbLayer{}, docsLayer{}, callsLayer{}, gitLayer{}, findingsLayer{}},
 		state:  map[string]LayerReport{},
+		enabled: map[string]bool{
+			callsLayerName: opts.Calls,
+			gitLayerName:   opts.Git,
+		},
 	}
+}
+
+// on reports whether a layer takes part in runs: every layer does, except an
+// opt-in one that has not been switched on.
+func (x *Indexer) on(l layer) bool {
+	if _, optIn := l.(optInLayer); !optIn {
+		return true
+	}
+	return x.enabled[l.name()]
+}
+
+// Enabled reports whether the named layer takes part in runs: false for an
+// opt-in layer (`calls`, `git`) that has not been switched on, and for a name
+// that is no layer.
+func (x *Indexer) Enabled(name string) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	for _, l := range x.layers {
+		if l.name() == name {
+			return x.on(l)
+		}
+	}
+	return false
 }
 
 // Report is the outcome of one run.
@@ -234,6 +282,14 @@ func (x *Indexer) RunLayers(ctx context.Context, names []string) (*Report, error
 		}
 		only[name] = true
 	}
+	// Asking for an opt-in layer by name is how it is switched on.
+	x.mu.Lock()
+	for _, l := range x.layers {
+		if _, optIn := l.(optInLayer); optIn && only[l.name()] {
+			x.enabled[l.name()] = true
+		}
+	}
+	x.mu.Unlock()
 	// Layers are listed in build order, so one pass finds every dependent.
 	for _, l := range x.layers {
 		for _, d := range l.deps() {
@@ -295,6 +351,15 @@ func (x *Indexer) run(ctx context.Context, force bool, only map[string]bool) (*R
 	fps := x.fingerprints(w)
 	toRun := map[string]bool{}
 	for _, l := range x.layers {
+		if !x.on(l) {
+			// A layer that is off is recorded (and its leftovers removed) once per
+			// process, then left alone: it has nothing to rebuild, and a reindex of
+			// what it would depend on is not news about it.
+			if _, recorded := x.state[l.name()]; !recorded {
+				toRun[l.name()] = true
+			}
+			continue
+		}
 		if force || only[l.name()] || x.isStale(l, fps[l.name()]) {
 			toRun[l.name()] = true
 		}
@@ -370,6 +435,11 @@ type fpResult struct {
 func (x *Indexer) fingerprints(w *world) map[string]fpResult {
 	out := map[string]fpResult{}
 	for _, l := range x.layers {
+		if !x.on(l) {
+			// Off is one state, whatever the sources do: nothing to go stale.
+			out[l.name()] = fpResult{fp: statusOff}
+			continue
+		}
 		own, err := safeFingerprint(l, w)
 		deps := l.deps()
 		if err == nil {
@@ -451,6 +521,18 @@ func (x *Indexer) runLayer(ctx context.Context, l layer, w *world, fp fpResult) 
 		}
 	}()
 
+	if oi, optIn := l.(optInLayer); optIn && !x.on(l) {
+		// An opt-in layer that is off holds nothing: an earlier run, or an earlier
+		// process that had it on, may have left quads that no longer describe the
+		// code, and a reader must not mistake them for current ones.
+		d, err := x.writer.replace(LayerLabel(l.name()), nil)
+		if err != nil {
+			lr.Error = err.Error()
+			return lr
+		}
+		lr.Status, lr.Note, lr.Removed = statusOff, oi.optIn(), d.Removed
+		return lr
+	}
 	if fp.err != nil {
 		lr.Error = fp.err.Error()
 		return lr
@@ -466,6 +548,16 @@ func (x *Indexer) runLayer(ctx context.Context, l layer, w *world, fp fpResult) 
 	}
 	if out.skipped != "" {
 		lr.Status, lr.Note = statusSkipped, out.skipped
+		if out.clear {
+			// The layer has nothing to say here (say, the root is not a git work
+			// tree), and what it said before is no longer true.
+			d, err := x.writer.replace(LayerLabel(l.name()), nil)
+			if err != nil {
+				lr.Status, lr.Error = statusError, err.Error()
+				return lr
+			}
+			lr.Removed = d.Removed
+		}
 		return lr
 	}
 

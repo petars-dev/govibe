@@ -83,9 +83,10 @@ func (n *Node) first(pred string) string {
 
 // annotation is what an inferred edge's `ann:` node says about it.
 type annotation struct {
-	conf   int
-	method string // how it was inferred: name_match, junction_pk, junction_unique
-	via    string // the junction table of a many_to_many edge
+	conf     int
+	method   string // how it was inferred: name_match, junction_pk, junction_unique, interface_dispatch, co_change
+	via      string // the junction table of a many_to_many edge, or the interface a call goes through
+	together int    // commits that touched both ends of a co_changed_with edge
 }
 
 // Model is a read-only snapshot of the graph the indexer wrote: every quad
@@ -439,6 +440,8 @@ func (m *Model) warnings(layers ...string) []string {
 			out = append(out, fmt.Sprintf("the %s layer is not built in this graph", l))
 		case statusSkipped:
 			out = append(out, fmt.Sprintf("the %s layer was skipped (%s)", l, m.nodes[string(layerNodeID(l))].Str("note")))
+		case statusOff:
+			out = append(out, fmt.Sprintf("the %s layer is off (%s)", l, m.nodes[string(layerNodeID(l))].Str("note")))
 		default:
 			out = append(out, fmt.Sprintf("the %s layer failed (%s): its data may be missing or old", l, m.nodes[string(layerNodeID(l))].Str("error")))
 		}

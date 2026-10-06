@@ -101,9 +101,14 @@ func TestFreshnessAndWarnings(t *testing.T) {
 	if got := m.warnings("code", "routes"); len(got) != 0 {
 		t.Errorf("warnings on a healthy graph: %v", got)
 	}
-	got := m.warnings("git")
-	if len(got) != 1 || !strings.Contains(got[0], "git layer is not built") {
+	got := m.warnings("nosuch")
+	if len(got) != 1 || !strings.Contains(got[0], "nosuch layer is not built") {
 		t.Errorf("a layer that never ran: %v", got)
+	}
+	// An opt-in layer that is off says so, and how to switch it on.
+	got = m.warnings("git")
+	if len(got) != 1 || !strings.Contains(got[0], "git layer is off") || !strings.Contains(got[0], "GRAPH_GIT") {
+		t.Errorf("a layer that is off: %v", got)
 	}
 }
 

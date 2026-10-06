@@ -200,9 +200,9 @@ is `Filter(regex(p, true))` / `Filter(like(p))`, not `.Regex`; `Count()` returns
 | `docs` | goldmark AST on `docs/public`, `docs/specs`, README, SKILL.md | doc→doc links; backticked paths/symbols → `mentions`; spec status-table rows → `spec_item` with status and `why_skipped` |
 | `mcp` | AST match of `mcp.AddTool(... &mcp.Tool{Name:…})` | tool → backing function, so tools are traceable to code |
 | `db` | live schema (when DSN set) + static migrations | see below |
-| `calls` (Phase 5, opt-in) | `x/tools/go/packages` + static callgraph | enables route→…→table and reverse-impact; type-checks the module, so it is opt-in and cached by fingerprint |
+| `calls` (Phase 6, opt-in) | `x/tools/go/packages` + the type checker over the module's own sources | enables route→…→table and reverse-impact; type-checks the module, so it is opt-in. Plain calls are certain; calls through an interface the module declares are linked to every candidate type with a confidence (class-hierarchy analysis) |
 | `findings` | derived from the other layers | see below |
-| `git` (Phase 6, opt-in) | `git log` | per-file last commit, churn, co-change |
+| `git` (Phase 6, opt-in) | `git log` | per-file last commit, churn, co-change (annotated edges); read once per `HEAD` |
 | `meta` | indexer | `build:latest`, layer fingerprints, counts, deltas |
 
 ### Database layer
@@ -522,15 +522,101 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
        tables); phone-width layout was not looked at in a browser.
      - **Findings on this repository** the plan did not predict: five `mail.smtp.*` keys declared and never read
        (the skeleton's example), the plain-text hello route documented nowhere, and `graphcheck.Check`.
-6. **Phase 6: Depth (opt-in)**
+6. **Phase 6: Depth (opt-in), done**
    - `calls` layer (`x/tools/go/packages`), full route→table chains, `git` layer (last commit, churn,
      co-change), `govibe graph index` CLI, CI job running the CLI with `--dir` and failing on new
      high-severity findings.
+   - *Done when:* acceptance queries 1 to 3 are answered exactly (`GET /api/hello` reaches no table; a
+     DB-backed route lists its call chain to the table with its read/write access; a table lists every
+     route whose handler reaches it), and CI fails on a new `error` finding.
+   - *Delivered:* **The opt-in mechanism** (`indexer.go`): `Options.Calls` / `Options.Git` (config
+     `dev.graph.calls` / `dev.graph.git`, env `GRAPH_CALLS` / `GRAPH_GIT`, CLI flags), a layer status `off`, and
+     `graph_reindex` naming the layer to switch it on at run time; a layer that is off holds no quads (what an
+     earlier process left is removed on the first run), is never stale, and is recorded once per process.
+     **`calls`** (`layer_calls.go`): the module type-checked with `go/packages` (about 1 s warm on this
+     repository: 2,614 quads, 1,662 edges, 136 of them through an interface), plain calls as bare `calls` edges, interface calls as one annotated
+     edge per candidate type (`interface_dispatch`, confidence 80/70/60/50/30 by the number of candidates, `via`
+     the interface); closures resolve to their enclosing function. **`git`** (`layer_git.go`): `git log` over the
+     newest 1,000 non-merge commits, read once per `HEAD`; `last_commit`, `last_commit_at`, `last_subject`,
+     `commits`, `churn`, `authors` on file, doc and spec nodes, and `co_changed_with` edges with annotations
+     (percent, `together`). **The agent surface** (`agent_calls.go`, and `agent_impact.go`, `agent_path.go`,
+     `agent_context.go`): `graph_impact` follows calls backwards (default depth 6, max 10, the union of read and
+     write access over every path, the chain to each route and tool in `through`, wiring packages listed and not
+     followed, a type followed through its methods, and `co_changed`); `graph_path` is a chain of stored edges
+     or nothing between routes, functions, tools and tables, each hop with its confidence, the surest chain
+     first; `graph_context` lists `calls` and `called_by`, a `reach` that is a walk over calls (with how many
+     functions it covered), and a `history`; the request-flow view runs down to the tables and the routes report
+     has a "Tables reached" column; `FindingRef` carries `path` and `line`. **The CLI** (`cmd/govibe/cmd_graph.go`,
+     `gate.go`): `govibe graph index` with `--root --dir --calls --git --fail-on --baseline --update-baseline
+     --format text|json|github`, exit status 0/1/2; a baseline of accepted finding IDs
+     (`docs/graph/baseline.json`, holding the one layering violation this repository has); `make graph-index` and
+     `make graph-check`. **CI**: `.github/workflows/graph.yml`. Tests: 6 new files and 47 new test functions
+     (the layer on the fixture as a golden and as facts, synthetic modules for what the fixture cannot show,
+     the git layer over throw-away repositories with fixed identities and dates, the opt-in lifecycle, every
+     changed agent tool with and without calls, the gate, the baseline, every CLI flag and exit status), and the
+     shared graph invariants extended (`calls`, `co_changed_with`, their annotations).
+   - *Verified end to end* against a running server in a scratch copy of this repository (calls and git on): boot
+     indexed everything in 1.9 s (calls 1.0 s, git 0.15 s); `GET /api/hello` → `HelloAPI` → `actions.Hello`,
+     "no table is reached (the 1 function it calls...)"; `graph_impact` of `actions.Hello` names exactly the
+     two routes that call it (the package-level estimate named 31), and of `Indexer.Run` the one route that
+     reaches it, with the chain; `graph_path` from `DevGraphReindex` to `Indexer.Run`; the 10-implementer `layer`
+     interface linked at confidence 30 and the 2-implementer `optInLayer` at 70; a restart with both layers off
+     removed their 3,070 quads and the schema said how to switch them on; `graph_reindex` with `["calls"]`
+     switched the layer on in 1.2 s, and an edit to a Go file made it stale and the next tool call refreshed it;
+     the `/dev/graph` page (new `off` pill, request flow with five columns) in a real browser with no console
+     errors. `make graph-check` and the CLI's exit codes (0 with the baseline, 1 without, 2 for a bad flag, a
+     missing baseline or a root that is no module) were run for real.
+   - *Deviations from the plan:*
+     - **The call graph is `go/packages` plus the type checker, not an SSA call graph.** `x/tools/go/callgraph`
+       (`static`, `cha`, `rta`) builds SSA for the whole program, dependencies included: seconds, not one, and
+       it would link calls into libraries nobody asked about. Walking the module's own syntax with the type
+       checker's answers gives the same plain edges, and CHA over the module's declared interfaces gives the
+       dynamic ones, in a second. `golang.org/x/tools` (already an indirect dependency) became direct, with
+       `golang.org/x/mod`.
+     - **Interface calls are edges with an annotation, not omitted and not certain.** The spec's "mark any
+       inferred relation with its method/confidence" is the Phase 0 annotation device; the same `ann:` node
+       carries `via` (here the interface type), so `GRAPH_SCHEMA.md` widened `subject`, `object` and `via`.
+       A call through an interface the module does not declare (`error`, `http.Handler`) is not expanded, and one
+       with more than 24 candidates is not either (the layer says so, `partial`).
+     - **What is not seen is stated, not guessed:** calls through function values, reflection, package-level
+       initializers (no caller node), and into generated templ output. A handler reaches its route through
+       `handled_by`, not through the call that registers it.
+     - **An opt-in layer that is off is a status (`off`), not an absence.** The layer node exists, says how to
+       switch it on, and the layer's quads are removed; naming it in `graph_reindex` is how it is switched on
+       without a restart (the spec said only "opt-in").
+     - **`graph_impact` changes depth and tiers when calls are indexed.** Default depth 3 cannot reach a route from a
+       table (four or five hops), so it is 6 (max 10); the package-level tier is kept for a changed *type* only,
+       since a use of a type is not a call; the access of a route is the union over every call path (the old
+       breadth-first search kept the first); composition roots (`routes`, `main`, `cmd`) are listed and not
+       followed, or every change would end at `main`. A table's `maps_to` type no longer pulls in the importers
+       of its package.
+     - **`graph_path` confidence is the weakest hop's** (a path through `reads_table` is 90, not 100, as the
+       `sql_literal` method already says), and with calls it never falls back to package-level inference
+       between routes, functions, tools and tables.
+     - **The git layer keeps no names or addresses**, only the number of authors, and follows no renames
+       (numstat is ambiguous with them). A pair is a coupling at 3 shared commits and 30%, a commit of more than
+       40 files is no evidence, 5 partners are kept per file; these are constants in `layer_git.go`, not
+       settings. The history window is the newest 1,000 commits.
+     - **The CLI runs offline: no router.** The `routes` layer is skipped, the docs layer is `partial`, and
+       `docs.route_undocumented` does not run (it says so). Building the real router offline would mean
+       splitting `routes.NewRouter`, which also opens the dev store and database; the gate's `error` rule
+       (layering) reads the code layer and is unaffected. With `MARIADB_DSN` set the CLI reads the live schema as
+       the server does.
+     - **The gate keys on finding IDs, and only a new finding fails.** A finding whose ID carries a line (stale
+       doc references) is "new" when the line moves, so the gate defaults to `error`, whose rule has stable
+       IDs. The existing violation (`controllers → storage/dbexplorer`) is in `docs/graph/baseline.json`
+       instead of being fixed here: the refactor is a separate change.
+     - **No findings read the new layers**, so `findings` does not depend on them and a call-graph change does
+       not rebuild it.
+     - **Not verified:** the GitHub workflow itself (it was parsed and its command run locally, not run by
+       GitHub); a shallow clone in CI (the git layer reports it as `partial`); Windows paths in the call index;
+       the call graph on a module with cgo or build-tag-only files (their files are not type-checked and the
+       layer does not say which); the HTML of the "Tables reached" column against a real database-backed route
+       (this repository has no SQL-touching handler: the fixture and a hand-built graph cover it).
 
 ## Backlog
 - JavaScript tests for `assets/static/graph.js` (layout, the filters, expand), and a phone-width pass.
 - `docs.stale_ref` for routes and config keys, which are never judged today, if a way to tell an example from a pointer turns up.
-- Findings as a CI gate: `govibe graph index --dir` failing on new `error` findings (Phase 6).
 - Column-level nodes in the ER view (today: tables, with the columns in the inspector and the schema report).
 - Findings history ("new since the last build"): the build node only counts quads.
 - Last-N-builds changelog (changed subjects per build) for "what changed since I last looked".
@@ -538,8 +624,17 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
 - `EXPLAIN` the SQL literals found in code to flag full scans as findings.
 - Optional deterministic N-Quads snapshot export for agents without a running server.
 - Column-level lineage for `maps_to` beyond tag matching.
-- File-level import edges from the code layer, to start a route's package-level reach at its handler's file
-  (fewer false positives until the `calls` layer exists).
+- Calls through function values (handlers held in variables, callbacks): needs a points-to or value-flow
+  analysis, or an edge for "this function passes that one as a value" with its own, low, confidence.
+- Findings that read the opt-in layers: a controller that reaches storage through a call (the import-based
+  layering rule misses a call through a service that was not meant to reach it), a hot file (high churn) with
+  open findings, a doc that has not changed with the code it covers (co-change).
+- Test files in the call graph (and `test -> code` edges), once tests are indexed.
+- Per-call-site lines: where a function calls another, for the editor links (an annotation per edge).
+- Follow renames in the git layer, and a configurable history window.
+- Build the real router in `govibe graph index` (split `routes.NewRouter` into wiring and side effects), so the
+  CLI's graph is the server's and `docs.route_undocumented` can gate.
+- Say which files the type checker did not see (build tags, cgo) in the calls layer's warnings.
 - Cache the agent tools' `Model` by an indexer generation counter, if the graph grows past ~50,000 quads.
 - `POST /dev/graph/reindex?layers=...`, matching `graph_reindex`.
 - Support Postgres/SQLite dialects in the static migration parser (`DATABASE_TYPE`).
@@ -549,7 +644,7 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
 | --- | --- | --- |
 | Where indexing runs | In-server, async, on boot + lazy + explicit | Offline CLI only (breaks with Air's lock) |
 | Commit the bolt file? | No, ignore it; rebuilt every boot | Commit an N-Quads snapshot for offline agents (noisy diffs) |
-| Call graph | Opt-in, Phase 6 | Always on (slower boot, more type-check failures) |
+| Call graph | Opt-in (kept in Phase 6: `GRAPH_CALLS`, `--calls`, or `graph_reindex` naming it) | Always on (slower boot, more type-check failures) |
 | Stale-doc handling | Fingerprint check per request | fsnotify watcher |
 
 ## Status Table
@@ -562,6 +657,8 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
 | `db` layer (live + static + inferred + code↔table) | Yes | | ER view since Phase 5; drift recorded as `source`/`drift` on elements; route → table needs the `calls` layer (see Phase 3 deviations) |
 | Agent MCP tools/resources/prompt | Yes | | Reach beyond stored edges is estimated from package imports and labelled (no `calls` layer); `graph_findings` answers since Phase 5 (it was `available: false` before) |
 | Findings + human UI/reports | Yes | | Twelve rules over the graph (a rule that did not run says so); bounded server-built views with presets, inspector, banner, findings panel; four generated reports; `/dev/db` cross-links. JavaScript is verified by hand, not by unit tests (see Phase 5 deviations) |
-| `calls`/`git` layers, CLI, CI | No | | Planned, opt-in |
+| `calls` layer (opt-in) | Yes | | go/packages and the type checker, not SSA; interface calls are annotated edges (CHA over the module's own interfaces); function values, reflection, initializers and generated output are not seen (see Phase 6 deviations) |
+| `git` layer (opt-in) | Yes | | 1,000-commit window, no renames, counts of authors only; co-change is directional and annotated |
+| `govibe graph index` CLI, findings gate, CI job | Yes | | Offline (no router); the gate fails only on findings the baseline does not accept; the workflow was not run by GitHub (see Phase 6 deviations) |
 | Indexing in production | No | Skipped | Everything under `/dev/*` is gated on `!cfg.IsProd()` by design |
 | Indexing row data | No | Skipped | PII risk; schema and metadata only |

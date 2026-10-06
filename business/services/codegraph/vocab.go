@@ -80,6 +80,10 @@ const (
 
 	// Phase 5: the findings layer.
 	PredAbout = quad.IRI("about") // finding -> the node it is about
+
+	// Phase 6: the opt-in calls and git layers.
+	PredCalls         = quad.IRI("calls")           // func -> func it calls (an annotation says how sure when it is not a plain call)
+	PredCoChangedWith = quad.IRI("co_changed_with") // file, doc, spec -> one that changed in the same commits (an annotation says how often)
 )
 
 // Attribute predicates: a literal object, which a viewer can hide.
@@ -116,6 +120,16 @@ const (
 	PredMessage       = quad.IRI("message")        // finding: what is wrong and what to do
 	PredChecked       = quad.IRI("checked")        // rule: it ran on this graph (false: a layer it reads is not built)
 	PredUnresolvedRef = quad.IRI("unresolved_ref") // doc, spec item: "<line>:<text>" of a reference to something that is gone
+
+	// Phase 6: the git layer's attributes, on file, doc and spec nodes, and the
+	// annotation of a co-change edge.
+	PredLastCommit   = quad.IRI("last_commit")    // the newest commit that touched it: the first 12 characters of its hash
+	PredLastCommitAt = quad.IRI("last_commit_at") // when that commit was made
+	PredLastSubject  = quad.IRI("last_subject")   // that commit's subject line
+	PredCommits      = quad.IRI("commits")        // commits that touched it within the history window
+	PredChurn        = quad.IRI("churn")          // lines added plus lines deleted by those commits
+	PredAuthors      = quad.IRI("authors")        // distinct authors of those commits (a count: no names or addresses are kept)
+	PredTogether     = quad.IRI("together")       // on a co-change annotation: commits that touched both ends
 
 	// Phase 3: the db layer.
 	PredDataType    = quad.IRI("data_type")
@@ -162,7 +176,7 @@ var structuralPredicates = []quad.IRI{
 	PredRegisters, PredHasItem, PredMentions, PredCovers,
 	PredHasColumn, PredHasIndex, PredFKTo, PredImplicitRef, PredManyToMany, PredIntroducedIn,
 	PredReadsTable, PredWritesTable, PredMapsTo, PredSubject, PredObject, PredVia,
-	PredAbout,
+	PredAbout, PredCalls, PredCoChangedWith,
 }
 
 // archLayers is the closed set of `arch_layer` values.

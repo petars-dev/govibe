@@ -34,7 +34,7 @@ var kindDocs = []kindDoc{
 	{"column", "db", "col:<table>.<column>", "col:orders.user_id", "A table column."},
 	{"index", "db", "idx:<table>.<name>", "idx:orders.PRIMARY", "A table index; the primary key is PRIMARY."},
 	{"migration", "db", "mig:<file stem>", "mig:0001_init", "A goose migration; introduced_in says which created a table, column or index."},
-	{"annotation", "db", "ann:<hash>", "", "How sure the indexer is of one inferred edge (implicit_ref, many_to_many): its method and confidence."},
+	{"annotation", "db, calls, git", "ann:<hash>", "", "How sure the indexer is of one inferred edge (implicit_ref, many_to_many, a call through an interface, a pair of files that change together): its method and confidence."},
 	{"finding", "findings", "finding:<rule>:<subject id>[#<detail>]", "finding:layering:pkg:controllers#pkg:storage/dbexplorer", "A derived problem: a layering violation, a stale doc, an unused config key. `about` is the node at fault; `rule`, `severity` and `message` say what and how to fix it."},
 	{"rule", "findings", "rule:<name>", "rule:layering", "A check of the findings layer, and whether it ran on this graph (`checked`; `note` says why not). A rule that did not run has not looked: no findings from it is not a clean bill."},
 	{"build", "meta", "build:latest", "build:latest", "The most recent index run: git sha, dirty flag, when, how long."},
@@ -45,35 +45,36 @@ var kindDocs = []kindDoc{
 // predicate in a real graph has an entry.
 var predicateDocs = map[string]string{
 	// structure
-	"type":           "The kind of a node (kind:func, kind:table, ...).",
-	"defined_in":     "func, type or template -> the file that defines it.",
-	"in_package":     "file -> its package.",
-	"imports":        "package -> a package of this module it imports.",
-	"has_layer":      "build -> a layer's last run.",
-	"handled_by":     "route -> the function that handles it (absent when the handler is not application code).",
-	"uses_mw":        "route -> a middleware on it (a set: the order is not kept).",
-	"implemented_by": "middleware -> the function that implements it.",
-	"calls":          "func -> func it calls (the calls layer: not built yet).",
-	"renders":        "func or template -> the template it renders.",
-	"uses_config":    "func or package -> a config key it reads.",
-	"reads_env":      "config key or func -> an environment variable it reads.",
-	"registers":      "func -> the MCP tool it registers.",
-	"has_item":       "spec -> a row of its status table.",
-	"mentions":       "doc, spec or spec item -> a node its text names.",
-	"covers":         "spec item -> a node its row names.",
-	"reads_table":    "func -> a table its SQL strings read.",
-	"writes_table":   "func -> a table its SQL strings write.",
-	"maps_to":        "type -> the table its db tags map it to.",
-	"has_column":     "table or index -> a column.",
-	"has_index":      "table -> an index.",
-	"fk_to":          "column -> column, and table -> table, of a declared foreign key.",
-	"implicit_ref":   "column -> column, table -> table: a reference the schema implies but does not declare (see the annotation for confidence).",
-	"many_to_many":   "table -> table, through a junction table (inferred).",
-	"introduced_in":  "table, column or index -> the migration that created it.",
-	"subject":        "annotation -> where the inferred edge starts.",
-	"object":         "annotation -> where the inferred edge ends.",
-	"via":            "annotation -> the junction table of a many_to_many edge.",
-	"about":          "finding -> the node at fault.",
+	"type":            "The kind of a node (kind:func, kind:table, ...).",
+	"defined_in":      "func, type or template -> the file that defines it.",
+	"in_package":      "file -> its package.",
+	"imports":         "package -> a package of this module it imports.",
+	"has_layer":       "build -> a layer's last run.",
+	"handled_by":      "route -> the function that handles it (absent when the handler is not application code).",
+	"uses_mw":         "route -> a middleware on it (a set: the order is not kept).",
+	"implemented_by":  "middleware -> the function that implements it.",
+	"calls":           "func -> func it calls (the opt-in calls layer). A plain edge is a call the compiler resolves; one through an interface has an annotation with its confidence and the interface.",
+	"co_changed_with": "file, doc or spec -> one that changed in the same commits (the opt-in git layer); the annotation says in what share of this node's commits.",
+	"renders":         "func or template -> the template it renders.",
+	"uses_config":     "func or package -> a config key it reads.",
+	"reads_env":       "config key or func -> an environment variable it reads.",
+	"registers":       "func -> the MCP tool it registers.",
+	"has_item":        "spec -> a row of its status table.",
+	"mentions":        "doc, spec or spec item -> a node its text names.",
+	"covers":          "spec item -> a node its row names.",
+	"reads_table":     "func -> a table its SQL strings read.",
+	"writes_table":    "func -> a table its SQL strings write.",
+	"maps_to":         "type -> the table its db tags map it to.",
+	"has_column":      "table or index -> a column.",
+	"has_index":       "table -> an index.",
+	"fk_to":           "column -> column, and table -> table, of a declared foreign key.",
+	"implicit_ref":    "column -> column, table -> table: a reference the schema implies but does not declare (see the annotation for confidence).",
+	"many_to_many":    "table -> table, through a junction table (inferred).",
+	"introduced_in":   "table, column or index -> the migration that created it.",
+	"subject":         "annotation -> where the inferred edge starts.",
+	"object":          "annotation -> where the inferred edge ends.",
+	"via":             "annotation -> the junction table of a many_to_many edge.",
+	"about":           "finding -> the node at fault.",
 	// attributes
 	"name":             "Short display name.",
 	"doc":              "First sentence of the doc comment.",
@@ -96,7 +97,7 @@ var predicateDocs = map[string]string{
 	"declared":         "Declared in config/env.yml; false means code reads it but nothing declares it.",
 	"field":            "The Config struct field a key binds to.",
 	"title":            "A doc's first heading.",
-	"status":           "A spec's or spec item's status; on a layer run: ok, partial, skipped or error.",
+	"status":           "A spec's or spec item's status; on a layer run: ok, partial, skipped, off (an opt-in layer that is not switched on) or error.",
 	"why_skipped":      "Why a spec row was skipped.",
 	"note":             "Free-text note: a spec row's Why cell, or why a layer was skipped.",
 	"data_type":        "A column's type as the database or migration spells it.",
@@ -119,12 +120,19 @@ var predicateDocs = map[string]string{
 	"version":          "A migration's version.",
 	"applied":          "The live database has applied the migration.",
 	"predicate":        "On an annotation: the inferred predicate's name.",
-	"confidence":       "On an annotation: 0 to 100, how sure the inference is.",
+	"confidence":       "On an annotation: 0 to 100, how sure the inference is (for a co-change: the percentage of the subject's commits that also touched the object).",
 	"rule":             "The rule that produced a finding.",
 	"severity":         "error (breaks a stated rule), warning (wrong or stale) or info (a smell); a rule's own default on a rule node.",
 	"message":          "What is wrong and what to do about it.",
 	"checked":          "On a rule: it ran on this graph. false means a layer it reads is not built (see note) and its absence of findings proves nothing.",
 	"unresolved_ref":   "On a doc or spec row: \"<line>:<text>\" of something it names that does not exist (a file, a symbol, a page).",
+	"last_commit":      "The newest commit that touched a file, doc or spec (the git layer): the first 12 characters of its hash.",
+	"last_commit_at":   "When that commit was made.",
+	"last_subject":     "That commit's subject line.",
+	"commits":          "Commits that touched it within the git layer's window (the newest 1,000).",
+	"churn":            "Lines added plus lines deleted by those commits.",
+	"authors":          "How many people made them (a count: names and addresses are never kept).",
+	"together":         "On a co-change annotation: commits that touched both files.",
 	"git_sha":          "Short HEAD sha when the graph was indexed.",
 	"dirty":            "The work tree had uncommitted changes.",
 	"indexed_at":       "When it was indexed.",
@@ -202,11 +210,14 @@ type SchemaInfo struct {
 	Notes       []string        `json:"notes,omitempty"`
 }
 
-// plannedLayers are every layer SPEC_GRAPH_INDEXER names; the ones missing from
-// a graph are reported, so an empty answer is not read as a clean one.
-var plannedLayers = []struct{ name, phase, gives string }{
-	{"calls", "Phase 6", "call edges; until then route -> table reach is estimated from package imports (method package_imports, confidence <= 60)"},
-	{"git", "Phase 6", "last commit and churn per file"},
+// optInLayers are the layers that are off unless asked for; when one is missing
+// from a graph it is named, with what it would give and how to switch it on, so an
+// empty answer is not read as a clean one.
+var optInLayers = []struct{ name, gives, enable string }{
+	{callsLayerName, "call edges: with them a route's path to a table is exact; without them it is estimated from package imports (method package_imports, confidence <= 60)",
+		"set GRAPH_CALLS=true, or call graph_reindex with layers [\"calls\"] (it type-checks the module, about a second)"},
+	{gitLayerName, "last commit, churn and the files that change together, per file, doc and spec",
+		"set GRAPH_GIT=true, or call graph_reindex with layers [\"git\"]"},
 }
 
 // Schema is graph_schema. stale lists the layers the indexer says are stale.
@@ -293,14 +304,14 @@ func (m *Model) Schema(stale []string) *SchemaInfo {
 		"In graph_query, write IRIs as '<iri>' or g.IRI('iri'); a bare 'x' is a string and matches nothing generated. Counting is g.Emit(<path>.ToArray().length), since Count() returns null.",
 		"Structural predicates link two nodes; attribute predicates carry a literal (name, line, doc, ...). `structural` in `predicates` tells which.",
 		"Every graph tool brings stale layers up to date first and says what it answered from in `as_of`; a layer that failed or was skipped is named in `notes`.",
-		"Confidence is 0 to 100. 100 is a stored edge, 90 an edge read from SQL strings or db tags, below that an estimate; `method` says which (edge, sql_literal, db_tag, table_level, inferred, package_imports, package_scope).",
-		"No call edges exist yet, so reach from a route or function to a table or another package is estimated from package imports and labelled so: possible, not proven.",
+		"Confidence is 0 to 100. 100 is a stored edge, 90 an edge read from SQL strings or db tags, below that an estimate; `method` says which (edge, sql_literal, db_tag, table_level, inferred, interface_dispatch, package_imports, package_scope).",
+		callConvention(m),
 		"Hand-added quads (the /dev/graph form) are plain strings under no layer label; the graph_* tools never see them, graph_query does.",
 	}
 
-	for _, pl := range plannedLayers {
-		if !m.layerBuilt(pl.name) {
-			s.Notes = append(s.Notes, fmt.Sprintf("The %s layer is not built (%s of SPEC_GRAPH_INDEXER): no %s.", pl.name, pl.phase, pl.gives))
+	for _, ol := range optInLayers {
+		if !m.layerBuilt(ol.name) {
+			s.Notes = append(s.Notes, fmt.Sprintf("The %s layer is off, so the graph has no %s. To switch it on: %s.", ol.name, ol.gives, ol.enable))
 		}
 	}
 	s.Notes = append(s.Notes, m.warnings("code", "routes", "templates", "config", "mcp", "db", "docs", "findings")...)
@@ -308,6 +319,17 @@ func (m *Model) Schema(stale []string) *SchemaInfo {
 		s.Notes = append(s.Notes, fmt.Sprintf("The %s layer is stale (its inputs changed since it was built, or it failed and has not been retried); graph_reindex rebuilds it.", l))
 	}
 	return s
+}
+
+// callConvention says how reach is known in this graph, which depends on whether
+// the opt-in calls layer was built.
+func callConvention(m *Model) string {
+	if m.layerBuilt(callsLayerName) {
+		return "Call edges are indexed (the calls layer): a route reaches a table through a chain of stored `calls` edges. A plain call is certain; a call through an " +
+			"interface is linked to each type that could implement it (method interface_dispatch, confidence 80 down to 30). Not seen: calls through function values, " +
+			"reflection, and SQL built at run time, so \"no table\" means none that those leave out."
+	}
+	return "No call edges are indexed (the calls layer is off), so reach from a route or function to a table or another package is estimated from package imports and labelled so: possible, not proven."
 }
 
 func (m *Model) countNodes() int {

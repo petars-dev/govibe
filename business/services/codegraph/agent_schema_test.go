@@ -73,7 +73,7 @@ func TestSchemaDescribesTheGraphAsItIs(t *testing.T) {
 	}
 
 	notes := strings.Join(s.Notes, "\n")
-	for _, want := range []string{"calls layer is not built", "git layer is not built", "docs layer is stale"} {
+	for _, want := range []string{"calls layer is off", "GRAPH_CALLS=true", "git layer is off", "GRAPH_GIT=true", "docs layer is stale"} {
 		if !strings.Contains(notes, want) {
 			t.Errorf("notes lack %q:\n%s", want, notes)
 		}
@@ -150,7 +150,7 @@ func TestOverviewRendersTheArchitecture(t *testing.T) {
 		"## MCP tools", "`fixture_ping`", "registered by `devmcp.registerTools`",
 		"## Database", "`orders` (4 columns) → users (implicit, 95%)", "read by 2, written by 1 functions",
 		"## Config", "## Specs", "`docs/specs/SPEC_HELLO.md` (in_progress)",
-		"## Not covered", "the calls layer is not built",
+		"## Not covered", "the calls layer is off", "the git layer is off",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("overview lacks %q", want)

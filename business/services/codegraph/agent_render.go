@@ -223,9 +223,9 @@ func (m *Model) Overview(stale []string) string {
 
 	// what is missing
 	var notes []string
-	for _, pl := range plannedLayers {
-		if !m.layerBuilt(pl.name) {
-			notes = append(notes, fmt.Sprintf("the %s layer is not built (%s)", pl.name, pl.phase))
+	for _, ol := range optInLayers {
+		if !m.layerBuilt(ol.name) {
+			notes = append(notes, fmt.Sprintf("the %s layer is off: %s", ol.name, ol.enable))
 		}
 	}
 	notes = append(notes, m.warnings("code", "routes", "templates", "config", "mcp", "db", "docs", "findings")...)

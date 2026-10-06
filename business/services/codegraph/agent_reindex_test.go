@@ -30,7 +30,7 @@ func TestRunLayersRebuildsOnlyWhatWasAskedFor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := strings.Join(ix.LayerNames(), ","); got != "code,routes,templates,config,mcp,db,docs,findings" {
+	if got := strings.Join(ix.LayerNames(), ","); got != "code,routes,templates,config,mcp,db,docs,calls,git,findings" {
 		t.Errorf("layer names: %s", got)
 	}
 

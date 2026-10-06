@@ -235,7 +235,7 @@ func TestGraphToolsAnswerOverMCP(t *testing.T) {
 	if fresh["indexed"] != true || len(list(s["kinds"])) < 10 || len(list(s["predicates"])) < 30 || len(list(s["examples"])) < 5 || len(list(s["questions"])) < 6 {
 		t.Errorf("schema: freshness=%v kinds=%d predicates=%d", fresh, len(list(s["kinds"])), len(list(s["predicates"])))
 	}
-	if !strings.Contains(strings.Join(strs(s["notes"]), " "), "calls layer is not built") {
+	if !strings.Contains(strings.Join(strs(s["notes"]), " "), "calls layer is off") {
 		t.Errorf("notes: %v", s["notes"])
 	}
 
@@ -361,7 +361,7 @@ func TestGraphToolErrorsAreReportedToTheAgent(t *testing.T) {
 func TestGraphReindexRebuildsLayers(t *testing.T) {
 	h, _ := indexedHandler(t)
 	r := call(t, h, "graph_reindex", map[string]any{"layers": []string{"docs"}}).ok(t, "graph_reindex").StructuredContent
-	if r["failed"] != false || len(strs(r["known_layers"])) != 8 {
+	if r["failed"] != false || len(strs(r["known_layers"])) != 10 {
 		t.Errorf("reindex: %v", r)
 	}
 	var ran []string
@@ -370,7 +370,7 @@ func TestGraphReindexRebuildsLayers(t *testing.T) {
 		if lm["ran"] == true {
 			ran = append(ran, lm["name"].(string))
 		}
-		if lm["status"] != "ok" && lm["status"] != "partial" {
+		if lm["status"] != "ok" && lm["status"] != "partial" && lm["status"] != "off" { // calls and git are opt-in
 			t.Errorf("layer %v: %v", lm["name"], lm["status"])
 		}
 	}

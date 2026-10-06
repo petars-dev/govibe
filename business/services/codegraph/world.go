@@ -37,6 +37,9 @@ type world struct {
 	goFP    memo[string]
 	codeIdx memo[*codeIndex]
 	routesV memo[*routeTable]
+	callIdx memo[*callIndex]
+	gitHist memo[*gitHistory]
+	gitHead memo[gitHeadInfo]
 
 	templFiles memo[*scan]
 	templIdx   memo[*templIndex]

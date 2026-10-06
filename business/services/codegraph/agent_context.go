@@ -63,12 +63,34 @@ type ReachTable struct {
 	Confidence int      `json:"confidence"`
 }
 
-// Reach is what a handler can reach through package imports: possible, not
-// proven, since call edges are not indexed.
+// Reach is the tables a function or handler reaches. With the calls layer it is
+// a walk over call edges (Method "calls": each table comes with the chain of
+// functions that gets there); without it, an estimate from package imports
+// (Method "package_imports"): possible, not proven.
 type Reach struct {
-	Method string       `json:"method"`
-	Tables []ReachTable `json:"tables"`
-	Note   string       `json:"note"`
+	Method    string       `json:"method"`
+	Tables    []ReachTable `json:"tables"`
+	Functions int          `json:"functions_reached,omitempty"` // how many functions the walk reached (calls only)
+	Note      string       `json:"note"`
+}
+
+// History is what the git layer knows about a file, doc or spec: when it last
+// changed, how often and how much, by how many people, and what changed with it.
+type History struct {
+	LastCommit   string     `json:"last_commit"`
+	LastCommitAt string     `json:"last_commit_at,omitempty"`
+	LastSubject  string     `json:"last_subject,omitempty"`
+	Commits      int        `json:"commits"`
+	Churn        int        `json:"churn"`
+	Authors      int        `json:"authors"`
+	CoChanged    []CoChange `json:"co_changed,omitempty"`
+}
+
+// CoChange is a file, doc or spec that changed in the same commits.
+type CoChange struct {
+	NodeRef
+	Percent  int `json:"percent"`  // of this node's commits that also touched it
+	Together int `json:"together"` // commits that touched both
 }
 
 // Relation links one table to another.
@@ -139,6 +161,8 @@ type FindingRef struct {
 	Severity string `json:"severity"`
 	Message  string `json:"message"`
 	About    string `json:"about,omitempty"`
+	Path     string `json:"path,omitempty"` // where to look, when the rule knows
+	Line     int    `json:"line,omitempty"`
 }
 
 // Context is the output of graph_context.
@@ -158,7 +182,10 @@ type Context struct {
 	Config       []ConfigUse          `json:"config,omitempty"`
 	Tools        []NodeRef            `json:"tools,omitempty"`
 	Tables       *TableAccess         `json:"tables,omitempty"`
+	Calls        []CallRef            `json:"calls,omitempty"`
+	CalledBy     []CallRef            `json:"called_by,omitempty"`
 	Reach        *Reach               `json:"reach,omitempty"`
+	History      *History             `json:"history,omitempty"`
 	Table        *TableInfo           `json:"table,omitempty"`
 	Items        []SpecItem           `json:"items,omitempty"`
 	Imports      []NodeRef            `json:"imports,omitempty"`
@@ -203,6 +230,7 @@ func (m *Model) Context(q ContextQuery) (*Context, error) {
 		c.Related = m.related(n)
 	}
 
+	c.History = m.historyOf(n)
 	c.Docs, _ = m.docsFor(m.docTargets(n, m.impactSeeds(n)), maxDocHits)
 	m.addFindings(c, n)
 	c.Notes = append(c.Notes, m.warnings(layersFor(n)...)...)
@@ -438,7 +466,12 @@ func (m *Model) codeContext(c *Context, n *Node) {
 		c.ImportedBy = m.capRefs(m.in(pkg, "imports"), maxListed)
 	}
 	if n.Kind == "func" {
-		c.Reach = m.reachFrom(pkg, c.Tables, n.ID)
+		if m.hasCalls() {
+			c.Calls, c.CalledBy = m.callRefs(n, true), m.callRefs(n, false)
+			c.Reach = m.reachByCalls(n, c.Tables)
+		} else {
+			c.Reach = m.reachFrom(pkg, c.Tables, n.ID)
+		}
 	}
 	if n.Kind == "type" && len(maps) == 0 {
 		c.Notes = append(c.Notes, "This type is mapped to no table (maps_to needs `db:\"col\"` tags covering one table's columns).")
@@ -546,6 +579,11 @@ func (m *Model) routeContext(c *Context, n *Node) {
 	ta := &TableAccess{Reads: m.capRefs(m.out(h, "reads_table"), maxListed), Writes: m.capRefs(m.out(h, "writes_table"), maxListed)}
 	if len(ta.Reads)+len(ta.Writes) > 0 {
 		c.Tables = ta
+	}
+	if m.hasCalls() {
+		c.Calls = m.callRefs(h, true)
+		c.Reach = m.reachByCalls(h, c.Tables)
+		return
 	}
 	c.Reach = m.reachFrom(m.pkgOf(h), c.Tables, h.ID)
 }
@@ -760,7 +798,8 @@ func (m *Model) findingsAbout(nodes []*Node) []FindingRef {
 }
 
 func (m *Model) findingRef(f *Node) FindingRef {
-	return FindingRef{ID: f.ID, Rule: f.Str("rule"), Severity: f.Str("severity"), Message: f.Str("message"), About: f.first("about")}
+	return FindingRef{ID: f.ID, Rule: f.Str("rule"), Severity: f.Str("severity"), Message: f.Str("message"), About: f.first("about"),
+		Path: f.Str("path"), Line: f.Int("line")}
 }
 
 // severityRank orders findings, worst first; unknown severities last.

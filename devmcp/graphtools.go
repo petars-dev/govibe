@@ -140,7 +140,7 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 		Description: "START HERE. Describes the project graph as it is right now: every kind of node with its count, ID format and a real example, " +
 			"every predicate with its count and what it links, how to read confidence and method, which tool answers which question, " +
 			"example graph_query queries, which layers are built, and how fresh the graph is (git sha, dirty, indexed_at, stale layers). " +
-			"Layers that are not built (calls, git) are named, so an empty answer is not read as a clean one.",
+			"Opt-in layers that are off (calls, git) are named with how to switch them on, so an empty answer is not read as a clean one.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, codegraph.SchemaInfo, error) {
 		m, err := g.model(ctx)
@@ -154,7 +154,8 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 		Name: "graph_context",
 		Description: "One-call briefing on a file, package, function, type, route, table, template, config key, spec or any node: where it lives (package, arch layer), " +
 			"what it defines, the routes it serves, the tables it touches, the config it reads, the docs and specs that mention it, findings about it, " +
-			"and its neighbours. For a route: its handler, middleware, and the tables its package can reach through imports, labelled possible, not proven. " +
+			"and its neighbours. For a route or function: its handler, middleware, what it calls and is called by, and the tables it reaches (through the chain of calls when the calls layer is on; " +
+			"otherwise estimated from package imports and labelled possible, not proven); for a file, doc or function, its git history (last commit, churn, what changes with it) when the git layer is on. " +
 			"For a table: columns, keys, relations (declared and implied, with confidence), readers, writers and migrations. " +
 			"Give exactly one of path, symbol, route, table or node.",
 		Annotations: readOnly,
@@ -173,10 +174,12 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "graph_impact",
 		Description: "What is affected if this changes? Returns the nodes that depend on it, strongest evidence first, each with its confidence and method: " +
-			"100 is a stored edge, 90 an edge read from SQL strings or db tags, 60 and below a package-level estimate (the importers of the package that " +
-			"holds the changed code, and the routes and MCP tools registered in them: possible, not proven, with the import chain in `through`). " +
+			"100 is a stored edge or a plain call, 90 an edge read from SQL strings or db tags, 80 and below a call through an interface (interface_dispatch), and 60 and below a package-level " +
+			"estimate (used for code only when the calls layer is off: the importers of the package that holds the changed code, and the routes and MCP tools registered in them, with the import chain in `through`). " +
+			"With the calls layer on, routes and tools carry the chain of calls that reaches them in `through`, and the default depth is 6. " +
 			"Also lists the docs, specs and spec rows that mention the changed code (what to update). For a table the routes carry an access " +
-			"(read, write, read+write). A file or package means everything it defines; a migration, the tables it introduced. " +
+			"(read, write, read+write, the union over every call path). A file or package means everything it defines; a migration, the tables it introduced. " +
+			"`co_changed` lists what usually changes with the changed files (git layer). " +
 			"Call graph_context first if you only need to know what something is.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in impactIn) (*mcp.CallToolResult, codegraph.ImpactResult, error) {
@@ -193,8 +196,9 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "graph_path",
-		Description: "How does one node reach another? A shortest chain of dependency edges (route -> handler -> ... -> table; package -> package; function -> config key), " +
-			"tried exact first, then through package imports and shared packages, which is flagged `inferred` with confidence 50 because no call edges are indexed. " +
+		Description: "How does one node reach another? A chain of dependency edges (route -> handler -> service -> store -> table; package -> package; function -> config key), " +
+			"each hop with its confidence, the surest chain first; the path is as sure as its weakest hop. With the calls layer on, a route and a table are linked by calls or not at all. " +
+			"Without it, if no exact chain exists the search goes through package imports and shared packages, flagged `inferred` with confidence 50. " +
 			"Tries both orientations (a depends on b, then b on a). When nothing links them it says so and returns what each side reaches by exact edges, " +
 			"so the missing hop is visible. It never invents a hop.",
 		Annotations: readOnly,
@@ -263,7 +267,8 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 	if ix != nil {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name: "graph_reindex",
-			Description: "Rebuild the graph from the sources now. With no layers, every layer; otherwise the named layers and the layers built on them. " +
+			Description: "Rebuild the graph from the sources now. With no layers, every layer that is on; otherwise the named layers and the layers built on them. " +
+				"Naming an opt-in layer (calls: the call graph, about a second; git: history) switches it on for as long as the server runs. " +
 				"Every graph tool already brings stale layers up to date before answering, so this is for when something changed that fingerprints cannot see, " +
 				"or to retry a layer that failed. It writes only the indexer's own quads (hand-added quads survive) and is safe to repeat. " +
 				"Returns each layer's status, whether it ran, and its quad counts.",
@@ -385,7 +390,7 @@ type contextIn struct {
 
 type impactIn struct {
 	Node  string   `json:"node" jsonschema:"what changes: a node ID or any reference graph_context takes (a file, package, symbol, route, table, config key, migration)"`
-	Depth int      `json:"depth,omitempty" jsonschema:"hops of exact dependencies to follow (default 3, max 6)"`
+	Depth int      `json:"depth,omitempty" jsonschema:"hops of exact dependencies to follow (default 3, max 6; with the calls layer on, default 6, max 10)"`
 	Limit int      `json:"limit,omitempty" jsonschema:"max affected nodes returned, weakest evidence dropped first (default 100, max 500)"`
 	Kinds []string `json:"kinds,omitempty" jsonschema:"only return these kinds, e.g. route, mcp_tool, func, package, table (by_kind still counts everything)"`
 }
@@ -417,7 +422,7 @@ type findingsIn struct {
 }
 
 type reindexIn struct {
-	Layers []string `json:"layers,omitempty" jsonschema:"layers to rebuild: code, routes, templates, config, mcp, db, docs; omit for all"`
+	Layers []string `json:"layers,omitempty" jsonschema:"layers to rebuild: code, routes, templates, config, mcp, db, docs, findings, and the opt-in calls and git (naming one switches it on); omit for every layer that is on"`
 }
 
 type reindexOut struct {

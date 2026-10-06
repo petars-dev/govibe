@@ -63,33 +63,35 @@ var (
 // edge rules: predicate -> the kinds of subject and object it may join.
 // "=" as the object list means "the same kind as the subject".
 var edges = map[string][2][]string{
-	"defined_in":     {{"func", "type", "template"}, {"file"}},
-	"in_package":     {{"file"}, {"package"}},
-	"imports":        {{"package"}, {"package"}},
-	"has_layer":      {{"build"}, {"layer"}},
-	"handled_by":     {{"route"}, {"func"}},
-	"uses_mw":        {{"route"}, {"middleware"}},
-	"implemented_by": {{"middleware"}, {"func"}},
-	"renders":        {{"func", "template"}, {"template"}},
-	"uses_config":    {{"func", "package"}, {"config_key"}},
-	"reads_env":      {{"config_key", "func"}, {"env_var"}},
-	"registers":      {{"func"}, {"mcp_tool"}},
-	"has_item":       {{"spec"}, {"spec_item"}},
-	"mentions":       {{"doc", "spec"}, valueKinds},
-	"covers":         {{"spec_item"}, valueKinds},
-	"has_column":     {{"table", "index"}, {"column"}},
-	"has_index":      {{"table"}, {"index"}},
-	"fk_to":          {{"column", "table"}, {"="}},
-	"implicit_ref":   {{"column", "table"}, {"="}},
-	"many_to_many":   {{"table"}, {"table"}},
-	"introduced_in":  {{"table", "column", "index"}, {"migration"}},
-	"reads_table":    {{"func"}, {"table"}},
-	"writes_table":   {{"func"}, {"table"}},
-	"maps_to":        {{"type"}, {"table"}},
-	"subject":        {{"annotation"}, {"column", "table"}},
-	"object":         {{"annotation"}, {"column", "table"}},
-	"via":            {{"annotation"}, {"table"}},
-	"about":          {{"finding"}, append(append([]string(nil), valueKinds...), "spec_item", "middleware")},
+	"defined_in":      {{"func", "type", "template"}, {"file"}},
+	"in_package":      {{"file"}, {"package"}},
+	"imports":         {{"package"}, {"package"}},
+	"has_layer":       {{"build"}, {"layer"}},
+	"handled_by":      {{"route"}, {"func"}},
+	"uses_mw":         {{"route"}, {"middleware"}},
+	"implemented_by":  {{"middleware"}, {"func"}},
+	"renders":         {{"func", "template"}, {"template"}},
+	"uses_config":     {{"func", "package"}, {"config_key"}},
+	"reads_env":       {{"config_key", "func"}, {"env_var"}},
+	"registers":       {{"func"}, {"mcp_tool"}},
+	"has_item":        {{"spec"}, {"spec_item"}},
+	"mentions":        {{"doc", "spec"}, valueKinds},
+	"covers":          {{"spec_item"}, valueKinds},
+	"has_column":      {{"table", "index"}, {"column"}},
+	"has_index":       {{"table"}, {"index"}},
+	"fk_to":           {{"column", "table"}, {"="}},
+	"implicit_ref":    {{"column", "table"}, {"="}},
+	"many_to_many":    {{"table"}, {"table"}},
+	"introduced_in":   {{"table", "column", "index"}, {"migration"}},
+	"reads_table":     {{"func"}, {"table"}},
+	"writes_table":    {{"func"}, {"table"}},
+	"maps_to":         {{"type"}, {"table"}},
+	"calls":           {{"func"}, {"func"}},
+	"co_changed_with": {{"file", "doc", "spec"}, {"file", "doc", "spec"}},
+	"subject":         {{"annotation"}, {"column", "table", "func", "file", "doc", "spec"}},
+	"object":          {{"annotation"}, {"column", "table", "func", "file", "doc", "spec"}},
+	"via":             {{"annotation"}, {"table", "type"}},
+	"about":           {{"finding"}, append(append([]string(nil), valueKinds...), "spec_item", "middleware")},
 }
 
 func in(list []string, kind string) bool {
@@ -323,12 +325,18 @@ func checkSchema(t *testing.T, quads []quad.Quad, res *Result) {
 	}
 
 	// Each inferred edge has exactly one annotation that names it, says how it
-	// was inferred, and how sure that is; each annotation names a real edge.
+	// was inferred, and how sure that is; each annotation names a real edge. A
+	// relation the schema implies, and a pair of files that change together, are
+	// inferred by their nature; a call is only when it goes through an interface.
 	type edge struct{ s, p, o string }
-	inferred := map[edge]bool{}
+	exists, inferred := map[edge]bool{}, map[edge]bool{}
 	for _, q := range quads {
-		if p := iri(q.Predicate); p == "implicit_ref" || p == "many_to_many" {
+		switch p := iri(q.Predicate); p {
+		case "implicit_ref", "many_to_many", "co_changed_with":
 			inferred[edge{iri(q.Subject), p, iri(q.Object)}] = true
+			exists[edge{iri(q.Subject), p, iri(q.Object)}] = true
+		case "calls":
+			exists[edge{iri(q.Subject), p, iri(q.Object)}] = true
 		}
 	}
 	annotated := map[edge]int{}
@@ -356,7 +364,7 @@ func checkSchema(t *testing.T, quads []quad.Quad, res *Result) {
 				conf = int64(q.Object.(quad.Int))
 			}
 		}
-		if !inferred[e] {
+		if !exists[e] {
 			t.Errorf("annotation %s names an edge that does not exist: %v", id, e)
 		}
 		if method == "" || conf < 0 || conf > 100 {
