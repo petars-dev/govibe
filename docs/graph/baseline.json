@@ -1,0 +1,11 @@
+{
+  "comment": "Findings accepted as known debt by `govibe graph index --baseline`. A finding listed here does not fail the gate; one that is not listed does. Regenerate with `govibe graph index --update-baseline` after fixing or deliberately accepting findings, and review the diff.",
+  "findings": [
+    {
+      "id": "finding:layering:pkg:controllers#pkg:storage/dbexplorer",
+      "rule": "layering",
+      "severity": "error",
+      "message": "controllers imports storage/dbexplorer, against the layering rule: only business actions and services may call storage; controllers packages should go through them. (controllers layer into storage layer; first used at controllers/devdb.go:37.)"
+    }
+  ]
+}
