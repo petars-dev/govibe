@@ -1,0 +1,110 @@
+<doc:README.md> <mentions> <doc:docs/public/ARCHITECTURE.md> <layer:docs> .
+<doc:README.md> <mentions> <spec:hello> <layer:docs> .
+<doc:README.md> <name> "README.md" <layer:docs> .
+<doc:README.md> <path> "README.md" <layer:docs> .
+<doc:README.md> <title> "Fixture" <layer:docs> .
+<doc:README.md> <type> <kind:doc> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:mail.smtp.host> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:mail.smtp.password> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:mail.smtp.port> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:server.port> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <col:orders.user_id> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <doc:README.md> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <doc:docs/public/GUIDE.md> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <env:FIXTURE_DEBUG> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <env:FIXTURE_DSN> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <env:PORT> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <file:assets/templates/home.templ> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <file:main.go> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <func:business/services/orders.Service.List> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <func:controllers.GetOrder> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <func:controllers.HelloAPI> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <func:storage/orderstore.Store.List> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <mig:0001_init> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <pkg:controllers> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <pkg:storage/orderstore> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <route:ANY:/dev/mcp> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <route:GET:/api/hello> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <route:GET:/api/orders> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <spec:hello> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <table:order_items> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <table:orders> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <table:products> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <table:users> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <tmpl:assets/templates.Home> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <tool:fixture_echo> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <tool:fixture_ping> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <typ:storage/orderstore.Store> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <name> "ARCHITECTURE.md" <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <path> "docs/public/ARCHITECTURE.md" <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <title> "Fixture Architecture" <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <type> <kind:doc> <layer:docs> .
+<doc:docs/public/GUIDE.md> <mentions> <doc:docs/public/ARCHITECTURE.md> <layer:docs> .
+<doc:docs/public/GUIDE.md> <mentions> <file:main.go> <layer:docs> .
+<doc:docs/public/GUIDE.md> <mentions> <file:routes/routes.go> <layer:docs> .
+<doc:docs/public/GUIDE.md> <mentions> <route:GET:/api/hello> <layer:docs> .
+<doc:docs/public/GUIDE.md> <name> "GUIDE.md" <layer:docs> .
+<doc:docs/public/GUIDE.md> <path> "docs/public/GUIDE.md" <layer:docs> .
+<doc:docs/public/GUIDE.md> <title> "Fixture Guide" <layer:docs> .
+<doc:docs/public/GUIDE.md> <type> <kind:doc> <layer:docs> .
+<item:hello/get-api-hello-endpoint> <covers> <func:controllers.HelloAPI> <layer:docs> .
+<item:hello/get-api-hello-endpoint> <covers> <route:GET:/api/hello> <layer:docs> .
+<item:hello/get-api-hello-endpoint> <line> "10"^^<schema:Integer> <layer:docs> .
+<item:hello/get-api-hello-endpoint> <name> "GET /api/hello endpoint" <layer:docs> .
+<item:hello/get-api-hello-endpoint> <note> "Served by controllers.HelloAPI" <layer:docs> .
+<item:hello/get-api-hello-endpoint> <path> "docs/specs/SPEC_HELLO.md" <layer:docs> .
+<item:hello/get-api-hello-endpoint> <status> "implemented" <layer:docs> .
+<item:hello/get-api-hello-endpoint> <type> <kind:spec_item> <layer:docs> .
+<item:hello/greeting-history> <line> "13"^^<schema:Integer> <layer:docs> .
+<item:hello/greeting-history> <name> "Greeting history" <layer:docs> .
+<item:hello/greeting-history> <path> "docs/specs/SPEC_HELLO.md" <layer:docs> .
+<item:hello/greeting-history> <status> "skipped" <layer:docs> .
+<item:hello/greeting-history> <type> <kind:spec_item> <layer:docs> .
+<item:hello/greeting-history> <why_skipped> "Out of scope: no fixture_forget tool either" <layer:docs> .
+<item:hello/landing-page> <covers> <tmpl:assets/templates.Home> <layer:docs> .
+<item:hello/landing-page> <line> "11"^^<schema:Integer> <layer:docs> .
+<item:hello/landing-page> <name> "Landing page" <layer:docs> .
+<item:hello/landing-page> <note> "Rendered by templates.Home" <layer:docs> .
+<item:hello/landing-page> <path> "docs/specs/SPEC_HELLO.md" <layer:docs> .
+<item:hello/landing-page> <status> "implemented" <layer:docs> .
+<item:hello/landing-page> <type> <kind:spec_item> <layer:docs> .
+<item:hello/localised-greetings> <covers> <func:business/actions.Hello> <layer:docs> .
+<item:hello/localised-greetings> <line> "14"^^<schema:Integer> <layer:docs> .
+<item:hello/localised-greetings> <name> "Localised greetings" <layer:docs> .
+<item:hello/localised-greetings> <note> "Planned: actions.Hello returns one language" <layer:docs> .
+<item:hello/localised-greetings> <path> "docs/specs/SPEC_HELLO.md" <layer:docs> .
+<item:hello/localised-greetings> <status> "planned" <layer:docs> .
+<item:hello/localised-greetings> <type> <kind:spec_item> <layer:docs> .
+<item:hello/mcp-tool-fixture-ping> <covers> <func:devmcp.NewHandler> <layer:docs> .
+<item:hello/mcp-tool-fixture-ping> <covers> <tool:fixture_ping> <layer:docs> .
+<item:hello/mcp-tool-fixture-ping> <line> "12"^^<schema:Integer> <layer:docs> .
+<item:hello/mcp-tool-fixture-ping> <name> "MCP tool fixture_ping" <layer:docs> .
+<item:hello/mcp-tool-fixture-ping> <note> "Registered by devmcp.NewHandler" <layer:docs> .
+<item:hello/mcp-tool-fixture-ping> <path> "docs/specs/SPEC_HELLO.md" <layer:docs> .
+<item:hello/mcp-tool-fixture-ping> <status> "implemented" <layer:docs> .
+<item:hello/mcp-tool-fixture-ping> <type> <kind:spec_item> <layer:docs> .
+<item:hello/settings-fixture-db-max-conns> <covers> <env:FIXTURE_DB_MAX_CONNS> <layer:docs> .
+<item:hello/settings-fixture-db-max-conns> <line> "15"^^<schema:Integer> <layer:docs> .
+<item:hello/settings-fixture-db-max-conns> <name> "Settings FIXTURE_DB_MAX_CONNS" <layer:docs> .
+<item:hello/settings-fixture-db-max-conns> <note> "Declared, not yet read" <layer:docs> .
+<item:hello/settings-fixture-db-max-conns> <path> "docs/specs/SPEC_HELLO.md" <layer:docs> .
+<item:hello/settings-fixture-db-max-conns> <status> "partial" <layer:docs> .
+<item:hello/settings-fixture-db-max-conns> <type> <kind:spec_item> <layer:docs> .
+<spec:hello> <has_item> <item:hello/get-api-hello-endpoint> <layer:docs> .
+<spec:hello> <has_item> <item:hello/greeting-history> <layer:docs> .
+<spec:hello> <has_item> <item:hello/landing-page> <layer:docs> .
+<spec:hello> <has_item> <item:hello/localised-greetings> <layer:docs> .
+<spec:hello> <has_item> <item:hello/mcp-tool-fixture-ping> <layer:docs> .
+<spec:hello> <has_item> <item:hello/settings-fixture-db-max-conns> <layer:docs> .
+<spec:hello> <mentions> <env:FIXTURE_DB_MAX_CONNS> <layer:docs> .
+<spec:hello> <mentions> <func:business/actions.Hello> <layer:docs> .
+<spec:hello> <mentions> <func:controllers.HelloAPI> <layer:docs> .
+<spec:hello> <mentions> <func:devmcp.NewHandler> <layer:docs> .
+<spec:hello> <mentions> <route:GET:/api/hello> <layer:docs> .
+<spec:hello> <mentions> <tmpl:assets/templates.Home> <layer:docs> .
+<spec:hello> <mentions> <tool:fixture_ping> <layer:docs> .
+<spec:hello> <name> "hello" <layer:docs> .
+<spec:hello> <path> "docs/specs/SPEC_HELLO.md" <layer:docs> .
+<spec:hello> <status> "in_progress" <layer:docs> .
+<spec:hello> <title> "SPEC_HELLO" <layer:docs> .
+<spec:hello> <type> <kind:spec> <layer:docs> .

@@ -29,9 +29,10 @@ Dev-only, like everything under `/dev/*`: indexing never runs when `cfg.IsProd()
 7. **No tests exist.** The indexer needs golden tests from day one, since agents will trust its output.
 8. **Existing pieces to reuse:** `chi.Walk` (exact runtime routes), `dbexplorer` (schema
    introspection incl. FKs), `templ/parser/v2` and `goldmark` (already deps), `mcp.AddResource` /
-   `AddPrompt` (available in go-sdk v1.8.0), `Store.ApplyDeltas` (atomic add/delete; tolerant
+   `AddPrompt` (available in go-sdk v1.8.0), `Store.ApplyDeltas` (atomic batch; tolerant
    `IgnoreDup`/`IgnoreMissing` mode only: a failed strict transaction corrupts the in-process node
-   cache, see the Writer contract in `docs/public/GRAPH_SCHEMA.md`).
+   cache. A **mixed add+delete batch is also unsafe**: it silently loses the adds, see F11 and the
+   Writer contract in `docs/public/GRAPH_SCHEMA.md`).
 
 ## Goals
 - A fresh, deterministic snapshot of the project graph after every boot, with zero manual steps.
@@ -143,9 +144,13 @@ are planned additions, not capabilities an agent should assume exist until imple
 - Every managed quad carries a **label** = its layer (`layer:code`, `layer:routes`, `layer:db`, …).
   Quads with any other label (including the `/dev/graph` "Add a quad" form) are never touched.
 - Per layer: build the new quad set in memory, read the existing quads for that label, diff, and
-  `ApplyDeltas` only the difference. Idempotent, atomic per layer, and the diff gives "what changed".
-  Deletes must carry the exact label, and `ApplyDeltas` runs with `IgnoreDup` and `IgnoreMissing`
-  (never `ApplyTransaction`); the full recipe is the Writer contract in `GRAPH_SCHEMA.md`.
+  write only the difference. Idempotent, and the diff gives "what changed". Deletes must carry the
+  exact label, and writes use tolerant `ApplyDeltas` (`IgnoreDup` and `IgnoreMissing`, never
+  `ApplyTransaction`). **Phase 1 deviation:** the diff is applied as two batches, adds first, then
+  deletes, and the layer is read back and verified afterwards. A single mixed batch corrupted the
+  store in 147 of 150 randomized trials (F11), so "atomic per layer" became "converges on the next
+  run": a failure between the two batches leaves a superset that the next run trims. The full
+  recipe is the Writer contract in `GRAPH_SCHEMA.md`.
 - Layer output is deterministic (no timestamps, sorted); volatile data lives only on the meta node.
 
 ### Vocabulary (prefixed IRIs, defined once in `vocab.go`, documented in `GRAPH_SCHEMA.md`)
@@ -274,25 +279,115 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
      `docs/public/GRAPH_SCHEMA.md`; `business/services/codegraph/testdata/fixture/`. The vocabulary
      still needs the owner's sign-off, and `GRAPH_SCHEMA.md` ends with the decisions deferred to later
      phases.
-1. **Phase 1: Indexer core + `code` layer (MVP)**
+1. **Phase 1: Indexer core + `code` layer (MVP), done**
    - `business/services/codegraph`: `vocab.go`, label-scoped diff writer (`ApplyDeltas`), fingerprints,
      `meta` node, async boot hook in `routes.NewRouter`, `POST /dev/graph/reindex`.
    - `code` layer via `go/ast`; layer classification; `imports` edges.
    - Golden N-Quads test on the fixture; invariant test on the real repo (no dangling refs).
    - *Done when:* `g.V('<pkg:controllers>').Out('<imports>').All()` works after `make air`, restarts
      reproduce identical quads, and a manual quad survives a reindex.
-2. **Phase 2: Runtime + config + docs layers**
+   - *Delivered:* `business/services/codegraph/` (`vocab.go`, `writer.go`, `scan.go`, `code.go`,
+     `meta.go`, `indexer.go`, tests, `testdata/golden/code.nq`); `controllers.DevGraphReindex`;
+     the boot hook in `routes/routes.go`; the `graph_query` description now shows the `'<iri>'`
+     idiom; F11 pinned in `storage/graphdb/contract_test.go`. On this repo the layer is ~1,500 quads
+     and builds in ~20 ms; a whole first run into an empty store takes ~0.2 s. Verified end to end against a running server in a
+     scratch copy: the acceptance query, identical quads across a restart, a manual quad surviving
+     `POST /dev/graph/reindex`, an edited source reflected after a reindex, and `graph_query` over MCP.
+   - *Deviations from the plan:*
+     - **Two-batch writer plus read-back verification** instead of one `ApplyDeltas` (F11, above).
+     - Fingerprints are computed and stored on `layer:code`, but nothing consumes them yet; a run
+       always rebuilds every layer. Skipping fresh layers is the Phase 2 lazy refresh.
+     - `*_test.go` files are not indexed (test -> code edges are in the backlog).
+     - Module-internal imports of a package with no node (`assets/templates`, which holds only
+       generated `*_templ.go`) produce no `imports` edge; they count toward `external_imports`. The
+       templates layer (Phase 2) covers that relation with `renders`.
+     - A file that does not parse is skipped with a warning and the layer reports `partial`.
+     - Once an `ApplyDeltas` call fails, the writer refuses every later write in that process
+       (restart to clear), per the F8 contract.
+     - `/dev/graph` still loads every quad. With ~1,500 quads (about 950 nodes) the old `cose` visualizer
+       takes 10-15 s to lay out and produces an unreadable blob. That is the Phase 5 item
+       ("cap at N nodes, expand on double-click"); use the Gizmo console or `graph_query` until then.
+2. **Phase 2: Runtime + config + docs layers, done**
    - `routes` (chi.Walk + middleware + FuncForPC mapping), `templates`, `config`, `mcp`, `docs`
      (incl. spec status rows, path/symbol `mentions`).
    - Lazy refresh by fingerprint (docs edits show up without a restart).
    - *Done when:* a route resolves to its handler's file:line, and editing a spec updates the graph
      on the next page load.
-3. **Phase 3: `db` layer**
+   - *Delivered:* `layer_routes.go`, `layer_templates.go`, `layer_config.go`, `layer_mcp.go`,
+     `layer_docs.go` and `world.go` in `business/services/codegraph/`; `Indexer.Refresh` and
+     `Indexer.Stale`; `controllers.DevGraphPage` (the page load refreshes first); `devmcp.NewHandler`
+     takes a refresh hook that every `graph_query` call runs first; the boot indexer is handed the live
+     router. The fixture grew config, templates, an MCP stub, docs and a spec (goldens per layer under
+     `testdata/golden/`). Verified end to end against a running server in a scratch copy: `GET /api/hello`
+     resolves to `func:controllers.HelloAPI`, `controllers/api.go`, line 14; `GET /` → handler → the
+     `Home` template; after editing a spec on disk, `GET /dev/graph` (0.17 s, only `docs` rebuilt) puts the
+     new row in the graph, and a later `graph_query` over MCP picks up a doc edit the same way; a freshness
+     check with nothing stale costs 3-5 ms. All six layers index this repo (~3,300 quads) in ~0.27 s on
+     boot.
+   - *Deviations from the plan:*
+     - **A route registered for every method is one `ANY` route**, not the nine `chi.Walk` reports, so
+       the layer walks the router itself (same traversal, one difference).
+     - **Handlers resolve by file and line only.** Under inlining Go names a closure after its caller
+       (`routes.NewRouter.func2.StripPrefix` for `net/http.StripPrefix`), so a symbol name can point at
+       the wrong function; only method-value wrappers (`x.Method-fm`, which have no source) resolve by
+       name. A handler that is not application code gets a `handler` label instead of a link.
+     - `func --registers--> tool` (the registering function), `tmpl:<dir>.<Name>`, and
+       `item:<spec>/<item text slug>` settle the three provisional IDs (reasons in `GRAPH_SCHEMA.md`).
+     - **A layer's fingerprint includes its dependencies'**, not only its own inputs, so a layer reads as
+       stale whenever what it resolves against changed; a layer that failed is retried only when its
+       fingerprint changes, so a persistent error does not re-run on every page load.
+     - The `routes` layer is `skipped` (not emptied) when no router is wired, so an offline run cannot
+       erase what a running server derived.
+     - `documents` is not emitted, and a doc mention that resolves to nothing is not recorded; both are
+       listed in `GRAPH_SCHEMA.md`'s open decisions (Phase 5 needs the second).
+     - A new dependency: `github.com/a-h/parse` (indirect, templ's parser needs it). The spec called
+       `templ/parser/v2` "already a dep", but only templ's runtime was.
+     - `input_schema` is derived from the handler's struct tags, not from the SDK's own inference.
+     - `/dev/graph` still loads every quad: with ~3,300 quads the old `cose` visualizer is slower than it
+       was at ~1,500 (10-15 s then; not re-measured). That is Phase 5; use the Gizmo console or
+       `graph_query` until then.
+3. **Phase 3: `db` layer, done**
    - `Explorer.Snapshot`, `REFERENTIAL_CONSTRAINTS`, static migration parser, inferred relations,
      table-literal → `reads_table`/`writes_table`, `db:` tag → `maps_to`.
    - Seed a sample migration (users/orders/order_items) in a scratch DB to exercise FK, implicit ref,
      junction, and no-DB (migration-only) paths.
    - *Done when:* ER preset renders from migrations alone, and live DB adds indexes/comments/drift.
+   - *Delivered:* `storage/dbexplorer/snapshot.go` (`Explorer.Snapshot`); `sqlschema.go` (tokenizer and DDL
+     parser), `dbmodel.go` (merge, drift, inference), `sqlscan.go` (tables out of SQL), `layer_db.go` in
+     `business/services/codegraph/`; SQL string facts in the code index; mentions of tables, columns and
+     migrations in the docs layer; `internal/graphcheck` (the cross-layer invariants, now shared by the
+     repo and fixture tests); `routes.go` hands the indexer `explorer.Snapshot`. The fixture grew the
+     spec's sample (one migration: users, products, orders, order_items, with an unenforced `user_id` and
+     a composite-key junction) and SQL in `orderstore`; the further cases (`ALTER`s of existing tables, a
+     shared primary key, renames and drops, an implicit reference beside a column that names no table,
+     drift) are an inline second migration in the tests, so the tree carries no schema beyond that sample. Verified
+     against a real MariaDB 12.3: the static parser reproduces what the server makes of those migrations
+     exactly (no drift, same index and constraint structure), `Explorer.Snapshot` tests, a running server (goose migrates on boot, 301 db
+     quads, all seven layers in ~0.7 s), a database changed by hand with no file changing (the next page
+     load shows it as `source=live`, a type `drift`, and a foreign key replacing an inferred reference), a
+     database that goes away (the layer falls back to the migrations, `partial`, and heals when it returns),
+     and that no row data reaches the graph.
+   - *Deviations from the plan:*
+     - **No UI preset.** "ER preset renders from migrations alone" is Phase 5's visualizer; here the ER
+       data is in the graph and queryable (`has_column`, `fk_to`, the inferred edges), from migrations alone
+       and merged with a live database. The old `/dev/graph` page still loads every quad.
+     - **The static parser is a tokenizer, not regexes**, and emulates MariaDB's naming (unnamed keys,
+       the index InnoDB adds for a foreign key). It reads MySQL/MariaDB DDL only.
+     - **Drift is recorded on the elements** (`source` on tables, columns and indexes; `drift` where both
+       sides have it and differ), not as separate nodes; the Phase 5 findings derive from those. Type
+       comparison is best effort (widths, aliases and bare `decimal` are normalised).
+     - **Inferred edges** use the Phase 0 annotation decision (`ann:<hash>`, with `subject`, `object`,
+       `predicate`, `method`, `confidence`, `via`); an unnamed foreign key's constraint name is reported only
+       when a live database supplies it (MySQL and MariaDB name them differently).
+     - **`reads_table`/`writes_table` come from SQL in `storage` and `business` functions**, including
+       package-level string constants used by name, but not SQL built at run time. The full
+       route → handler → action → function → table chain needs the `calls` layer (Phase 6), so
+       acceptance query 2 and 3 are answered only as far as the handler and the functions that touch the
+       table until then.
+     - The live schema is re-read at most every 5 seconds by freshness checks (an explicit reindex always
+       reads afresh), since it can change with no file changing; a database that cannot be reached makes
+       the layer `partial`, not failed.
+     - Row estimates and auto-increment positions are left out of the snapshot (volatile, and row-derived).
 4. **Phase 4: Agent surface**
    - `graph_schema`, `graph_context`, `graph_impact`, `graph_search`, `graph_neighbors`,
      `graph_path`, `graph_findings`, `graph_reindex`, resources, `explain-change` prompt; update
@@ -329,9 +424,9 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
 | Item | Implemented | Skipped | Why |
 | --- | --- | --- | --- |
 | Phase 0 groundwork (.gitignore, spike, vocab) | Yes | | Vocabulary awaits sign-off; spike corrected route IDs, Gizmo query forms, and the writer API (see `GRAPH_SCHEMA.md`) |
-| Indexer core + `code` layer | No | | Planned |
-| `routes`/`templates`/`config`/`mcp`/`docs` layers | No | | Planned |
-| `db` layer (live + static + inferred + code↔table) | No | | Planned |
+| Indexer core + `code` layer | Yes | | Writer applies adds then deletes (two batches) and verifies by read-back because of Cayley F11; fingerprints are stored but the skip-if-fresh logic waits for Phase 2; test files and templ-only packages are not indexed (see Phase 1 deviations) |
+| `routes`/`templates`/`config`/`mcp`/`docs` layers | Yes | | Routes collapse catch-alls to `ANY` and resolve by file:line; fingerprints include dependencies; `documents` and unresolved doc references are deferred (see Phase 2 deviations) |
+| `db` layer (live + static + inferred + code↔table) | Yes | | No ER preset yet (Phase 5 UI); drift recorded as `source`/`drift` on elements; route → table needs the `calls` layer (see Phase 3 deviations) |
 | Agent MCP tools/resources/prompt | No | | Planned |
 | Findings + human UI/reports | No | | Planned |
 | `calls`/`git` layers, CLI, CI | No | | Planned, opt-in |

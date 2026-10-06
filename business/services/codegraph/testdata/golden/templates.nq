@@ -1,0 +1,31 @@
+<file:assets/templates/home.templ> <lines> "13"^^<schema:Integer> <layer:templates> .
+<file:assets/templates/home.templ> <name> "home.templ" <layer:templates> .
+<file:assets/templates/home.templ> <path> "assets/templates/home.templ" <layer:templates> .
+<file:assets/templates/home.templ> <type> <kind:file> <layer:templates> .
+<file:assets/templates/layout.templ> <lines> "9"^^<schema:Integer> <layer:templates> .
+<file:assets/templates/layout.templ> <name> "layout.templ" <layer:templates> .
+<file:assets/templates/layout.templ> <path> "assets/templates/layout.templ" <layer:templates> .
+<file:assets/templates/layout.templ> <type> <kind:file> <layer:templates> .
+<func:controllers.HomePage> <renders> <tmpl:assets/templates.Home> <layer:templates> .
+<tmpl:assets/templates.Footer> <defined_in> <file:assets/templates/home.templ> <layer:templates> .
+<tmpl:assets/templates.Footer> <line> "11"^^<schema:Integer> <layer:templates> .
+<tmpl:assets/templates.Footer> <name> "Footer" <layer:templates> .
+<tmpl:assets/templates.Footer> <path> "assets/templates/home.templ" <layer:templates> .
+<tmpl:assets/templates.Footer> <signature> "templ Footer()" <layer:templates> .
+<tmpl:assets/templates.Footer> <type> <kind:template> <layer:templates> .
+<tmpl:assets/templates.Home> <defined_in> <file:assets/templates/home.templ> <layer:templates> .
+<tmpl:assets/templates.Home> <doc> "Home is the landing page." <layer:templates> .
+<tmpl:assets/templates.Home> <line> "4"^^<schema:Integer> <layer:templates> .
+<tmpl:assets/templates.Home> <name> "Home" <layer:templates> .
+<tmpl:assets/templates.Home> <path> "assets/templates/home.templ" <layer:templates> .
+<tmpl:assets/templates.Home> <renders> <tmpl:assets/templates.Footer> <layer:templates> .
+<tmpl:assets/templates.Home> <renders> <tmpl:assets/templates.Layout> <layer:templates> .
+<tmpl:assets/templates.Home> <signature> "templ Home()" <layer:templates> .
+<tmpl:assets/templates.Home> <type> <kind:template> <layer:templates> .
+<tmpl:assets/templates.Layout> <defined_in> <file:assets/templates/layout.templ> <layer:templates> .
+<tmpl:assets/templates.Layout> <doc> "Layout wraps a page in the shared HTML shell." <layer:templates> .
+<tmpl:assets/templates.Layout> <line> "4"^^<schema:Integer> <layer:templates> .
+<tmpl:assets/templates.Layout> <name> "Layout" <layer:templates> .
+<tmpl:assets/templates.Layout> <path> "assets/templates/layout.templ" <layer:templates> .
+<tmpl:assets/templates.Layout> <signature> "templ Layout(title string)" <layer:templates> .
+<tmpl:assets/templates.Layout> <type> <kind:template> <layer:templates> .

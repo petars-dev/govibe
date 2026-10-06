@@ -18,9 +18,11 @@ func New(db *sql.DB) http.Handler {
 	svc := orders.New(store)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", controllers.HomePage)
 	mux.HandleFunc("GET /api/hello", controllers.HelloAPI)
 	mux.HandleFunc("GET /api/orders", controllers.ListOrders(svc))
 	mux.HandleFunc("GET /api/orders/{id}", controllers.GetOrder(store))
 	mux.Handle("/dev/mcp", devmcp.NewHandler(store))
+	mux.Handle("/assets/", http.StripPrefix("/assets", http.FileServer(http.Dir("assets"))))
 	return middleware.RequestLogger(mux)
 }

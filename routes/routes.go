@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/cayleygraph/cayley/graph"
@@ -10,6 +11,7 @@ import (
 
 	"os"
 	"petars-dev/govibe/assets"
+	"petars-dev/govibe/business/services/codegraph"
 	"petars-dev/govibe/config"
 	"petars-dev/govibe/controllers"
 	"petars-dev/govibe/devmcp"
@@ -24,6 +26,10 @@ import (
 // NewRouter wires all app routes in one place.
 func NewRouter() http.Handler {
 	r := chi.NewRouter()
+
+	// Set when the dev graph store opens; indexes the project into it once the
+	// router is fully wired (see the end of this function).
+	var indexer *codegraph.Indexer
 
 	// Chi default middleware + our logger.
 	r.Use(middleware.RequestID)
@@ -82,7 +88,6 @@ func NewRouter() http.Handler {
 		} else {
 			quadStore = handle.QuadStore
 			api := cayleyhttp.NewAPIv2(&graph.Handle{QuadStore: handle.QuadStore, QuadWriter: handle.QuadWriter})
-			r.Get("/dev/graph", controllers.DevGraphConsole)
 			r.Handle("/dev/graph/api/*", http.StripPrefix("/dev/graph", api))
 			logrus.WithField("dir", graphdb.DefaultDir).Info("embedded graph store enabled at /dev/graph")
 		}
@@ -112,12 +117,47 @@ func NewRouter() http.Handler {
 			logrus.Info("db explorer: no MARIADB_DSN configured, /dev/db disabled")
 		}
 
+		// The graph indexer fills the graph store with a model of the project. It
+		// is created here, after the explorer, because it reads the live database
+		// schema through it, and it is handed this very router for the routes
+		// layer (read only once the router is fully wired).
+		if quadStore != nil {
+			opts := codegraph.Options{Root: ".", Router: r}
+			if explorer != nil {
+				opts.Schema = explorer.Snapshot
+			}
+			indexer = codegraph.New(quadStore, opts)
+			r.Get("/dev/graph", controllers.DevGraphPage(indexer))
+			r.Post("/dev/graph/reindex", controllers.DevGraphReindex(indexer))
+		}
+
 		// MCP server (streamable HTTP) exposing db_* and graph_query tools to
 		// local agents, mounted only once at least one backing store exists.
 		if explorer != nil || quadStore != nil {
-			r.Handle("/dev/mcp", devmcp.NewHandler(explorer, quadStore))
+			var refresh func(context.Context)
+			if indexer != nil {
+				// Every graph MCP call first brings stale layers up to date.
+				refresh = func(ctx context.Context) {
+					if _, err := indexer.Refresh(ctx); err != nil {
+						logrus.WithError(err).Warn("graph index: refresh before graph_query failed")
+					}
+				}
+			}
+			r.Handle("/dev/mcp", devmcp.NewHandler(explorer, quadStore, refresh))
 			logrus.Info("embedded MCP server enabled at /dev/mcp")
 		}
+	}
+
+	// Fill the graph store with the project's own structure. Async, so startup
+	// is never delayed, and never fatal: a failed layer is logged and the server
+	// stays up. With Air every rebuild restarts the server, so this runs on every
+	// build. The indexer runs in this process because it owns the bolt lock.
+	if indexer != nil {
+		go func() {
+			if _, err := indexer.Run(context.Background()); err != nil {
+				logrus.WithError(err).Warn("graph index: boot run failed; POST /dev/graph/reindex to retry")
+			}
+		}()
 	}
 
 	return r

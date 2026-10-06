@@ -1,0 +1,9 @@
+package templates
+
+// Layout wraps a page in the shared HTML shell.
+templ Layout(title string) {
+	<html>
+		<head><title>{ title }</title></head>
+		<body>{ children... }</body>
+	</html>
+}

@@ -23,7 +23,7 @@ const DefaultDir = "docs/graph"
 // Cayley's bundled bolt backend opens with no lock-wait timeout of its own,
 // so without this a second process pointed at the same dir (e.g. a stray
 // duplicate dev-server instance) would hang here forever.
-const openTimeout = 5 * time.Second
+var openTimeout = 5 * time.Second
 
 // Open initializes (on first run) and opens a bolt-backed Cayley quad store at dir.
 func Open(dir string) (*cayley.Handle, error) {

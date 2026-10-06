@@ -1,0 +1,13 @@
+package templates
+
+// Home is the landing page. It renders the shared layout and a footer.
+templ Home() {
+	@Layout("Home") {
+		<h1>Hello Fixture!</h1>
+		@Footer()
+	}
+}
+
+templ Footer() {
+	<footer>fixture</footer>
+}

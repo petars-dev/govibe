@@ -17,6 +17,7 @@ Directory Layout
 - routes: central route wiring (routes.go)
 - storage: DB access and migrations (mariadb driver wrapper, goose migrations, dev-only dbexplorer, dev-only graphdb)
 - business: actions (single-function business logic) and services (packages)
+- business/services/codegraph: dev-only graph indexer that fills the /dev/graph store with the project's own structure (Go code, routes and their handlers, templates, config keys and their use, MCP tools, the database schema and who reads which table, docs and specs) on every boot, and refreshes stale layers on page load and graph_query
 - devmcp: dev-only MCP server (official Go SDK) mounted at /dev/mcp, exposing db_* and graph_query tools to local agents
 
 Key Constraints
@@ -57,7 +58,7 @@ Configuration
   - Example feature: `mail.smtp.*` values can be defined and loaded dynamically.
 
 Dev-Only Tooling (never mounted in production)
-- `/dev/graph`: embedded Cayley graph store + query console (bolt file under docs/graph).
+- `/dev/graph`: embedded Cayley graph store + query console (bolt file under docs/graph). The store is filled on every boot with a model of the project: Go code, routes and their handlers, templates, config keys and their use, MCP tools, the database schema (from the migrations and, if `MARIADB_DSN` is set, the live database, with drift between them) and which code reads or writes which table, docs and specs (see `docs/public/GRAPH_SCHEMA.md` for node IDs, predicates and example queries, e.g. `g.V(g.IRI('route:GET:/api/hello')).Out(g.IRI('handled_by')).All()`). Edits to docs and specs show up on the next page load or `graph_query` without a restart; `POST /dev/graph/reindex` rebuilds everything on demand.
 - `/dev/db`: embedded database explorer (schema, browsing, filtered queries, sampling, explain
   plans; gated insert/reset mutations). See `storage/dbexplorer` and `controllers/devdb*.go`.
 - `/dev/mcp`: MCP server (official Go SDK, `github.com/modelcontextprotocol/go-sdk`) over

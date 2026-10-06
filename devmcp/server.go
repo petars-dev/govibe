@@ -5,6 +5,7 @@
 package devmcp
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/cayleygraph/cayley/graph"
@@ -16,7 +17,9 @@ import (
 // NewHandler builds the MCP server and returns an http.Handler for it, ready
 // to be mounted at a single path (e.g. /dev/mcp) in the chi router. Either ex
 // or qs may be nil, in which case the corresponding tools are not registered.
-func NewHandler(ex *dbexplorer.Explorer, qs graph.QuadStore) http.Handler {
+// refresh, if not nil, is called before every graph tool call so the graph
+// reflects edits made since it was last indexed.
+func NewHandler(ex *dbexplorer.Explorer, qs graph.QuadStore, refresh func(context.Context)) http.Handler {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:        "govibe-dev-tools",
 		Title:       "GoVibe Dev Tools",
@@ -26,14 +29,16 @@ func NewHandler(ex *dbexplorer.Explorer, qs graph.QuadStore) http.Handler {
 		Instructions: "Dev-only tools for the local GoVibe app. db_* tools introspect and query the app's " +
 			"MariaDB/MySQL database (read-only except db_insert_test_row/db_reset_test_data, which require " +
 			"mutations to be explicitly enabled). graph_query runs a read-only Gizmo query against the embedded " +
-			"Cayley graph store. None of this is available in production.",
+			"Cayley graph store, which holds a model of this project (code, routes, templates, config, MCP tools, " +
+			"the database schema, docs and specs; see docs/public/GRAPH_SCHEMA.md) and is brought up to date before each call; " +
+			"POST /dev/graph/reindex rebuilds it from scratch. None of this is available in production.",
 	})
 
 	if ex != nil {
 		registerDBTools(srv, ex)
 	}
 	if qs != nil {
-		registerGraphTools(srv, qs)
+		registerGraphTools(srv, qs, refresh)
 	}
 
 	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{

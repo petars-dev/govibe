@@ -1,0 +1,390 @@
+<file:business/actions/hello.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:business/actions/hello.go> <in_package> <pkg:business/actions> <layer:code> .
+<file:business/actions/hello.go> <lines> "6"^^<schema:Integer> <layer:code> .
+<file:business/actions/hello.go> <name> "hello.go" <layer:code> .
+<file:business/actions/hello.go> <path> "business/actions/hello.go" <layer:code> .
+<file:business/actions/hello.go> <type> <kind:file> <layer:code> .
+<file:business/actions/notify.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:business/actions/notify.go> <in_package> <pkg:business/actions> <layer:code> .
+<file:business/actions/notify.go> <lines> "11"^^<schema:Integer> <layer:code> .
+<file:business/actions/notify.go> <name> "notify.go" <layer:code> .
+<file:business/actions/notify.go> <path> "business/actions/notify.go" <layer:code> .
+<file:business/actions/notify.go> <type> <kind:file> <layer:code> .
+<file:business/services/orders/orders.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:business/services/orders/orders.go> <in_package> <pkg:business/services/orders> <layer:code> .
+<file:business/services/orders/orders.go> <lines> "32"^^<schema:Integer> <layer:code> .
+<file:business/services/orders/orders.go> <name> "orders.go" <layer:code> .
+<file:business/services/orders/orders.go> <path> "business/services/orders/orders.go" <layer:code> .
+<file:business/services/orders/orders.go> <type> <kind:file> <layer:code> .
+<file:config/config.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:config/config.go> <in_package> <pkg:config> <layer:code> .
+<file:config/config.go> <lines> "23"^^<schema:Integer> <layer:code> .
+<file:config/config.go> <name> "config.go" <layer:code> .
+<file:config/config.go> <path> "config/config.go" <layer:code> .
+<file:config/config.go> <type> <kind:file> <layer:code> .
+<file:controllers/hello.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:controllers/hello.go> <in_package> <pkg:controllers> <layer:code> .
+<file:controllers/hello.go> <lines> "12"^^<schema:Integer> <layer:code> .
+<file:controllers/hello.go> <name> "hello.go" <layer:code> .
+<file:controllers/hello.go> <path> "controllers/hello.go" <layer:code> .
+<file:controllers/hello.go> <type> <kind:file> <layer:code> .
+<file:controllers/home.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:controllers/home.go> <in_package> <pkg:controllers> <layer:code> .
+<file:controllers/home.go> <lines> "12"^^<schema:Integer> <layer:code> .
+<file:controllers/home.go> <name> "home.go" <layer:code> .
+<file:controllers/home.go> <path> "controllers/home.go" <layer:code> .
+<file:controllers/home.go> <type> <kind:file> <layer:code> .
+<file:controllers/orders.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:controllers/orders.go> <in_package> <pkg:controllers> <layer:code> .
+<file:controllers/orders.go> <lines> "41"^^<schema:Integer> <layer:code> .
+<file:controllers/orders.go> <name> "orders.go" <layer:code> .
+<file:controllers/orders.go> <path> "controllers/orders.go" <layer:code> .
+<file:controllers/orders.go> <type> <kind:file> <layer:code> .
+<file:devmcp/devmcp.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:devmcp/devmcp.go> <in_package> <pkg:devmcp> <layer:code> .
+<file:devmcp/devmcp.go> <lines> "42"^^<schema:Integer> <layer:code> .
+<file:devmcp/devmcp.go> <name> "devmcp.go" <layer:code> .
+<file:devmcp/devmcp.go> <path> "devmcp/devmcp.go" <layer:code> .
+<file:devmcp/devmcp.go> <type> <kind:file> <layer:code> .
+<file:main.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:main.go> <in_package> <pkg:.> <layer:code> .
+<file:main.go> <lines> "26"^^<schema:Integer> <layer:code> .
+<file:main.go> <name> "main.go" <layer:code> .
+<file:main.go> <path> "main.go" <layer:code> .
+<file:main.go> <type> <kind:file> <layer:code> .
+<file:mcp/mcp.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:mcp/mcp.go> <in_package> <pkg:mcp> <layer:code> .
+<file:mcp/mcp.go> <lines> "23"^^<schema:Integer> <layer:code> .
+<file:mcp/mcp.go> <name> "mcp.go" <layer:code> .
+<file:mcp/mcp.go> <path> "mcp/mcp.go" <layer:code> .
+<file:mcp/mcp.go> <type> <kind:file> <layer:code> .
+<file:middleware/logging.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:middleware/logging.go> <in_package> <pkg:middleware> <layer:code> .
+<file:middleware/logging.go> <lines> "16"^^<schema:Integer> <layer:code> .
+<file:middleware/logging.go> <name> "logging.go" <layer:code> .
+<file:middleware/logging.go> <path> "middleware/logging.go" <layer:code> .
+<file:middleware/logging.go> <type> <kind:file> <layer:code> .
+<file:routes/routes.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:routes/routes.go> <in_package> <pkg:routes> <layer:code> .
+<file:routes/routes.go> <lines> "28"^^<schema:Integer> <layer:code> .
+<file:routes/routes.go> <name> "routes.go" <layer:code> .
+<file:routes/routes.go> <path> "routes/routes.go" <layer:code> .
+<file:routes/routes.go> <type> <kind:file> <layer:code> .
+<file:storage/orderstore/orderstore.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:storage/orderstore/orderstore.go> <in_package> <pkg:storage/orderstore> <layer:code> .
+<file:storage/orderstore/orderstore.go> <lines> "61"^^<schema:Integer> <layer:code> .
+<file:storage/orderstore/orderstore.go> <name> "orderstore.go" <layer:code> .
+<file:storage/orderstore/orderstore.go> <path> "storage/orderstore/orderstore.go" <layer:code> .
+<file:storage/orderstore/orderstore.go> <type> <kind:file> <layer:code> .
+<file:storage/orderstore/zz_generated.go> <generated> "True"^^<schema:Boolean> <layer:code> .
+<file:storage/orderstore/zz_generated.go> <in_package> <pkg:storage/orderstore> <layer:code> .
+<file:storage/orderstore/zz_generated.go> <lines> "6"^^<schema:Integer> <layer:code> .
+<file:storage/orderstore/zz_generated.go> <name> "zz_generated.go" <layer:code> .
+<file:storage/orderstore/zz_generated.go> <path> "storage/orderstore/zz_generated.go" <layer:code> .
+<file:storage/orderstore/zz_generated.go> <type> <kind:file> <layer:code> .
+<func:..main> <defined_in> <file:main.go> <layer:code> .
+<func:..main> <exported> "False"^^<schema:Boolean> <layer:code> .
+<func:..main> <line> "18"^^<schema:Integer> <layer:code> .
+<func:..main> <name> "main" <layer:code> .
+<func:..main> <signature> "func main()" <layer:code> .
+<func:..main> <type> <kind:func> <layer:code> .
+<func:business/actions.Hello> <defined_in> <file:business/actions/hello.go> <layer:code> .
+<func:business/actions.Hello> <doc> "Hello returns the hello string used by the API." <layer:code> .
+<func:business/actions.Hello> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:business/actions.Hello> <line> "4"^^<schema:Integer> <layer:code> .
+<func:business/actions.Hello> <name> "Hello" <layer:code> .
+<func:business/actions.Hello> <signature> "func Hello() string" <layer:code> .
+<func:business/actions.Hello> <type> <kind:func> <layer:code> .
+<func:business/actions.Notify> <defined_in> <file:business/actions/notify.go> <layer:code> .
+<func:business/actions.Notify> <doc> "Notify returns the SMTP host messages go through." <layer:code> .
+<func:business/actions.Notify> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:business/actions.Notify> <line> "7"^^<schema:Integer> <layer:code> .
+<func:business/actions.Notify> <name> "Notify" <layer:code> .
+<func:business/actions.Notify> <signature> "func Notify() string" <layer:code> .
+<func:business/actions.Notify> <type> <kind:func> <layer:code> .
+<func:business/services/orders.New> <defined_in> <file:business/services/orders/orders.go> <layer:code> .
+<func:business/services/orders.New> <doc> "New returns a Service backed by store." <layer:code> .
+<func:business/services/orders.New> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:business/services/orders.New> <line> "21"^^<schema:Integer> <layer:code> .
+<func:business/services/orders.New> <name> "New" <layer:code> .
+<func:business/services/orders.New> <signature> "func New(store Lister) *Service" <layer:code> .
+<func:business/services/orders.New> <type> <kind:func> <layer:code> .
+<func:business/services/orders.Service.List> <defined_in> <file:business/services/orders/orders.go> <layer:code> .
+<func:business/services/orders.Service.List> <doc> "List returns all orders, newest first." <layer:code> .
+<func:business/services/orders.Service.List> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:business/services/orders.Service.List> <line> "26"^^<schema:Integer> <layer:code> .
+<func:business/services/orders.Service.List> <name> "Service.List" <layer:code> .
+<func:business/services/orders.Service.List> <signature> "func (s *Service) List(ctx context.Context) ([]orderstore.Order, error)" <layer:code> .
+<func:business/services/orders.Service.List> <type> <kind:func> <layer:code> .
+<func:business/services/orders.Service.hasStore> <defined_in> <file:business/services/orders/orders.go> <layer:code> .
+<func:business/services/orders.Service.hasStore> <exported> "False"^^<schema:Boolean> <layer:code> .
+<func:business/services/orders.Service.hasStore> <line> "30"^^<schema:Integer> <layer:code> .
+<func:business/services/orders.Service.hasStore> <name> "Service.hasStore" <layer:code> .
+<func:business/services/orders.Service.hasStore> <signature> "func (s Service) hasStore() bool" <layer:code> .
+<func:business/services/orders.Service.hasStore> <type> <kind:func> <layer:code> .
+<func:config.Get> <defined_in> <file:config/config.go> <layer:code> .
+<func:config.Get> <doc> "Get returns a setting by dotted path, e.g." <layer:code> .
+<func:config.Get> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:config.Get> <line> "23"^^<schema:Integer> <layer:code> .
+<func:config.Get> <name> "Get" <layer:code> .
+<func:config.Get> <signature> "func Get(path string) (string, bool)" <layer:code> .
+<func:config.Get> <type> <kind:func> <layer:code> .
+<func:config.Load> <defined_in> <file:config/config.go> <layer:code> .
+<func:config.Load> <doc> "Load returns the settings." <layer:code> .
+<func:config.Load> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:config.Load> <line> "20"^^<schema:Integer> <layer:code> .
+<func:config.Load> <name> "Load" <layer:code> .
+<func:config.Load> <signature> "func Load() Config" <layer:code> .
+<func:config.Load> <type> <kind:func> <layer:code> .
+<func:controllers.GetOrder> <defined_in> <file:controllers/orders.go> <layer:code> .
+<func:controllers.GetOrder> <doc> "GetOrder returns one order." <layer:code> .
+<func:controllers.GetOrder> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:controllers.GetOrder> <line> "27"^^<schema:Integer> <layer:code> .
+<func:controllers.GetOrder> <name> "GetOrder" <layer:code> .
+<func:controllers.GetOrder> <signature> "func GetOrder(store *orderstore.Store) http.HandlerFunc" <layer:code> .
+<func:controllers.GetOrder> <type> <kind:func> <layer:code> .
+<func:controllers.HelloAPI> <defined_in> <file:controllers/hello.go> <layer:code> .
+<func:controllers.HelloAPI> <doc> "HelloAPI returns a JSON greeting." <layer:code> .
+<func:controllers.HelloAPI> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:controllers.HelloAPI> <line> "10"^^<schema:Integer> <layer:code> .
+<func:controllers.HelloAPI> <name> "HelloAPI" <layer:code> .
+<func:controllers.HelloAPI> <signature> "func HelloAPI(w http.ResponseWriter, r *http.Request)" <layer:code> .
+<func:controllers.HelloAPI> <type> <kind:func> <layer:code> .
+<func:controllers.HomePage> <defined_in> <file:controllers/home.go> <layer:code> .
+<func:controllers.HomePage> <doc> "HomePage renders the landing page template." <layer:code> .
+<func:controllers.HomePage> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:controllers.HomePage> <line> "10"^^<schema:Integer> <layer:code> .
+<func:controllers.HomePage> <name> "HomePage" <layer:code> .
+<func:controllers.HomePage> <signature> "func HomePage(w http.ResponseWriter, r *http.Request)" <layer:code> .
+<func:controllers.HomePage> <type> <kind:func> <layer:code> .
+<func:controllers.ListOrders> <defined_in> <file:controllers/orders.go> <layer:code> .
+<func:controllers.ListOrders> <doc> "ListOrders returns every order." <layer:code> .
+<func:controllers.ListOrders> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:controllers.ListOrders> <line> "13"^^<schema:Integer> <layer:code> .
+<func:controllers.ListOrders> <name> "ListOrders" <layer:code> .
+<func:controllers.ListOrders> <signature> "func ListOrders(svc *orders.Service) http.HandlerFunc" <layer:code> .
+<func:controllers.ListOrders> <type> <kind:func> <layer:code> .
+<func:controllers.writeJSON> <defined_in> <file:controllers/orders.go> <layer:code> .
+<func:controllers.writeJSON> <exported> "False"^^<schema:Boolean> <layer:code> .
+<func:controllers.writeJSON> <line> "38"^^<schema:Integer> <layer:code> .
+<func:controllers.writeJSON> <name> "writeJSON" <layer:code> .
+<func:controllers.writeJSON> <signature> "func writeJSON(w http.ResponseWriter, v any)" <layer:code> .
+<func:controllers.writeJSON> <type> <kind:func> <layer:code> .
+<func:devmcp.NewHandler> <defined_in> <file:devmcp/devmcp.go> <layer:code> .
+<func:devmcp.NewHandler> <doc> "NewHandler returns the dev tooling handler." <layer:code> .
+<func:devmcp.NewHandler> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:devmcp.NewHandler> <line> "13"^^<schema:Integer> <layer:code> .
+<func:devmcp.NewHandler> <name> "NewHandler" <layer:code> .
+<func:devmcp.NewHandler> <signature> "func NewHandler(store *orderstore.Store) http.Handler" <layer:code> .
+<func:devmcp.NewHandler> <type> <kind:func> <layer:code> .
+<func:devmcp.registerTools> <defined_in> <file:devmcp/devmcp.go> <layer:code> .
+<func:devmcp.registerTools> <exported> "False"^^<schema:Boolean> <layer:code> .
+<func:devmcp.registerTools> <line> "30"^^<schema:Integer> <layer:code> .
+<func:devmcp.registerTools> <name> "registerTools" <layer:code> .
+<func:devmcp.registerTools> <signature> "func registerTools(srv *mcp.Server)" <layer:code> .
+<func:devmcp.registerTools> <type> <kind:func> <layer:code> .
+<func:mcp.AddTool> <defined_in> <file:mcp/mcp.go> <layer:code> .
+<func:mcp.AddTool> <doc> "AddTool registers a typed tool." <layer:code> .
+<func:mcp.AddTool> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:mcp.AddTool> <line> "22"^^<schema:Integer> <layer:code> .
+<func:mcp.AddTool> <name> "AddTool" <layer:code> .
+<func:mcp.AddTool> <signature> "func AddTool[In, Out any](s *Server, t *Tool, h func(ctx context.Context, req *Request, in In) (Out, error))" <layer:code> .
+<func:mcp.AddTool> <type> <kind:func> <layer:code> .
+<func:mcp.NewServer> <defined_in> <file:mcp/mcp.go> <layer:code> .
+<func:mcp.NewServer> <doc> "NewServer returns an empty server." <layer:code> .
+<func:mcp.NewServer> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:mcp.NewServer> <line> "19"^^<schema:Integer> <layer:code> .
+<func:mcp.NewServer> <name> "NewServer" <layer:code> .
+<func:mcp.NewServer> <signature> "func NewServer() *Server" <layer:code> .
+<func:mcp.NewServer> <type> <kind:func> <layer:code> .
+<func:middleware.RequestLogger> <defined_in> <file:middleware/logging.go> <layer:code> .
+<func:middleware.RequestLogger> <doc> "RequestLogger logs one line per request." <layer:code> .
+<func:middleware.RequestLogger> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:middleware.RequestLogger> <line> "10"^^<schema:Integer> <layer:code> .
+<func:middleware.RequestLogger> <name> "RequestLogger" <layer:code> .
+<func:middleware.RequestLogger> <signature> "func RequestLogger(next http.Handler) http.Handler" <layer:code> .
+<func:middleware.RequestLogger> <type> <kind:func> <layer:code> .
+<func:routes.New> <defined_in> <file:routes/routes.go> <layer:code> .
+<func:routes.New> <doc> "New builds the router." <layer:code> .
+<func:routes.New> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:routes.New> <line> "16"^^<schema:Integer> <layer:code> .
+<func:routes.New> <name> "New" <layer:code> .
+<func:routes.New> <signature> "func New(db *sql.DB) http.Handler" <layer:code> .
+<func:routes.New> <type> <kind:func> <layer:code> .
+<func:storage/orderstore.New> <defined_in> <file:storage/orderstore/orderstore.go> <layer:code> .
+<func:storage/orderstore.New> <doc> "New returns a Store over db." <layer:code> .
+<func:storage/orderstore.New> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:storage/orderstore.New> <line> "28"^^<schema:Integer> <layer:code> .
+<func:storage/orderstore.New> <name> "New" <layer:code> .
+<func:storage/orderstore.New> <signature> "func New(db *sql.DB) *Store" <layer:code> .
+<func:storage/orderstore.New> <type> <kind:func> <layer:code> .
+<func:storage/orderstore.Store.Create> <defined_in> <file:storage/orderstore/orderstore.go> <layer:code> .
+<func:storage/orderstore.Store.Create> <doc> "Create inserts a new order." <layer:code> .
+<func:storage/orderstore.Store.Create> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:storage/orderstore.Store.Create> <line> "58"^^<schema:Integer> <layer:code> .
+<func:storage/orderstore.Store.Create> <name> "Store.Create" <layer:code> .
+<func:storage/orderstore.Store.Create> <signature> "func (s *Store) Create(ctx context.Context, o Order) error" <layer:code> .
+<func:storage/orderstore.Store.Create> <type> <kind:func> <layer:code> .
+<func:storage/orderstore.Store.Get> <defined_in> <file:storage/orderstore/orderstore.go> <layer:code> .
+<func:storage/orderstore.Store.Get> <doc> "Get returns the order with the given id." <layer:code> .
+<func:storage/orderstore.Store.Get> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:storage/orderstore.Store.Get> <line> "51"^^<schema:Integer> <layer:code> .
+<func:storage/orderstore.Store.Get> <name> "Store.Get" <layer:code> .
+<func:storage/orderstore.Store.Get> <signature> "func (s *Store) Get(ctx context.Context, id string) (Order, error)" <layer:code> .
+<func:storage/orderstore.Store.Get> <type> <kind:func> <layer:code> .
+<func:storage/orderstore.Store.List> <defined_in> <file:storage/orderstore/orderstore.go> <layer:code> .
+<func:storage/orderstore.Store.List> <doc> "List returns every order, newest first." <layer:code> .
+<func:storage/orderstore.Store.List> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:storage/orderstore.Store.List> <line> "33"^^<schema:Integer> <layer:code> .
+<func:storage/orderstore.Store.List> <name> "Store.List" <layer:code> .
+<func:storage/orderstore.Store.List> <signature> "func (s *Store) List(ctx context.Context) ([]Order, error)" <layer:code> .
+<func:storage/orderstore.Store.List> <type> <kind:func> <layer:code> .
+<pkg:.> <arch_layer> "wiring" <layer:code> .
+<pkg:.> <doc> "Command fixture is a miniature GoVibe-shaped app that serves as a stable input for the graph indexer's golden tests (see docs/public/GRAPH_SCHEMA.md)." <layer:code> .
+<pkg:.> <external_imports> "4"^^<schema:Integer> <layer:code> .
+<pkg:.> <import_path> "example.com/fixture" <layer:code> .
+<pkg:.> <imports> <pkg:config> <layer:code> .
+<pkg:.> <imports> <pkg:routes> <layer:code> .
+<pkg:.> <name> "main" <layer:code> .
+<pkg:.> <path> "." <layer:code> .
+<pkg:.> <type> <kind:package> <layer:code> .
+<pkg:business/actions> <arch_layer> "business" <layer:code> .
+<pkg:business/actions> <external_imports> "0"^^<schema:Integer> <layer:code> .
+<pkg:business/actions> <import_path> "example.com/fixture/business/actions" <layer:code> .
+<pkg:business/actions> <imports> <pkg:config> <layer:code> .
+<pkg:business/actions> <name> "actions" <layer:code> .
+<pkg:business/actions> <path> "business/actions" <layer:code> .
+<pkg:business/actions> <type> <kind:package> <layer:code> .
+<pkg:business/services/orders> <arch_layer> "business" <layer:code> .
+<pkg:business/services/orders> <doc> "Package orders holds the order queries that handlers are allowed to call." <layer:code> .
+<pkg:business/services/orders> <external_imports> "1"^^<schema:Integer> <layer:code> .
+<pkg:business/services/orders> <import_path> "example.com/fixture/business/services/orders" <layer:code> .
+<pkg:business/services/orders> <imports> <pkg:storage/orderstore> <layer:code> .
+<pkg:business/services/orders> <name> "orders" <layer:code> .
+<pkg:business/services/orders> <path> "business/services/orders" <layer:code> .
+<pkg:business/services/orders> <type> <kind:package> <layer:code> .
+<pkg:config> <arch_layer> "support" <layer:code> .
+<pkg:config> <doc> "Package config loads the fixture's settings from env.yml." <layer:code> .
+<pkg:config> <external_imports> "0"^^<schema:Integer> <layer:code> .
+<pkg:config> <import_path> "example.com/fixture/config" <layer:code> .
+<pkg:config> <name> "config" <layer:code> .
+<pkg:config> <path> "config" <layer:code> .
+<pkg:config> <type> <kind:package> <layer:code> .
+<pkg:controllers> <arch_layer> "controllers" <layer:code> .
+<pkg:controllers> <external_imports> "3"^^<schema:Integer> <layer:code> .
+<pkg:controllers> <import_path> "example.com/fixture/controllers" <layer:code> .
+<pkg:controllers> <imports> <pkg:business/actions> <layer:code> .
+<pkg:controllers> <imports> <pkg:business/services/orders> <layer:code> .
+<pkg:controllers> <imports> <pkg:storage/orderstore> <layer:code> .
+<pkg:controllers> <name> "controllers" <layer:code> .
+<pkg:controllers> <path> "controllers" <layer:code> .
+<pkg:controllers> <type> <kind:package> <layer:code> .
+<pkg:devmcp> <arch_layer> "dev" <layer:code> .
+<pkg:devmcp> <doc> "Package devmcp stands in for the dev-only tooling package." <layer:code> .
+<pkg:devmcp> <external_imports> "2"^^<schema:Integer> <layer:code> .
+<pkg:devmcp> <import_path> "example.com/fixture/devmcp" <layer:code> .
+<pkg:devmcp> <imports> <pkg:mcp> <layer:code> .
+<pkg:devmcp> <imports> <pkg:storage/orderstore> <layer:code> .
+<pkg:devmcp> <name> "devmcp" <layer:code> .
+<pkg:devmcp> <path> "devmcp" <layer:code> .
+<pkg:devmcp> <type> <kind:package> <layer:code> .
+<pkg:mcp> <arch_layer> "support" <layer:code> .
+<pkg:mcp> <doc> "Package mcp stands in for the MCP SDK so the fixture stays standard-library only." <layer:code> .
+<pkg:mcp> <external_imports> "1"^^<schema:Integer> <layer:code> .
+<pkg:mcp> <import_path> "example.com/fixture/mcp" <layer:code> .
+<pkg:mcp> <name> "mcp" <layer:code> .
+<pkg:mcp> <path> "mcp" <layer:code> .
+<pkg:mcp> <type> <kind:package> <layer:code> .
+<pkg:middleware> <arch_layer> "middleware" <layer:code> .
+<pkg:middleware> <external_imports> "3"^^<schema:Integer> <layer:code> .
+<pkg:middleware> <import_path> "example.com/fixture/middleware" <layer:code> .
+<pkg:middleware> <name> "middleware" <layer:code> .
+<pkg:middleware> <path> "middleware" <layer:code> .
+<pkg:middleware> <type> <kind:package> <layer:code> .
+<pkg:routes> <arch_layer> "wiring" <layer:code> .
+<pkg:routes> <doc> "Package routes wires every route in one place." <layer:code> .
+<pkg:routes> <external_imports> "2"^^<schema:Integer> <layer:code> .
+<pkg:routes> <import_path> "example.com/fixture/routes" <layer:code> .
+<pkg:routes> <imports> <pkg:business/services/orders> <layer:code> .
+<pkg:routes> <imports> <pkg:controllers> <layer:code> .
+<pkg:routes> <imports> <pkg:devmcp> <layer:code> .
+<pkg:routes> <imports> <pkg:middleware> <layer:code> .
+<pkg:routes> <imports> <pkg:storage/orderstore> <layer:code> .
+<pkg:routes> <name> "routes" <layer:code> .
+<pkg:routes> <path> "routes" <layer:code> .
+<pkg:routes> <type> <kind:package> <layer:code> .
+<pkg:storage/orderstore> <arch_layer> "storage" <layer:code> .
+<pkg:storage/orderstore> <doc> "Package orderstore reads and writes the orders table." <layer:code> .
+<pkg:storage/orderstore> <external_imports> "2"^^<schema:Integer> <layer:code> .
+<pkg:storage/orderstore> <import_path> "example.com/fixture/storage/orderstore" <layer:code> .
+<pkg:storage/orderstore> <name> "orderstore" <layer:code> .
+<pkg:storage/orderstore> <path> "storage/orderstore" <layer:code> .
+<pkg:storage/orderstore> <type> <kind:package> <layer:code> .
+<typ:business/services/orders.Lister> <defined_in> <file:business/services/orders/orders.go> <layer:code> .
+<typ:business/services/orders.Lister> <doc> "Lister is the read side of the order store." <layer:code> .
+<typ:business/services/orders.Lister> <exported> "True"^^<schema:Boolean> <layer:code> .
+<typ:business/services/orders.Lister> <line> "11"^^<schema:Integer> <layer:code> .
+<typ:business/services/orders.Lister> <name> "Lister" <layer:code> .
+<typ:business/services/orders.Lister> <signature> "type Lister interface" <layer:code> .
+<typ:business/services/orders.Lister> <type> <kind:type> <layer:code> .
+<typ:business/services/orders.Service> <defined_in> <file:business/services/orders/orders.go> <layer:code> .
+<typ:business/services/orders.Service> <doc> "Service answers order questions on top of a Lister." <layer:code> .
+<typ:business/services/orders.Service> <exported> "True"^^<schema:Boolean> <layer:code> .
+<typ:business/services/orders.Service> <line> "16"^^<schema:Integer> <layer:code> .
+<typ:business/services/orders.Service> <name> "Service" <layer:code> .
+<typ:business/services/orders.Service> <signature> "type Service struct" <layer:code> .
+<typ:business/services/orders.Service> <type> <kind:type> <layer:code> .
+<typ:config.Config> <defined_in> <file:config/config.go> <layer:code> .
+<typ:config.Config> <doc> "Config mirrors env.yml." <layer:code> .
+<typ:config.Config> <exported> "True"^^<schema:Boolean> <layer:code> .
+<typ:config.Config> <line> "5"^^<schema:Integer> <layer:code> .
+<typ:config.Config> <name> "Config" <layer:code> .
+<typ:config.Config> <signature> "type Config struct" <layer:code> .
+<typ:config.Config> <type> <kind:type> <layer:code> .
+<typ:devmcp.echoIn> <defined_in> <file:devmcp/devmcp.go> <layer:code> .
+<typ:devmcp.echoIn> <exported> "False"^^<schema:Boolean> <layer:code> .
+<typ:devmcp.echoIn> <line> "21"^^<schema:Integer> <layer:code> .
+<typ:devmcp.echoIn> <name> "echoIn" <layer:code> .
+<typ:devmcp.echoIn> <signature> "type echoIn struct" <layer:code> .
+<typ:devmcp.echoIn> <type> <kind:type> <layer:code> .
+<typ:devmcp.echoOut> <defined_in> <file:devmcp/devmcp.go> <layer:code> .
+<typ:devmcp.echoOut> <exported> "False"^^<schema:Boolean> <layer:code> .
+<typ:devmcp.echoOut> <line> "26"^^<schema:Integer> <layer:code> .
+<typ:devmcp.echoOut> <name> "echoOut" <layer:code> .
+<typ:devmcp.echoOut> <signature> "type echoOut struct" <layer:code> .
+<typ:devmcp.echoOut> <type> <kind:type> <layer:code> .
+<typ:mcp.Request> <defined_in> <file:mcp/mcp.go> <layer:code> .
+<typ:mcp.Request> <doc> "Request is the incoming tool call." <layer:code> .
+<typ:mcp.Request> <exported> "True"^^<schema:Boolean> <layer:code> .
+<typ:mcp.Request> <line> "16"^^<schema:Integer> <layer:code> .
+<typ:mcp.Request> <name> "Request" <layer:code> .
+<typ:mcp.Request> <signature> "type Request struct" <layer:code> .
+<typ:mcp.Request> <type> <kind:type> <layer:code> .
+<typ:mcp.Server> <defined_in> <file:mcp/mcp.go> <layer:code> .
+<typ:mcp.Server> <doc> "Server collects the tools an application registers." <layer:code> .
+<typ:mcp.Server> <exported> "True"^^<schema:Boolean> <layer:code> .
+<typ:mcp.Server> <line> "7"^^<schema:Integer> <layer:code> .
+<typ:mcp.Server> <name> "Server" <layer:code> .
+<typ:mcp.Server> <signature> "type Server struct" <layer:code> .
+<typ:mcp.Server> <type> <kind:type> <layer:code> .
+<typ:mcp.Tool> <defined_in> <file:mcp/mcp.go> <layer:code> .
+<typ:mcp.Tool> <doc> "Tool describes one tool." <layer:code> .
+<typ:mcp.Tool> <exported> "True"^^<schema:Boolean> <layer:code> .
+<typ:mcp.Tool> <line> "10"^^<schema:Integer> <layer:code> .
+<typ:mcp.Tool> <name> "Tool" <layer:code> .
+<typ:mcp.Tool> <signature> "type Tool struct" <layer:code> .
+<typ:mcp.Tool> <type> <kind:type> <layer:code> .
+<typ:storage/orderstore.Order> <defined_in> <file:storage/orderstore/orderstore.go> <layer:code> .
+<typ:storage/orderstore.Order> <doc> "Order is one row of the orders table." <layer:code> .
+<typ:storage/orderstore.Order> <exported> "True"^^<schema:Boolean> <layer:code> .
+<typ:storage/orderstore.Order> <line> "10"^^<schema:Integer> <layer:code> .
+<typ:storage/orderstore.Order> <name> "Order" <layer:code> .
+<typ:storage/orderstore.Order> <signature> "type Order struct" <layer:code> .
+<typ:storage/orderstore.Order> <type> <kind:type> <layer:code> .
+<typ:storage/orderstore.Store> <defined_in> <file:storage/orderstore/orderstore.go> <layer:code> .
+<typ:storage/orderstore.Store> <doc> "Store is the orders data-access object." <layer:code> .
+<typ:storage/orderstore.Store> <exported> "True"^^<schema:Boolean> <layer:code> .
+<typ:storage/orderstore.Store> <line> "23"^^<schema:Integer> <layer:code> .
+<typ:storage/orderstore.Store> <name> "Store" <layer:code> .
+<typ:storage/orderstore.Store> <signature> "type Store struct" <layer:code> .
+<typ:storage/orderstore.Store> <type> <kind:type> <layer:code> .

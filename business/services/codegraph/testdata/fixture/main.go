@@ -9,11 +9,18 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
 
+	"example.com/fixture/config"
 	"example.com/fixture/routes"
 )
 
 func main() {
+	cfg := config.Load()
+	if os.Getenv("FIXTURE_DEBUG") != "" {
+		log.Println("debug logging on")
+	}
 	var db *sql.DB // never opened: the fixture is only ever parsed
-	log.Fatal(http.ListenAndServe(":8080", routes.New(db)))
+	log.Println("database configured:", cfg.Database.DSN != "")
+	log.Fatal(http.ListenAndServe(":"+cfg.Server.Port, routes.New(db)))
 }

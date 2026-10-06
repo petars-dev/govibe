@@ -31,6 +31,17 @@ Visit `/dev/db` for a single-page explorer:
 | `POST /dev/db/api/tables/{table}/rows` `{"values": {...}}` | Insert a test row (gated) |
 | `DELETE /dev/db/api/tables/{table}/rows` | Delete every row in a table (gated) |
 
+## The whole schema at once
+
+`Explorer.Snapshot` (in `storage/dbexplorer`) reads the entire schema of the connected database with
+one `information_schema` query per kind (tables, columns, indexes, foreign keys with their `ON
+DELETE`/`ON UPDATE` actions, comments) plus the goose migrations that are applied. It reads no rows and
+leaves out volatile counters, so two snapshots of an unchanged schema are equal. It is not exposed over
+HTTP or MCP: the embedded graph indexer uses it to merge the live schema with the one the migrations
+describe and to flag drift (see `GRAPH_SCHEMA.md`, "db"). To run its tests against a real server,
+set `GOVIBE_TEST_MARIADB_DSN='user:pass@tcp(host:port)/'`: each test creates and drops a schema of its
+own.
+
 ## `/dev/mcp` — the MCP server
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server (built with the official

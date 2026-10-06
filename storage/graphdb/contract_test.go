@@ -404,9 +404,9 @@ func TestLabelsScopeReadsAndDeletes(t *testing.T) {
 		g.ids(`g.V(g.IRI('pkg:a')).Out(g.IRI('imports')).All()`), iri("pkg:b"), iri("pkg:b"))
 }
 
-// The shape of the Phase 1 diff writer: one tolerant ApplyDeltas per layer that
-// deletes stale quads (with their exact labels), adds new ones, and shrugs off
-// duplicates and already-gone quads. Manual quads are untouched.
+// A tolerant ApplyDeltas shrugs off duplicate adds and deletes of quads that are
+// already gone, and leaves other labels alone. It is NOT a safe shape for a
+// layer diff, though: see TestMixedBatchLosesAdds.
 func TestApplyDeltasDiffWriter(t *testing.T) {
 	g := newTestGraph(t)
 	manual := quad.Make(quad.String("alice"), quad.String("knows"), quad.String("bob"), nil)
@@ -431,6 +431,56 @@ func TestApplyDeltasDiffWriter(t *testing.T) {
 	// Strict mode is what ApplyTransaction uses; it reports dups and misses.
 	if err := g.h.QuadStore.ApplyDeltas([]graph.Delta{{Quad: keep, Action: graph.Add}}, graph.IgnoreOpts{}); err == nil {
 		t.Error("strict ApplyDeltas should report a duplicate add")
+	}
+}
+
+// HAZARD (F11): one ApplyDeltas batch whose deletes outnumber its adds, when
+// they all touch the same node, silently drops the adds. Here the batch deletes
+// two `type kind:func` quads and adds one; the add vanishes, with no error, even
+// from a plain label scan. Randomized diffs through a single mixed batch left
+// the store damaged (or with nameless nodes) in 147 of 150 trials; the same
+// diffs applied as adds-then-deletes, or deletes-then-adds, never did. The graph
+// indexer's writer therefore applies a diff as two batches, adds first. If this
+// test starts failing after a cayley upgrade the bug is fixed: revisit "Writer
+// contract" in docs/public/GRAPH_SCHEMA.md.
+func TestMixedBatchLosesAdds(t *testing.T) {
+	a := q4("func:a.A", "type", iri("kind:func"), "layer:code")
+	b := q4("func:a.B", "type", iri("kind:func"), "layer:code")
+	x := q4("func:a.X", "type", iri("kind:func"), "layer:code")
+	c := q4("func:a.C", "type", iri("kind:func"), "layer:code")
+	tolerant := graph.IgnoreOpts{IgnoreDup: true, IgnoreMissing: true}
+	apply := func(g *testGraph, ds ...graph.Delta) {
+		g.t.Helper()
+		if err := g.h.QuadStore.ApplyDeltas(ds, tolerant); err != nil {
+			g.t.Fatalf("ApplyDeltas: %v", err)
+		}
+	}
+	funcs := `g.V().Has(g.IRI('type'), g.IRI('kind:func')).All()`
+
+	mixed := newTestGraph(t)
+	mixed.add(a, b, x)
+	apply(mixed,
+		graph.Delta{Quad: a, Action: graph.Delete},
+		graph.Delta{Quad: b, Action: graph.Delete},
+		graph.Delta{Quad: c, Action: graph.Add},
+	)
+	expect(t, "mixed batch (the hazard: C should be here too)", mixed.ids(funcs), iri("func:a.X"))
+
+	// The same diff as two batches keeps everything it should.
+	for name, order := range map[string][]graph.Delta{
+		"adds then deletes": {{Quad: c, Action: graph.Add}, {Quad: a, Action: graph.Delete}, {Quad: b, Action: graph.Delete}},
+		"deletes then adds": {{Quad: a, Action: graph.Delete}, {Quad: b, Action: graph.Delete}, {Quad: c, Action: graph.Add}},
+	} {
+		split := newTestGraph(t)
+		split.add(a, b, x)
+		// order[0:1] and order[1:3] are the adds/deletes batches in the order named.
+		first, second := order[:1], order[1:]
+		if name == "deletes then adds" {
+			first, second = order[:2], order[2:]
+		}
+		apply(split, first...)
+		apply(split, second...)
+		expect(t, name, split.ids(funcs), iri("func:a.C"), iri("func:a.X"))
 	}
 }
 
@@ -592,5 +642,29 @@ func TestSchemaDocCookbook(t *testing.T) {
 	got := g.readJSON("sub=" + url.QueryEscape("<pkg:controllers>"))
 	if len(got) != 2 {
 		t.Errorf("sub=<pkg:controllers> = %+v, want its two outgoing quads", got)
+	}
+}
+
+// Cayley's bbolt backend opens the file with no lock-wait timeout, so a second
+// Open on a store another handle holds (a stray duplicate dev server) would hang
+// forever; Open gives up with a clear error instead. This is the guard that
+// outlives a change of backend.
+func TestOpenGivesUpOnALockedStore(t *testing.T) {
+	g := newTestGraph(t)
+	old := openTimeout
+	openTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { openTimeout = old })
+
+	start := time.Now()
+	h, err := Open(g.dir)
+	if err == nil {
+		h.Close()
+		t.Fatal("a second Open of a locked store should fail")
+	}
+	if !strings.Contains(err.Error(), "locked by another process") {
+		t.Errorf("the error should say what is wrong: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("Open took %s to give up", elapsed)
 	}
 }
