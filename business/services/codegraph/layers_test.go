@@ -402,8 +402,8 @@ func TestDocsLayerFixtureFacts(t *testing.T) {
 	if got := f.one(t, "spec:hello", "status"); got != str("in_progress") {
 		t.Errorf("spec status = %v", got)
 	}
-	if n := len(f.out("spec:hello", "has_item")); n != 6 {
-		t.Errorf("spec has %d items, want 6", n)
+	if n := len(f.out("spec:hello", "has_item")); n != 7 {
+		t.Errorf("spec has %d items, want 7", n)
 	}
 	type row struct{ id, status, why, note string }
 	for _, r := range []row{
@@ -803,7 +803,7 @@ func TestFixtureGraphInvariants(t *testing.T) {
 		}
 	}
 	res := graphcheck.Check(t, h, graphcheck.Options{
-		Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs"},
+		Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "findings"},
 		RequireEdges: []string{"handled_by", "uses_mw", "renders", "uses_config", "reads_env", "registers", "has_item", "mentions", "covers",
 			"has_column", "has_index", "fk_to", "implicit_ref", "many_to_many", "introduced_in", "reads_table", "writes_table", "maps_to",
 			"subject", "object", "via"},

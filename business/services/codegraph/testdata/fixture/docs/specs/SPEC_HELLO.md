@@ -13,3 +13,4 @@ The hello feature of the fixture.
 | Greeting history | No | Skipped | Out of scope: no `fixture_forget` tool either |
 | Localised greetings | No | | Planned: `actions.Hello` returns one language |
 | Settings `FIXTURE_DB_MAX_CONNS` | Partial | | Declared, not yet read |
+| Audit trail | Yes | | Done in `business/actions/audit.go`, which was removed again (a stale row) |

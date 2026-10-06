@@ -174,7 +174,7 @@ func TestOverviewAndExplainChangeOnThisRepo(t *testing.T) {
 		}
 	}
 	// The one known layering violation of this repo (SPEC_GRAPH_INDEXER, Phase 5): controllers/devdb.go imports storage/dbexplorer.
-	if !strings.Contains(md, "`controllers` imports `storage/dbexplorer`") {
+	if !strings.Contains(md, "## Findings") || !strings.Contains(md, "**error** `layering`: controllers imports storage/dbexplorer") {
 		t.Errorf("the controllers -> storage import should be named:\n%s", md)
 	}
 	if n := strings.Count(md, "\n"); n > 150 {

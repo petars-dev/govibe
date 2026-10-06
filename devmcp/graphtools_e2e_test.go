@@ -307,10 +307,20 @@ func TestGraphToolsAnswerOverMCP(t *testing.T) {
 		t.Errorf("neighbors: %v", imports)
 	}
 
-	// graph_findings: honest about the layer that does not exist yet
-	f := call(t, h, "graph_findings", nil).ok(t, "graph_findings").StructuredContent
-	if f["available"] != false || len(list(f["findings"])) != 0 || !strings.Contains(f["note"].(string), "does not mean the code is clean") {
-		t.Errorf("findings: %v", f)
+	// graph_findings: this repository's known layering violation leads, and the rules that ran are listed
+	f := call(t, h, "graph_findings", map[string]any{"severity": "error"}).ok(t, "graph_findings").StructuredContent
+	fl := list(f["findings"])
+	if f["available"] != true || len(fl) != 1 || len(list(f["rules"])) < 10 {
+		t.Fatalf("findings: %v", f)
+	}
+	first := fl[0].(map[string]any)
+	if first["rule"] != "layering" || first["about"] != "pkg:controllers" || !strings.Contains(first["message"].(string), "storage/dbexplorer") {
+		t.Errorf("the controllers -> storage import is a finding: %v", first)
+	}
+	// and the context of the package carries it
+	cc := call(t, h, "graph_context", map[string]any{"path": "controllers"}).ok(t, "graph_context").StructuredContent
+	if cf := list(cc["findings"]); len(cf) == 0 || cf[0].(map[string]any)["rule"] != "layering" {
+		t.Errorf("a briefing carries its findings: %v", cc["findings"])
 	}
 }
 
@@ -351,7 +361,7 @@ func TestGraphToolErrorsAreReportedToTheAgent(t *testing.T) {
 func TestGraphReindexRebuildsLayers(t *testing.T) {
 	h, _ := indexedHandler(t)
 	r := call(t, h, "graph_reindex", map[string]any{"layers": []string{"docs"}}).ok(t, "graph_reindex").StructuredContent
-	if r["failed"] != false || len(strs(r["known_layers"])) != 7 {
+	if r["failed"] != false || len(strs(r["known_layers"])) != 8 {
 		t.Errorf("reindex: %v", r)
 	}
 	var ran []string
@@ -364,8 +374,8 @@ func TestGraphReindexRebuildsLayers(t *testing.T) {
 			t.Errorf("layer %v: %v", lm["name"], lm["status"])
 		}
 	}
-	if strings.Join(ran, ",") != "docs" {
-		t.Errorf("ran %v", ran)
+	if strings.Join(ran, ",") != "docs,findings" {
+		t.Errorf("ran %v (docs, and the findings derived from it)", ran)
 	}
 	// no layers: all of them
 	r = call(t, h, "graph_reindex", nil).ok(t, "graph_reindex all").StructuredContent
@@ -375,7 +385,7 @@ func TestGraphReindexRebuildsLayers(t *testing.T) {
 			n++
 		}
 	}
-	if n != 7 || r["quads"].(float64) < 1000 {
+	if n != 8 || r["quads"].(float64) < 1000 {
 		t.Errorf("full reindex: %d layers, %v quads", n, r["quads"])
 	}
 }

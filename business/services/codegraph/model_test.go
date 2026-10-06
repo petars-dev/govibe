@@ -101,8 +101,8 @@ func TestFreshnessAndWarnings(t *testing.T) {
 	if got := m.warnings("code", "routes"); len(got) != 0 {
 		t.Errorf("warnings on a healthy graph: %v", got)
 	}
-	got := m.warnings("findings")
-	if len(got) != 1 || !strings.Contains(got[0], "findings layer is not built") {
+	got := m.warnings("git")
+	if len(got) != 1 || !strings.Contains(got[0], "git layer is not built") {
 		t.Errorf("a layer that never ran: %v", got)
 	}
 }

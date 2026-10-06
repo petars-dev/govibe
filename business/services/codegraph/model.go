@@ -104,11 +104,18 @@ type Model struct {
 	symIdxLow map[string][]*Node
 	annIdx    map[string]annotation
 	pkgFuncs  map[string][]*Node
+	findIdx   map[string][]*Node // finding nodes by the node they are about
 }
 
 // Load reads the indexed graph from qs.
 func Load(ctx context.Context, qs graph.QuadStore) (*Model, error) {
-	m := &Model{nodes: map[string]*Node{}, byKind: map[string][]*Node{}}
+	return loadModel(ctx, qs, "")
+}
+
+// loadModel reads every quad under a `layer:*` label, except those of the layer
+// named skip (the findings layer reads the graph without its own last output).
+func loadModel(ctx context.Context, qs graph.QuadStore, skip string) (*Model, error) {
+	m := newModel()
 	it := qs.QuadsAllIterator()
 	defer it.Close()
 
@@ -123,37 +130,66 @@ func Load(ctx context.Context, qs graph.QuadStore) (*Model, error) {
 		if !q.IsValid() {
 			return nil, errors.New("graph store returned a quad with an unresolved node (GRAPH_SCHEMA.md, F8); restart the server")
 		}
-		label, ok := q.Label.(quad.IRI)
-		if !ok || !strings.HasPrefix(string(label), labelPrefix) {
-			continue // hand-added quads are not part of the model
-		}
-		subj, ok := q.Subject.(quad.IRI)
-		if !ok {
+		if skip != "" && q.Label == quad.Value(LayerLabel(skip)) {
 			continue
 		}
-		pred, ok := q.Predicate.(quad.IRI)
-		if !ok {
-			continue
-		}
-		m.quads++
-		s := m.node(string(subj))
-		switch o := q.Object.(type) {
-		case quad.IRI:
-			if pred == PredType {
-				s.Kind = strings.TrimPrefix(string(o), "kind:")
-				continue
-			}
-			t := m.node(string(o))
-			s.Out[string(pred)] = append(s.Out[string(pred)], string(o))
-			t.In[string(pred)] = append(t.In[string(pred)], string(subj))
-		default:
-			s.Attrs[string(pred)] = append(s.Attrs[string(pred)], nativeValue(o))
-		}
+		m.add(q)
 	}
 	if err := it.Err(); err != nil {
 		return nil, fmt.Errorf("read graph: %w", err)
 	}
+	m.finish()
+	return m, nil
+}
 
+// modelOf builds a model from quads held in memory, as Load would read them
+// from the store.
+func modelOf(quads []quad.Quad) *Model {
+	m := newModel()
+	for _, q := range quads {
+		m.add(q)
+	}
+	m.finish()
+	return m
+}
+
+func newModel() *Model {
+	return &Model{nodes: map[string]*Node{}, byKind: map[string][]*Node{}}
+}
+
+// add records one quad. Hand-added quads (no `layer:*` label, or a string
+// label) are not part of the model.
+func (m *Model) add(q quad.Quad) {
+	label, ok := q.Label.(quad.IRI)
+	if !ok || !strings.HasPrefix(string(label), labelPrefix) {
+		return
+	}
+	subj, ok := q.Subject.(quad.IRI)
+	if !ok {
+		return
+	}
+	pred, ok := q.Predicate.(quad.IRI)
+	if !ok {
+		return
+	}
+	m.quads++
+	s := m.node(string(subj))
+	switch o := q.Object.(type) {
+	case quad.IRI:
+		if pred == PredType {
+			s.Kind = strings.TrimPrefix(string(o), "kind:")
+			return
+		}
+		t := m.node(string(o))
+		s.Out[string(pred)] = append(s.Out[string(pred)], string(o))
+		t.In[string(pred)] = append(t.In[string(pred)], string(subj))
+	default:
+		s.Attrs[string(pred)] = append(s.Attrs[string(pred)], nativeValue(o))
+	}
+}
+
+// finish sorts the edge lists and indexes the nodes by kind.
+func (m *Model) finish() {
 	m.ids = make([]string, 0, len(m.nodes))
 	for id, nd := range m.nodes {
 		m.ids = append(m.ids, id)
@@ -168,7 +204,6 @@ func Load(ctx context.Context, qs graph.QuadStore) (*Model, error) {
 		nd := m.nodes[id]
 		m.byKind[nd.Kind] = append(m.byKind[nd.Kind], nd)
 	}
-	return m, nil
 }
 
 func (m *Model) node(id string) *Node {
@@ -331,6 +366,9 @@ type Freshness struct {
 	Dirty          bool        `json:"dirty,omitempty"`
 	IndexedAt      time.Time   `json:"indexed_at,omitzero"`
 	IndexerVersion string      `json:"indexer_version,omitempty"`
+	DurationMS     int         `json:"duration_ms,omitempty"`
+	Added          int         `json:"added"`   // quads the last run added, over the data layers
+	Removed        int         `json:"removed"` // and removed
 	Quads          int         `json:"quads"`
 	Layers         []LayerInfo `json:"layers,omitempty"`
 	StaleLayers    []string    `json:"stale_layers,omitempty"`
@@ -347,6 +385,7 @@ func (m *Model) Freshness() Freshness {
 	f.Indexed = true
 	f.GitSHA, f.Dirty = b.Str("git_sha"), b.Bool("dirty")
 	f.IndexedAt, f.IndexerVersion = b.Time("indexed_at"), b.Str("indexer_version")
+	f.DurationMS, f.Added, f.Removed = b.Int("duration_ms"), b.Int("added"), b.Int("removed")
 	for _, l := range m.out(b, "has_layer") {
 		f.Layers = append(f.Layers, LayerInfo{
 			Name: l.Str("name"), Status: l.Str("status"), Quads: l.Int("quads"),

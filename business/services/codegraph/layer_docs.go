@@ -2,9 +2,12 @@ package codegraph
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -40,6 +43,10 @@ const specPrefix = "SPEC_"
 type docsIndex struct {
 	docs     []*docInfo // sorted by path
 	warnings []string
+	// probed is what the build learned about the disk: every repo-relative path
+	// it looked for, and whether it was there. The layer's fingerprint covers
+	// it, so creating or removing a file a document names makes the layer stale.
+	probed map[string]bool
 }
 
 type docInfo struct {
@@ -52,6 +59,7 @@ type docInfo struct {
 	status   string // specs only
 	mentions []quad.IRI
 	items    []*itemInfo
+	stale    []unresolvedRef // what a doc (not a spec) names that is gone
 }
 
 type itemInfo struct {
@@ -62,6 +70,7 @@ type itemInfo struct {
 	note   string // the Why cell of any other row
 	line   int
 	covers []quad.IRI
+	stale  []unresolvedRef // what the row names that is gone
 }
 
 func (w *world) docScan() (*scan, error) {
@@ -137,7 +146,7 @@ func (w *world) docs() (*docsIndex, error) {
 		if err != nil {
 			return nil, fmt.Errorf("db: %w", err)
 		}
-		return buildDocsIndex(w.ctx, sc, newResolver(sc, ci, rt, ti, cx, dm))
+		return buildDocsIndex(w.ctx, sc, newResolver(w.root, sc, ci, rt, ti, cx, dm))
 	})
 }
 
@@ -167,6 +176,7 @@ func buildDocsIndex(ctx context.Context, sc *scan, rs *resolver) (*docsIndex, er
 		parseDoc(root, src, d, rs)
 		di.docs = append(di.docs, d)
 	}
+	di.probed = rs.probe
 	return di, nil
 }
 
@@ -192,9 +202,24 @@ func parseDoc(root ast.Node, src []byte, d *docInfo, rs *resolver) {
 				d.title = plainText(x, src)
 			}
 		case *ast.CodeSpan:
-			mention(rs.resolveToken(plainText(x, src), docDir))
+			tok := plainText(x, src)
+			ids := rs.resolveToken(tok, docDir)
+			mention(ids)
+			// A spec's prose describes what is planned as well as what is done, so
+			// only its status rows are judged (see statusRows).
+			if len(ids) == 0 && !d.isSpec {
+				if s, ok := rs.staleToken(tok, docDir); ok {
+					d.stale = addUnresolved(d.stale, nodeLine(x, src), s)
+				}
+			}
 		case *ast.Link:
-			mention(rs.resolveLink(string(x.Destination), docDir))
+			ids := rs.resolveLink(string(x.Destination), docDir)
+			mention(ids)
+			if len(ids) == 0 && !d.isSpec {
+				if s, ok := rs.staleLink(string(x.Destination), docDir); ok {
+					d.stale = addUnresolved(d.stale, nodeLine(x, src), s)
+				}
+			}
 		case *east.Table:
 			if d.isSpec {
 				d.items = append(d.items, statusRows(x, src, d, rs)...)
@@ -210,6 +235,7 @@ func parseDoc(root ast.Node, src []byte, d *docInfo, rs *resolver) {
 		d.mentions = append(d.mentions, t)
 	}
 	sort.Slice(d.mentions, func(i, j int) bool { return d.mentions[i] < d.mentions[j] })
+	sortUnresolved(d.stale)
 	d.status = specStatus(d.items)
 }
 
@@ -287,10 +313,17 @@ func statusRows(tbl *east.Table, src []byte, d *docInfo, rs *resolver) []*itemIn
 		for _, c := range cells {
 			_ = ast.Walk(c, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 				if cs, ok := n.(*ast.CodeSpan); ok && entering {
-					for _, t := range rs.resolveToken(plainText(cs, src), path.Dir(d.rel)) {
+					tok := plainText(cs, src)
+					ids := rs.resolveToken(tok, path.Dir(d.rel))
+					for _, t := range ids {
 						if !seen[t] && t != d.id {
 							seen[t] = true
 							it.covers = append(it.covers, t)
+						}
+					}
+					if len(ids) == 0 {
+						if s, ok := rs.staleToken(tok, path.Dir(d.rel)); ok {
+							it.stale = addUnresolved(it.stale, nodeLine(cs, src), s)
 						}
 					}
 				}
@@ -298,6 +331,7 @@ func statusRows(tbl *east.Table, src []byte, d *docInfo, rs *resolver) []*itemIn
 			})
 		}
 		sort.Slice(it.covers, func(i, j int) bool { return it.covers[i] < it.covers[j] })
+		sortUnresolved(it.stale)
 		items = append(items, it)
 	}
 	return items
@@ -382,10 +416,14 @@ func nodeLine(n ast.Node, src []byte) int {
 // is built from the same indexes the other layers write from, so everything it
 // returns exists.
 type resolver struct {
-	ci *codeIndex
-	rt *routeTable
-	ti *templIndex
-	cx *configIndex
+	root string
+	ci   *codeIndex
+	rt   *routeTable
+	ti   *templIndex
+	cx   *configIndex
+
+	probe         map[string]bool // paths looked for on disk, and whether they were there
+	externalNames map[string]bool // names of the libraries the module imports
 
 	noRoutes bool
 	ids      map[string]quad.IRI   // every node ID, as text
@@ -402,22 +440,25 @@ type resolver struct {
 	migPath  map[string]quad.IRI    // migration file path, and its base name when unambiguous
 }
 
-func newResolver(sc *scan, ci *codeIndex, rt *routeTable, ti *templIndex, cx *configIndex, dm *dbModel) *resolver {
+func newResolver(root string, sc *scan, ci *codeIndex, rt *routeTable, ti *templIndex, cx *configIndex, dm *dbModel) *resolver {
 	rs := &resolver{
-		ci: ci, rt: rt, ti: ti, cx: cx,
-		noRoutes: rt.absent,
-		ids:      map[string]quad.IRI{},
-		routes:   map[string][]quad.IRI{},
-		routeIDs: map[string]quad.IRI{},
-		docPath:  map[string]quad.IRI{},
-		docSlug:  map[string]quad.IRI{},
-		specSlug: map[string]quad.IRI{},
-		tools:    map[string]quad.IRI{},
-		typesBy:  map[string][]*typeInfo{},
-		tables:   map[string]quad.IRI{},
-		columns:  map[string]quad.IRI{},
-		migPath:  map[string]quad.IRI{},
-		filesBy:  map[string][]string{},
+		root: root,
+		ci:   ci, rt: rt, ti: ti, cx: cx,
+		probe:         map[string]bool{},
+		externalNames: externalPackageNames(ci),
+		noRoutes:      rt.absent,
+		ids:           map[string]quad.IRI{},
+		routes:        map[string][]quad.IRI{},
+		routeIDs:      map[string]quad.IRI{},
+		docPath:       map[string]quad.IRI{},
+		docSlug:       map[string]quad.IRI{},
+		specSlug:      map[string]quad.IRI{},
+		tools:         map[string]quad.IRI{},
+		typesBy:       map[string][]*typeInfo{},
+		tables:        map[string]quad.IRI{},
+		columns:       map[string]quad.IRI{},
+		migPath:       map[string]quad.IRI{},
+		filesBy:       map[string][]string{},
 	}
 	add := func(id quad.IRI) { rs.ids[string(id)] = id }
 	for d := range ci.pkgs {
@@ -572,6 +613,10 @@ func (rs *resolver) resolveToken(tok, docDir string) []quad.IRI {
 	if ids := rs.resolveSymbol(strings.TrimSuffix(tok, "()")); len(ids) > 0 {
 		return ids
 	}
+	// dir.Name: `storage/migrations.SetDialect`, the way a function's ID is written.
+	if ids := rs.resolveDirSymbol(strings.TrimSuffix(tok, "()")); len(ids) > 0 {
+		return ids
+	}
 	return rs.resolveSchema(tok)
 }
 
@@ -654,6 +699,38 @@ var (
 	tableColumnRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
+// dirSymbol splits `storage/migrations.SetDialect` into the package directory
+// and the name; ok is false for anything else (including a file name).
+func dirSymbol(tok string) (dir, name string, ok bool) {
+	i := strings.LastIndex(tok, ".")
+	if i <= 0 || !strings.Contains(tok[:i], "/") || pathExts[tok[i:]] {
+		return "", "", false
+	}
+	dir, name = tok[:i], tok[i+1:]
+	if !identRe.MatchString(name) || !isExportedName(name) {
+		return "", "", false
+	}
+	return dir, name, true
+}
+
+// resolveDirSymbol resolves dir.Name, a function or type of the package in dir.
+func (rs *resolver) resolveDirSymbol(tok string) []quad.IRI {
+	dir, name, ok := dirSymbol(tok)
+	if !ok {
+		return nil
+	}
+	if _, ok := rs.ci.pkgs[dir]; !ok {
+		return nil
+	}
+	if f := rs.ci.funcNamed(dir, "", name); f != nil {
+		return []quad.IRI{f.id}
+	}
+	if t := rs.ci.typeNamed(dir, name); t != nil {
+		return []quad.IRI{t.id}
+	}
+	return nil
+}
+
 // resolveSymbol resolves pkg.Name, Type.Method and pkg.Type.Method, but only
 // when exactly one thing answers to the name.
 func (rs *resolver) resolveSymbol(tok string) []quad.IRI {
@@ -732,12 +809,36 @@ func (docsLayer) deps() []string {
 	return []string{"code", "routes", "templates", "config", "mcp", "db"}
 }
 
+func (docsLayer) settles() {}
+
+// fingerprint covers the documents (path, mtime, size) and whether each file the
+// last build looked for on disk is there, which no edit of a document shows.
 func (docsLayer) fingerprint(w *world) (string, error) {
 	sc, err := w.docScan()
 	if err != nil {
 		return "", err
 	}
-	return fingerprint(sc.files), nil
+	fp := fingerprint(sc.files)
+	probed := w.x.docProbed
+	if len(probed) == 0 {
+		return fp, nil
+	}
+	rels := make([]string, 0, len(probed))
+	for rel := range probed {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\n", fp)
+	for _, rel := range rels {
+		there := probed[rel]
+		if !w.settling {
+			_, err := os.Lstat(filepath.Join(w.root, filepath.FromSlash(rel)))
+			there = err == nil
+		}
+		fmt.Fprintf(h, "%s\x00%t\n", rel, there)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 
 func (docsLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
@@ -745,6 +846,7 @@ func (docsLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 	if err != nil {
 		return nil, err
 	}
+	w.x.docProbed = di.probed
 	set := newQuadSet("docs")
 	for _, d := range di.docs {
 		if d.isSpec {
@@ -760,6 +862,9 @@ func (docsLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 		}
 		for _, t := range d.mentions {
 			set.add(d.id, PredMentions, t)
+		}
+		for _, u := range d.stale {
+			set.str(d.id, PredUnresolvedRef, u.String())
 		}
 		for _, it := range d.items {
 			set.add(d.id, PredHasItem, it.id)
@@ -778,6 +883,9 @@ func (docsLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 			}
 			for _, t := range it.covers {
 				set.add(it.id, PredCovers, t)
+			}
+			for _, u := range it.stale {
+				set.str(it.id, PredUnresolvedRef, u.String())
 			}
 		}
 	}

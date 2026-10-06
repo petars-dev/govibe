@@ -89,6 +89,7 @@ var edges = map[string][2][]string{
 	"subject":        {{"annotation"}, {"column", "table"}},
 	"object":         {{"annotation"}, {"column", "table"}},
 	"via":            {{"annotation"}, {"table"}},
+	"about":          {{"finding"}, append(append([]string(nil), valueKinds...), "spec_item", "middleware")},
 }
 
 func in(list []string, kind string) bool {
@@ -207,7 +208,82 @@ func Check(t *testing.T, h *cayley.Handle, opts Options) *Result {
 	}
 
 	checkSchema(t, quads, res)
+	checkFindings(t, quads, res)
 	return res
+}
+
+// checkFindings holds the invariants of the findings layer's nodes, when there
+// are any: every finding is about exactly one node, says which rule found it and
+// how bad it is, and comes from a rule that ran; every rule says whether it ran.
+func checkFindings(t *testing.T, quads []quad.Quad, res *Result) {
+	t.Helper()
+	attrs := map[string]map[string][]quad.Value{}
+	for _, q := range quads {
+		s := iri(q.Subject)
+		if res.Kind[s] != "finding" && res.Kind[s] != "rule" {
+			continue
+		}
+		if attrs[s] == nil {
+			attrs[s] = map[string][]quad.Value{}
+		}
+		attrs[s][iri(q.Predicate)] = append(attrs[s][iri(q.Predicate)], q.Object)
+	}
+	str := func(id, pred string) string {
+		vs := attrs[id][pred]
+		if len(vs) != 1 {
+			t.Errorf("%s: want exactly one %s, got %v", id, pred, vs)
+			return ""
+		}
+		s, _ := vs[0].(quad.String)
+		return string(s)
+	}
+	checked := map[string]bool{}
+	for id, kind := range res.Kind {
+		if kind != "rule" {
+			continue
+		}
+		name := str(id, "name")
+		if id != "rule:"+name {
+			t.Errorf("%s is named %q", id, name)
+		}
+		for _, p := range []string{"title", "severity", "description"} {
+			if str(id, p) == "" {
+				t.Errorf("%s has no %s", id, p)
+			}
+		}
+		if vs := attrs[id]["checked"]; len(vs) != 1 {
+			t.Errorf("%s: says whether it ran %d times", id, len(vs))
+		} else {
+			checked[name] = vs[0] == quad.Value(quad.Bool(true))
+		}
+		if !checked[name] && len(attrs[id]["note"]) != 1 {
+			t.Errorf("%s did not run and does not say why", id)
+		}
+	}
+	severities := map[string]bool{"error": true, "warning": true, "info": true}
+	for id, kind := range res.Kind {
+		if kind != "finding" {
+			continue
+		}
+		rule := str(id, "rule")
+		if ran, known := checked[rule]; !known || !ran {
+			t.Errorf("%s comes from rule %q, which did not run (known %v)", id, rule, known)
+		}
+		if sev := str(id, "severity"); !severities[sev] {
+			t.Errorf("%s has severity %q", id, sev)
+		}
+		if str(id, "message") == "" {
+			t.Errorf("%s has no message", id)
+		}
+		about := attrs[id]["about"]
+		if len(about) != 1 {
+			t.Errorf("%s is about %d nodes", id, len(about))
+			continue
+		}
+		if want := "finding:" + rule + ":" + iri(about[0]); id != want && !strings.HasPrefix(id, want+"#") {
+			t.Errorf("%s should be named %s or %s#<detail>", id, want, want)
+		}
+	}
 }
 
 // checkSchema holds the invariants of the db layer's nodes, when there are any.

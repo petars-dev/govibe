@@ -28,6 +28,11 @@ type world struct {
 	root  string
 	force bool // an explicit reindex: ignore cached indexes
 
+	// settling is set while the indexer re-takes the fingerprints of layers that
+	// learn something by building (see settlingLayer): they then report what the
+	// build recorded instead of looking at the disk again.
+	settling bool
+
 	goFiles memo[*scan]
 	goFP    memo[string]
 	codeIdx memo[*codeIndex]

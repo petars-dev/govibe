@@ -33,7 +33,7 @@ import (
 
 // IndexerVersion is recorded on the build node. Bump it when the shape of any
 // layer's output changes.
-const IndexerVersion = "3"
+const IndexerVersion = "4"
 
 // Layer run statuses, as stored on `layer:<name>`.
 const (
@@ -87,6 +87,14 @@ type layer interface {
 	build(ctx context.Context, w *world) (*layerOutput, error)
 }
 
+// settlingLayer is implemented by a layer whose fingerprint also covers
+// something only its own build discovers (the docs layer: which files the
+// documents name, and whether they exist). The fingerprint taken before the
+// build cannot include that, so after the layer builds the indexer takes it
+// again, from what the build recorded, which is what the next freshness check
+// will compute if nothing has changed since.
+type settlingLayer interface{ settles() }
+
 type layerOutput struct {
 	quads    []quad.Quad
 	warnings []string // inputs that were skipped; makes the run "partial"
@@ -109,6 +117,9 @@ type Indexer struct {
 		at  time.Time
 		res *liveSchema
 	}
+	// docProbed is what the docs layer's last build learned about the disk: the
+	// repo-relative paths its documents name, and whether each was there.
+	docProbed map[string]bool
 }
 
 // New returns an Indexer over qs, which it only ever writes under `layer:*`
@@ -120,7 +131,7 @@ func New(qs graph.QuadStore, opts Options) *Indexer {
 	return &Indexer{
 		opts:   opts,
 		writer: newWriter(qs),
-		layers: []layer{codeLayer{}, routesLayer{}, templatesLayer{}, configLayer{}, mcpLayer{}, dbLayer{}, docsLayer{}},
+		layers: []layer{codeLayer{}, routesLayer{}, templatesLayer{}, configLayer{}, mcpLayer{}, dbLayer{}, docsLayer{}, findingsLayer{}},
 		state:  map[string]LayerReport{},
 	}
 }
@@ -176,6 +187,23 @@ func (r *Report) Failed() bool {
 // meta layer could not be written), and the Report is then partial or nil.
 func (x *Indexer) Run(ctx context.Context) (*Report, error) {
 	return x.run(ctx, true, nil)
+}
+
+// Model reads the graph the indexer wrote into a Model, as the agent tools and
+// the generated reports work from it. It does not bring stale layers up to date;
+// call Refresh first for that.
+func (x *Indexer) Model(ctx context.Context) (*Model, error) {
+	return Load(ctx, x.writer.qs)
+}
+
+// RootDir is the absolute, symlink-free repository root the indexer reads, or ""
+// when the configured root cannot be resolved.
+func (x *Indexer) RootDir() string {
+	root, err := resolveRoot(x.opts.Root)
+	if err != nil {
+		return ""
+	}
+	return root
 }
 
 // LayerNames are the layers the indexer builds, in build order (the `meta` layer
@@ -283,6 +311,14 @@ func (x *Indexer) run(ctx context.Context, force bool, only map[string]bool) (*R
 		lr := x.runLayer(ctx, l, w, fps[l.name()])
 		if err := ctx.Err(); err != nil {
 			return rep, err // cancelled: do not record a half-finished run
+		}
+		if _, ok := l.(settlingLayer); ok && (lr.Status == statusOK || lr.Status == statusPartial) {
+			// Every scan is memoized in the world, so this reuses the stats taken
+			// before any input was read, and adds what the build found out.
+			w.settling = true
+			fps = x.fingerprints(w)
+			w.settling = false
+			lr.Fingerprint = fps[l.name()].fp
 		}
 		x.state[l.name()] = lr
 		rep.Added += lr.Added

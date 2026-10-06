@@ -1,0 +1,190 @@
+<finding:code.unreferenced:func:business/actions.Notify> <about> <func:business/actions.Notify> <layer:findings> .
+<finding:code.unreferenced:func:business/actions.Notify> <line> "7"^^<schema:Integer> <layer:findings> .
+<finding:code.unreferenced:func:business/actions.Notify> <message> "actions.Notify is exported, but no other indexed code references it (tests are not indexed). Use it, unexport it, or delete it." <layer:findings> .
+<finding:code.unreferenced:func:business/actions.Notify> <name> "Exported function nothing references" <layer:findings> .
+<finding:code.unreferenced:func:business/actions.Notify> <path> "business/actions/notify.go" <layer:findings> .
+<finding:code.unreferenced:func:business/actions.Notify> <rule> "code.unreferenced" <layer:findings> .
+<finding:code.unreferenced:func:business/actions.Notify> <severity> "info" <layer:findings> .
+<finding:code.unreferenced:func:business/actions.Notify> <type> <kind:finding> <layer:findings> .
+<finding:config.undeclared:cfg:feature.beta> <about> <cfg:feature.beta> <layer:findings> .
+<finding:config.undeclared:cfg:feature.beta> <line> "7"^^<schema:Integer> <layer:findings> .
+<finding:config.undeclared:cfg:feature.beta> <message> "Config key feature.beta is read by actions.Notify but config/env.yml does not declare it. Declare it there as ${ENV:default} (SKILL.md), so it can be found and overridden." <layer:findings> .
+<finding:config.undeclared:cfg:feature.beta> <name> "Config read but not declared" <layer:findings> .
+<finding:config.undeclared:cfg:feature.beta> <path> "business/actions/notify.go" <layer:findings> .
+<finding:config.undeclared:cfg:feature.beta> <rule> "config.undeclared" <layer:findings> .
+<finding:config.undeclared:cfg:feature.beta> <severity> "warning" <layer:findings> .
+<finding:config.undeclared:cfg:feature.beta> <type> <kind:finding> <layer:findings> .
+<finding:config.undeclared:env:FIXTURE_DEBUG> <about> <env:FIXTURE_DEBUG> <layer:findings> .
+<finding:config.undeclared:env:FIXTURE_DEBUG> <line> "18"^^<schema:Integer> <layer:findings> .
+<finding:config.undeclared:env:FIXTURE_DEBUG> <message> "Environment variable FIXTURE_DEBUG is read by main.main but config/env.yml does not declare it. Declare it there (SKILL.md prefers config over ad-hoc env lookups)." <layer:findings> .
+<finding:config.undeclared:env:FIXTURE_DEBUG> <name> "Config read but not declared" <layer:findings> .
+<finding:config.undeclared:env:FIXTURE_DEBUG> <path> "main.go" <layer:findings> .
+<finding:config.undeclared:env:FIXTURE_DEBUG> <rule> "config.undeclared" <layer:findings> .
+<finding:config.undeclared:env:FIXTURE_DEBUG> <severity> "warning" <layer:findings> .
+<finding:config.undeclared:env:FIXTURE_DEBUG> <type> <kind:finding> <layer:findings> .
+<finding:config.unused:cfg:auth.api_key> <about> <cfg:auth.api_key> <layer:findings> .
+<finding:config.unused:cfg:auth.api_key> <line> "13"^^<schema:Integer> <layer:findings> .
+<finding:config.unused:cfg:auth.api_key> <message> "Config key auth.api_key is declared in config/env.yml but no code reads it (environment variable FIXTURE_API_KEY). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
+<finding:config.unused:cfg:auth.api_key> <name> "Config declared but never read" <layer:findings> .
+<finding:config.unused:cfg:auth.api_key> <path> "config/env.yml" <layer:findings> .
+<finding:config.unused:cfg:auth.api_key> <rule> "config.unused" <layer:findings> .
+<finding:config.unused:cfg:auth.api_key> <severity> "info" <layer:findings> .
+<finding:config.unused:cfg:auth.api_key> <type> <kind:finding> <layer:findings> .
+<finding:config.unused:cfg:database.max_conns> <about> <cfg:database.max_conns> <layer:findings> .
+<finding:config.unused:cfg:database.max_conns> <line> "9"^^<schema:Integer> <layer:findings> .
+<finding:config.unused:cfg:database.max_conns> <message> "Config key database.max_conns is declared in config/env.yml but no code reads it (environment variable FIXTURE_DB_MAX_CONNS). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
+<finding:config.unused:cfg:database.max_conns> <name> "Config declared but never read" <layer:findings> .
+<finding:config.unused:cfg:database.max_conns> <path> "config/env.yml" <layer:findings> .
+<finding:config.unused:cfg:database.max_conns> <rule> "config.unused" <layer:findings> .
+<finding:config.unused:cfg:database.max_conns> <severity> "info" <layer:findings> .
+<finding:config.unused:cfg:database.max_conns> <type> <kind:finding> <layer:findings> .
+<finding:config.unused:cfg:env> <about> <cfg:env> <layer:findings> .
+<finding:config.unused:cfg:env> <line> "1"^^<schema:Integer> <layer:findings> .
+<finding:config.unused:cfg:env> <message> "Config key env is declared in config/env.yml but no code reads it (environment variable APP_ENV). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
+<finding:config.unused:cfg:env> <name> "Config declared but never read" <layer:findings> .
+<finding:config.unused:cfg:env> <path> "config/env.yml" <layer:findings> .
+<finding:config.unused:cfg:env> <rule> "config.unused" <layer:findings> .
+<finding:config.unused:cfg:env> <severity> "info" <layer:findings> .
+<finding:config.unused:cfg:env> <type> <kind:finding> <layer:findings> .
+<finding:config.unused:cfg:region> <about> <cfg:region> <layer:findings> .
+<finding:config.unused:cfg:region> <line> "23"^^<schema:Integer> <layer:findings> .
+<finding:config.unused:cfg:region> <message> "Config key region is declared in config/env.yml but no code reads it. Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
+<finding:config.unused:cfg:region> <name> "Config declared but never read" <layer:findings> .
+<finding:config.unused:cfg:region> <path> "config/env.yml" <layer:findings> .
+<finding:config.unused:cfg:region> <rule> "config.unused" <layer:findings> .
+<finding:config.unused:cfg:region> <severity> "info" <layer:findings> .
+<finding:config.unused:cfg:region> <type> <kind:finding> <layer:findings> .
+<finding:config.unused:cfg:unused.flag> <about> <cfg:unused.flag> <layer:findings> .
+<finding:config.unused:cfg:unused.flag> <line> "26"^^<schema:Integer> <layer:findings> .
+<finding:config.unused:cfg:unused.flag> <message> "Config key unused.flag is declared in config/env.yml but no code reads it (environment variable FIXTURE_UNUSED_FLAG). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
+<finding:config.unused:cfg:unused.flag> <name> "Config declared but never read" <layer:findings> .
+<finding:config.unused:cfg:unused.flag> <path> "config/env.yml" <layer:findings> .
+<finding:config.unused:cfg:unused.flag> <rule> "config.unused" <layer:findings> .
+<finding:config.unused:cfg:unused.flag> <severity> "info" <layer:findings> .
+<finding:config.unused:cfg:unused.flag> <type> <kind:finding> <layer:findings> .
+<finding:db.missing_fk:col:orders.user_id#col:users.id> <about> <col:orders.user_id> <layer:findings> .
+<finding:db.missing_fk:col:orders.user_id#col:users.id> <message> "orders.user_id looks like a reference to users.id (inferred from its name, confidence 95) but no foreign key enforces it. Add one in a new migration, or rename the column if it is not a reference." <layer:findings> .
+<finding:db.missing_fk:col:orders.user_id#col:users.id> <name> "Reference without a foreign key" <layer:findings> .
+<finding:db.missing_fk:col:orders.user_id#col:users.id> <rule> "db.missing_fk" <layer:findings> .
+<finding:db.missing_fk:col:orders.user_id#col:users.id> <severity> "info" <layer:findings> .
+<finding:db.missing_fk:col:orders.user_id#col:users.id> <type> <kind:finding> <layer:findings> .
+<finding:docs.route_undocumented:route:ANY:/assets/> <about> <route:ANY:/assets/> <layer:findings> .
+<finding:docs.route_undocumented:route:ANY:/assets/> <message> "No doc or spec mentions ANY /assets/. Say what it is for in docs/public/ARCHITECTURE.md or the spec that owns it." <layer:findings> .
+<finding:docs.route_undocumented:route:ANY:/assets/> <name> "Route no doc mentions" <layer:findings> .
+<finding:docs.route_undocumented:route:ANY:/assets/> <rule> "docs.route_undocumented" <layer:findings> .
+<finding:docs.route_undocumented:route:ANY:/assets/> <severity> "info" <layer:findings> .
+<finding:docs.route_undocumented:route:ANY:/assets/> <type> <kind:finding> <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/> <about> <route:GET:/> <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/> <line> "10"^^<schema:Integer> <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/> <message> "No doc or spec mentions GET /. Say what it is for in docs/public/ARCHITECTURE.md or the spec that owns it." <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/> <name> "Route no doc mentions" <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/> <path> "controllers/home.go" <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/> <rule> "docs.route_undocumented" <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/> <severity> "info" <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/> <type> <kind:finding> <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/api/orders/{id}> <about> <route:GET:/api/orders/{id}> <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/api/orders/{id}> <line> "27"^^<schema:Integer> <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/api/orders/{id}> <message> "No doc or spec mentions GET /api/orders/{id}. Say what it is for in docs/public/ARCHITECTURE.md or the spec that owns it." <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/api/orders/{id}> <name> "Route no doc mentions" <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/api/orders/{id}> <path> "controllers/orders.go" <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/api/orders/{id}> <rule> "docs.route_undocumented" <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/api/orders/{id}> <severity> "info" <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/api/orders/{id}> <type> <kind:finding> <layer:findings> .
+<finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <about> <item:hello/audit-trail> <layer:findings> .
+<finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <line> "16"^^<schema:Integer> <layer:findings> .
+<finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <message> "docs/specs/SPEC_HELLO.md marks \"Audit trail\" implemented, but `business/actions/audit.go`, which the row names, does not exist. Fix the row, or the code that should be there." <layer:findings> .
+<finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <name> "Spec claims what is missing" <layer:findings> .
+<finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <path> "docs/specs/SPEC_HELLO.md" <layer:findings> .
+<finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <rule> "docs.spec_missing" <layer:findings> .
+<finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <severity> "warning" <layer:findings> .
+<finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <type> <kind:finding> <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <about> <doc:docs/public/ARCHITECTURE.md> <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <line> "13"^^<schema:Integer> <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <message> "docs/public/ARCHITECTURE.md mentions `legacy/handler.go`, which does not exist: it was removed or renamed, or has a typo. Update the reference or drop it." <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <name> "Stale reference in a doc" <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <path> "docs/public/ARCHITECTURE.md" <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <rule> "docs.stale_ref" <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <severity> "warning" <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <type> <kind:finding> <layer:findings> .
+<finding:layering:pkg:controllers#pkg:storage/orderstore> <about> <pkg:controllers> <layer:findings> .
+<finding:layering:pkg:controllers#pkg:storage/orderstore> <line> "27"^^<schema:Integer> <layer:findings> .
+<finding:layering:pkg:controllers#pkg:storage/orderstore> <message> "controllers imports storage/orderstore, against the layering rule: only business actions and services may call storage; controllers packages should go through them. (controllers layer into storage layer; first used at controllers/orders.go:27.)" <layer:findings> .
+<finding:layering:pkg:controllers#pkg:storage/orderstore> <name> "Layering violation" <layer:findings> .
+<finding:layering:pkg:controllers#pkg:storage/orderstore> <path> "controllers/orders.go" <layer:findings> .
+<finding:layering:pkg:controllers#pkg:storage/orderstore> <rule> "layering" <layer:findings> .
+<finding:layering:pkg:controllers#pkg:storage/orderstore> <severity> "error" <layer:findings> .
+<finding:layering:pkg:controllers#pkg:storage/orderstore> <type> <kind:finding> <layer:findings> .
+<rule:code.unreferenced> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:code.unreferenced> <description> "An exported package-level function that no other indexed code references. Test files are not indexed; methods are not checked." <layer:findings> .
+<rule:code.unreferenced> <name> "code.unreferenced" <layer:findings> .
+<rule:code.unreferenced> <severity> "info" <layer:findings> .
+<rule:code.unreferenced> <title> "Exported function nothing references" <layer:findings> .
+<rule:code.unreferenced> <type> <kind:rule> <layer:findings> .
+<rule:config.undeclared> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:config.undeclared> <description> "Code reads a config key or environment variable that config/env.yml does not declare." <layer:findings> .
+<rule:config.undeclared> <name> "config.undeclared" <layer:findings> .
+<rule:config.undeclared> <severity> "warning" <layer:findings> .
+<rule:config.undeclared> <title> "Config read but not declared" <layer:findings> .
+<rule:config.undeclared> <type> <kind:rule> <layer:findings> .
+<rule:config.unused> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:config.unused> <description> "config/env.yml declares a key that no code reads. Reads through a variable name are not seen." <layer:findings> .
+<rule:config.unused> <name> "config.unused" <layer:findings> .
+<rule:config.unused> <severity> "info" <layer:findings> .
+<rule:config.unused> <title> "Config declared but never read" <layer:findings> .
+<rule:config.unused> <type> <kind:rule> <layer:findings> .
+<rule:db.drift> <checked> "False"^^<schema:Boolean> <layer:findings> .
+<rule:db.drift> <description> "With a live database configured: a table, column or index that only one side has, or that the two describe differently." <layer:findings> .
+<rule:db.drift> <name> "db.drift" <layer:findings> .
+<rule:db.drift> <note> "not applicable: no live database was read (set MARIADB_DSN), so there is nothing to compare the migrations with" <layer:findings> .
+<rule:db.drift> <severity> "warning" <layer:findings> .
+<rule:db.drift> <title> "Migrations and live database disagree" <layer:findings> .
+<rule:db.drift> <type> <kind:rule> <layer:findings> .
+<rule:db.fk_unindexed> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:db.fk_unindexed> <description> "A foreign key column that no index starts with." <layer:findings> .
+<rule:db.fk_unindexed> <name> "db.fk_unindexed" <layer:findings> .
+<rule:db.fk_unindexed> <severity> "warning" <layer:findings> .
+<rule:db.fk_unindexed> <title> "Foreign key without an index" <layer:findings> .
+<rule:db.fk_unindexed> <type> <kind:rule> <layer:findings> .
+<rule:db.missing_fk> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:db.missing_fk> <description> "A column that looks like a reference to another table (`<name>_id`) but has no foreign key." <layer:findings> .
+<rule:db.missing_fk> <name> "db.missing_fk" <layer:findings> .
+<rule:db.missing_fk> <severity> "info" <layer:findings> .
+<rule:db.missing_fk> <title> "Reference without a foreign key" <layer:findings> .
+<rule:db.missing_fk> <type> <kind:rule> <layer:findings> .
+<rule:db.no_primary_key> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:db.no_primary_key> <description> "A table with no primary key." <layer:findings> .
+<rule:db.no_primary_key> <name> "db.no_primary_key" <layer:findings> .
+<rule:db.no_primary_key> <severity> "warning" <layer:findings> .
+<rule:db.no_primary_key> <title> "Table without a primary key" <layer:findings> .
+<rule:db.no_primary_key> <type> <kind:rule> <layer:findings> .
+<rule:db.unapplied> <checked> "False"^^<schema:Boolean> <layer:findings> .
+<rule:db.unapplied> <description> "With a live database configured: a migration its goose table does not list." <layer:findings> .
+<rule:db.unapplied> <name> "db.unapplied" <layer:findings> .
+<rule:db.unapplied> <note> "not applicable: no live database was read (set MARIADB_DSN), so there is nothing to compare the migrations with" <layer:findings> .
+<rule:db.unapplied> <severity> "warning" <layer:findings> .
+<rule:db.unapplied> <title> "Migration not applied" <layer:findings> .
+<rule:db.unapplied> <type> <kind:rule> <layer:findings> .
+<rule:docs.route_undocumented> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:docs.route_undocumented> <description> "An application route (not under /dev) that no doc or spec mentions." <layer:findings> .
+<rule:docs.route_undocumented> <name> "docs.route_undocumented" <layer:findings> .
+<rule:docs.route_undocumented> <severity> "info" <layer:findings> .
+<rule:docs.route_undocumented> <title> "Route no doc mentions" <layer:findings> .
+<rule:docs.route_undocumented> <type> <kind:rule> <layer:findings> .
+<rule:docs.spec_missing> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:docs.spec_missing> <description> "A spec row marked implemented names a file or symbol that does not exist." <layer:findings> .
+<rule:docs.spec_missing> <name> "docs.spec_missing" <layer:findings> .
+<rule:docs.spec_missing> <severity> "warning" <layer:findings> .
+<rule:docs.spec_missing> <title> "Spec claims what is missing" <layer:findings> .
+<rule:docs.spec_missing> <type> <kind:rule> <layer:findings> .
+<rule:docs.stale_ref> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:docs.stale_ref> <description> "A doc names a file, a symbol or a page that does not exist." <layer:findings> .
+<rule:docs.stale_ref> <name> "docs.stale_ref" <layer:findings> .
+<rule:docs.stale_ref> <severity> "warning" <layer:findings> .
+<rule:docs.stale_ref> <title> "Stale reference in a doc" <layer:findings> .
+<rule:docs.stale_ref> <type> <kind:rule> <layer:findings> .
+<rule:layering> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:layering> <description> "A package imports one its architecture layer must not (SKILL.md: only actions and services may call storage). wiring and dev packages are exempt." <layer:findings> .
+<rule:layering> <name> "layering" <layer:findings> .
+<rule:layering> <severity> "error" <layer:findings> .
+<rule:layering> <title> "Layering violation" <layer:findings> .
+<rule:layering> <type> <kind:rule> <layer:findings> .

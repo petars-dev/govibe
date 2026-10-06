@@ -127,8 +127,24 @@ func NewRouter() http.Handler {
 				opts.Schema = explorer.Snapshot
 			}
 			indexer = codegraph.New(quadStore, opts)
+			// The explorer page draws bounded views of the graph; its data comes from
+			// /dev/graph/data/*. Links into /dev/db exist only when that is mounted.
+			ui := &controllers.GraphUI{Indexer: indexer, Store: quadStore, DB: explorer != nil}
 			r.Get("/dev/graph", controllers.DevGraphPage(indexer))
 			r.Post("/dev/graph/reindex", controllers.DevGraphReindex(indexer))
+			r.Route("/dev/graph/data", func(d chi.Router) {
+				d.Get("/status", ui.Status())
+				d.Get("/view", ui.View())
+				d.Get("/node", ui.Node())
+				d.Get("/search", ui.Search())
+				d.Get("/findings", ui.Findings())
+				d.Get("/table", ui.TableRefs())
+			})
+			// Generated reference pages: routes, config, schema and layers, always read
+			// from the graph as it is now.
+			reports := controllers.DevGraphReports(indexer, explorer != nil)
+			r.Get("/dev/graph/reports", reports)
+			r.Get("/dev/graph/reports/{name}", reports)
 		}
 
 		// MCP server (streamable HTTP) exposing the db_* and graph_* tools to local

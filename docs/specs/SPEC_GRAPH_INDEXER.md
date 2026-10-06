@@ -449,17 +449,90 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
      - The tools see only quads under a `layer:*` label: hand-added quads are visible to `graph_query` alone.
        The SDK returns each result as structured content and as a text copy, so a response is twice its size on
        the wire; clients that read only text still get everything.
-5. **Phase 5: Findings + human surface**
+5. **Phase 5: Findings + human surface, done**
    - `findings` rules; UI presets, filters, inspector, freshness banner, findings panel, reports,
      `/dev/db` cross-links.
    - *Done when:* the current `controllers → storage` layering violation appears as a finding, and
      the visualizer stays responsive at ≥ 5k quads.
+   - *Delivered:* **Findings.** `findings.go` (the engine and the rule catalog), `findings_rules.go` (twelve
+     rules, see GRAPH_SCHEMA.md "Findings"), `layer_findings.go`, `layering.go` (the final layering rule as
+     data), `docs_stale.go` (what counts as a stale reference). New vocabulary: kinds `finding` and `rule`,
+     predicate `about`, attributes `rule`, `severity`, `message`, `checked`, `unresolved_ref`. The docs layer
+     now records `unresolved_ref` (the open decision of Phase 2), the code index keeps four more facts
+     (top-level names, exported identifier uses, type references, embedding), `graph_findings` answers for
+     real and lists every rule with whether it ran, the overview and `graph_schema` read the layer, and
+     `IndexerVersion` is 4. **Human surface.** `view.go` (bounded views: seven presets, a focus view, the
+     hand-added quads), `inspect.go` (the inspector and the banner's status), `links.go` (editor, docs, db,
+     report and graph links; report anchors), `tablerefs.go` (what refers to a table), `reports.go` (the four
+     reports' data), `controllers/devgraph_data.go` (`GraphUI`: `/dev/graph/data/{status,view,node,search,
+     findings,table}`), `controllers/devgraph_reports.go` (`/dev/graph/reports[/{name}]`), the page itself
+     (`controllers/devgraph.go` is now a shell; `assets/static/graph.js` and `graph.css`), and a "Referenced
+     by" panel and `#table=` deep links in `/dev/db`. 34 new test functions, many of them table-driven, and every affected existing test updated (the rules on the fixture and its golden,
+     the stale-reference classifier, settling, the views, the inspector, the bounded-view promise on a 90,000
+     quad graph, every endpoint, the reports, the page shell).
+   - *Verified end to end* against a running server (in a scratch copy, because the real dev server holds the
+     bolt lock) and a real browser: on this repository (7,300 quads) `controllers → storage/dbexplorer` is the
+     one `error` finding, shown as a red edge, a red-bordered node and a card with its file and line
+     (`controllers/devdb.go:37`); a view is built server-side in about 40 ms and drawn in 15-90 ms (a first,
+     cold draw of 45 nodes took 230 ms); on a synthetic graph of 90,000 quads every view is cut at 300 nodes
+     and builds in under 10 ms; a doc edited on disk, and a `cmd/govibe` directory that appeared, showed up on
+     the next call with no restart (the false findings vanished); a demo migration added after boot appeared in
+     the ER diagram, as `db.unapplied` against the real live database, and in the "Referenced by" panel; both
+     themes; an XSS probe (`alice<script>x</script>`) renders as text.
+   - *Deviations from the plan:*
+     - **Findings read the store, not the layers' indexes.** The layer loads the same `Model` the agent tools
+       use (without its own last output) and runs rules over it, so a finding is exactly what a user or an agent
+       can see; two rules (and the file:line of a layering violation) also read the code index, because the graph
+       does not store call sites. A layer that is not built, or that was skipped, makes the rules that read it
+       *not checked* (below), not clean.
+     - **A `rule` kind was added**, which the plan did not have, so that "this rule did not run" (a layer it reads
+       is not built, or `db.drift` with no live database) is part of the graph. Without it an empty findings list
+       could not be told from a clean one at rule level. `graph_findings` returns `rules[]` with `checked`, `note`
+       and counts.
+     - **A finding's ID may carry `#<detail>`**, which the first contract (`finding:<rule>:<subject id>`) could
+       not express: `controllers` imports two forbidden packages, a doc has two stale references.
+     - **The layering rule grew beyond the plan's example**: SKILL.md's "only actions/services may call storage"
+       applies to controllers, middleware, views and support alike; storage depends on nothing above it;
+       business does not depend on the HTTP layer. `wiring` and `dev` are the allow-list. On this repository it
+       finds exactly one violation.
+     - **Stale-reference detection is deliberately conservative** (GRAPH_SCHEMA.md, "What the Phase 2 layers
+       read"): only paths with a slash that look like repository files, `pkg.Name`/`Type.Member`/`dir.Name`
+       symbols that are unambiguous, and links; never routes, node IDs, config keys or env vars; only the status
+       rows of a spec. Anything cleverer cried wolf on this repository's own docs. It found a real problem here
+       (GRAPH_SCHEMA.md's fixture table named paths relative to the fixture root; they are now full paths) and
+       made the resolver understand `dir.Name` (`storage/migrations.SetDialect`).
+     - **The docs layer's fingerprint covers the disk**: it remembers which paths its documents named and whether
+       each existed, and the indexer re-takes the fingerprint after the build ("settling"), so creating a file a
+       doc names clears its finding without any doc changing. This is the one place a fingerprint depends on a
+       build's result.
+     - **`code.unreferenced` is an approximation**: no type information, tests are not indexed, methods are not
+       checked, a name used in a `.templ` file counts. On this repository it flags only `graphcheck.Check`, which
+       is test support. It is `info`.
+     - **The visualizer is server-driven.** The plan said "cap at N nodes and expand on double-click"; the cap
+       and the choice of nodes are made by the server (`View`), so the page never holds more than a few hundred
+       nodes, and the layouts are fixed per preset (columns by architecture layer, a request-flow pipeline, a
+       top-down ER diagram, rings around a focus) rather than a force layout that takes seconds. Raw Gizmo and the
+       quad editor moved into a drawer. The old "load every quad" path is gone; the hand-added quads have a view.
+     - **The reports** were built in parallel by a forked agent against the contract in `links.go`; the layers
+       report states the rule as three sentences that a test pins to `layerVerdict`.
+     - **Not verified**: the JavaScript has no unit tests (the repository has no JS tooling): it is checked by
+       `node --check`, by tests that assert the shell names real assets and that `graph.js` never uses
+       `innerHTML`, and by hand in a browser; `/dev/db#table=` deep links and the panel were exercised against a
+       graph table the live database does not have, not against a real listed table (the dev database has no
+       tables); phone-width layout was not looked at in a browser.
+     - **Findings on this repository** the plan did not predict: five `mail.smtp.*` keys declared and never read
+       (the skeleton's example), the plain-text hello route documented nowhere, and `graphcheck.Check`.
 6. **Phase 6: Depth (opt-in)**
    - `calls` layer (`x/tools/go/packages`), full route→table chains, `git` layer (last commit, churn,
      co-change), `govibe graph index` CLI, CI job running the CLI with `--dir` and failing on new
      high-severity findings.
 
 ## Backlog
+- JavaScript tests for `assets/static/graph.js` (layout, the filters, expand), and a phone-width pass.
+- `docs.stale_ref` for routes and config keys, which are never judged today, if a way to tell an example from a pointer turns up.
+- Findings as a CI gate: `govibe graph index --dir` failing on new `error` findings (Phase 6).
+- Column-level nodes in the ER view (today: tables, with the columns in the inspector and the schema report).
+- Findings history ("new since the last build"): the build node only counts quads.
 - Last-N-builds changelog (changed subjects per build) for "what changed since I last looked".
 - Test→code edges once tests exist; coverage overlay.
 - `EXPLAIN` the SQL literals found in code to flag full scans as findings.
@@ -486,9 +559,9 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
 | Phase 0 groundwork (.gitignore, spike, vocab) | Yes | | Vocabulary awaits sign-off; spike corrected route IDs, Gizmo query forms, and the writer API (see `GRAPH_SCHEMA.md`) |
 | Indexer core + `code` layer | Yes | | Writer applies adds then deletes (two batches) and verifies by read-back because of Cayley F11; fingerprints are stored but the skip-if-fresh logic waits for Phase 2; test files and templ-only packages are not indexed (see Phase 1 deviations) |
 | `routes`/`templates`/`config`/`mcp`/`docs` layers | Yes | | Routes collapse catch-alls to `ANY` and resolve by file:line; fingerprints include dependencies; `documents` and unresolved doc references are deferred (see Phase 2 deviations) |
-| `db` layer (live + static + inferred + code↔table) | Yes | | No ER preset yet (Phase 5 UI); drift recorded as `source`/`drift` on elements; route → table needs the `calls` layer (see Phase 3 deviations) |
-| Agent MCP tools/resources/prompt | Yes | | Reach beyond stored edges is estimated from package imports and labelled (no `calls` layer); `graph_findings` is `available: false` until Phase 5 (see Phase 4 deviations) |
-| Findings + human UI/reports | No | | Planned |
+| `db` layer (live + static + inferred + code↔table) | Yes | | ER view since Phase 5; drift recorded as `source`/`drift` on elements; route → table needs the `calls` layer (see Phase 3 deviations) |
+| Agent MCP tools/resources/prompt | Yes | | Reach beyond stored edges is estimated from package imports and labelled (no `calls` layer); `graph_findings` answers since Phase 5 (it was `available: false` before) |
+| Findings + human UI/reports | Yes | | Twelve rules over the graph (a rule that did not run says so); bounded server-built views with presets, inspector, banner, findings panel; four generated reports; `/dev/db` cross-links. JavaScript is verified by hand, not by unit tests (see Phase 5 deviations) |
 | `calls`/`git` layers, CLI, CI | No | | Planned, opt-in |
 | Indexing in production | No | Skipped | Everything under `/dev/*` is gated on `!cfg.IsProd()` by design |
 | Indexing row data | No | Skipped | PII risk; schema and metadata only |

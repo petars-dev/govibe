@@ -5,14 +5,15 @@ inserted, how nodes are named, and how to query them. The plan lives in
 [SPEC_GRAPH_INDEXER](/dev/docs/specs/graph-indexer); this file is the reference the indexer, its tests,
 and agents work from.
 
-> **Status: Phase 4 (the agent surface).** Every boot, every `POST /dev/graph/reindex`, and (for stale
-> layers only) every `/dev/graph` page load and `graph_query` call fills the store with the `code`,
-> `routes`, `templates`, `config`, `mcp`, `db` and `docs` layers plus the `meta` layer: packages, files,
-> functions, types and imports; routes, middleware and their handlers; templ components; config keys and
-> environment variables with their usage; MCP tools; the database schema (tables, columns, indexes,
-> foreign keys, migrations, relations the schema implies but does not declare) and which code reads and
-> writes which table; docs, specs and their status rows, with what they mention. The `findings`, `calls`
-> and `git` layers are not built yet. Don't assume a node or predicate exists until its layer is marked
+> **Status: Phase 5 (findings and the human surface).** Every boot, every `POST /dev/graph/reindex`, and
+> (for stale layers only) every `/dev/graph` page load, data call and `graph_query` call fills the store
+> with the `code`, `routes`, `templates`, `config`, `mcp`, `db`, `docs` and `findings` layers plus the
+> `meta` layer: packages, files, functions, types and imports; routes, middleware and their handlers; templ
+> components; config keys and environment variables with their usage; MCP tools; the database schema
+> (tables, columns, indexes, foreign keys, migrations, relations the schema implies but does not declare)
+> and which code reads and writes which table; docs, specs and their status rows, with what they mention
+> and what they name that no longer exists; and the findings derived from all of it. The `calls` and `git`
+> layers are not built yet. Don't assume a node or predicate exists until its layer is marked
 > *implemented* in [Layers](#layers). Hand-added quads (the "Add a quad" form) are never touched by a
 > reindex. Agents do not need Gizmo for the common questions: see [Agent tools](#agent-tools).
 
@@ -109,7 +110,8 @@ run) and **opaque**: never parse one, follow edges and attributes instead.
 | index | `kind:index` | `idx:<table>.<name>`; the primary key is `idx:<table>.PRIMARY` | `idx:orders.ix_orders_user` | db | 3 |
 | migration | `kind:migration` | `mig:<file name without .sql>` (decided: the version alone, `0001`, is not what people call it) | `mig:0001_init` | db | 3 |
 | annotation | `kind:annotation` | `ann:<12 hex characters>`: a hash of the subject, predicate and object of the inferred edge it describes | `ann:31db341e624c` | db | 3 |
-| finding | `kind:finding` | `finding:<rule>:<subject id>` | `finding:layering:func:controllers.GetOrder` | findings | 5 |
+| finding | `kind:finding` | `finding:<rule>:<subject id>`, and `#<detail>` when one rule finds several problems on one node (the detail is what tells them apart: the other package of a bad import, the line and text of a stale reference) | `finding:layering:pkg:controllers#pkg:storage/dbexplorer` | findings | 5 |
+| rule | `kind:rule` | `rule:<name>` | `rule:layering` | findings | 5 (new) |
 
 Go types use `typ:` rather than `type:` so the prefix, the `type` predicate and the `kind:type` object
 are three different IRIs.
@@ -172,7 +174,7 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `subject`, `object` | annotation → the column or table an inferred edge starts and ends at | db | 3 | final (new) |
 | `via` | annotation → the junction table of a `many_to_many` edge | db | 3 | final (new) |
 | `calls` | func → func | calls | 6 | provisional |
-| `about` | finding → subject node | findings | 5 | provisional |
+| `about` | finding → the node at fault (exactly one) | findings | 5 | final |
 
 ### Attribute predicates
 
@@ -215,7 +217,9 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `fk_name`, `on_delete`, `on_update` | string, string, string: the constraint's name and referential actions, on the foreign key's (first) source column. `fk_name` is absent for a constraint the migrations left unnamed and no database has named; the rules are absent when a migration wrote none and no database reports one | column | 3 (new) |
 | `version`, `applied` | string (`0002`, as in the file name), bool. `applied` is read from goose's `goose_db_version` and absent when there is no database or it has no such table | migration | 3 |
 | `predicate`, `method`, `confidence` | string (the inferred predicate), string, int 0 to 100: how an inferred edge was inferred and how sure that is. `method` is `name_match`, `junction_pk` or `junction_unique` | annotation | 3 (new) |
-| `rule`, `severity`, `message` | string, string, string | finding | 5 |
+| `rule`, `severity`, `message` | string, string, string: the rule's name, `error` / `warning` / `info`, and what is wrong and what to do about it. A finding also has `name` (its rule's title) and, when it points at a place, `path` and `line` | finding | 5 |
+| `severity`, `title`, `description`, `checked`, `note` | string, string, string, bool, string: on a rule node, its default severity, what a finding of it is called, what it looks for, whether it ran on this graph, and (when it did not) why: a layer it reads is not built, or `not applicable: ...` | rule | 5 (new) |
+| `unresolved_ref` | string, `"<line>:<text>"`, repeatable: something the document names that does not exist (see [what the docs layer reads](#what-the-phase-2-layers-read)). Only on a doc, and on a spec's status rows | doc, spec item | 5 (new) |
 
 `data_type` is not `type`, which is taken by the kind predicate. A config key or environment variable
 whose name matches `key`, `secret`, `password`, `token` or `dsn` (case-insensitive) is `sensitive`: it
@@ -238,9 +242,19 @@ It is not an indexer layer despite the shared word.
 | `assets/**` | `views` |
 | anything else (`config`, `logger`, …) | `support` |
 
-The layering rule (provisional, finalized in Phase 5): `controllers` must not import `storage`;
-`storage` must not import `business` or `controllers`; `wiring` and `dev` may import anything. This is
-how SPEC_GRAPH_INDEXER's "allow-list for wiring packages (`routes`, `main`, `devmcp`)" is expressed.
+The layering rule (final since Phase 5, `layering.go`, and the one thing the `layering` findings, the
+architecture overview and the layers report all read): SKILL.md's two constraints written as data, plus what
+they imply.
+
+| A package of layer | must not import | Because |
+| --- | --- | --- |
+| `controllers`, `middleware`, `views`, `support` | `storage` | only business actions and services may call storage |
+| `business` | `controllers`, `middleware`, `views`, `wiring`, `dev` | business logic does not depend on the HTTP layer or on wiring |
+| `storage` | everything but `storage` and `support` | storage is the lowest layer |
+| `wiring`, `dev` | nothing | they assemble the application: this is the allow-list (`routes`, `main`, `cmd`, `devmcp`) |
+
+A package a controller (or a middleware) uses to reach storage is therefore a finding, whatever it is used
+for: `controllers/devdb.go` importing `storage/dbexplorer` is the one this repository has.
 
 ## Layers
 
@@ -254,7 +268,7 @@ how SPEC_GRAPH_INDEXER's "allow-list for wiring packages (`routes`, `main`, `dev
 | mcp | `layer:mcp` | MCP tool | `mcp.AddTool` calls, from the code index | 2 | **implemented** |
 | docs | `layer:docs` | doc, spec, spec item | goldmark over `docs/public`, `docs/specs`, `README.md`, `SKILL.md` | 2 | **implemented** |
 | db | `layer:db` | table, column, index, migration, annotation | the migrations in `storage/migrations/sql`, merged with the live database's schema when one is configured | 3 | **implemented** |
-| findings | `layer:findings` | finding | derived from the other layers | 5 | planned |
+| findings | `layer:findings` | finding, rule | derived from the other layers (it reads what they wrote) | 5 | **implemented** |
 | calls | `layer:calls` | (`calls` edges) | `x/tools/go/packages` | 6, opt-in | planned |
 | git | `layer:git` | (file attributes) | `git log` | 6, opt-in | planned |
 
@@ -282,7 +296,8 @@ calls), so nothing is parsed twice. A layer points only at nodes it can resolve 
 | config | code | `config/env.yml` |
 | mcp | code | none (it reads the code index) |
 | db | code | every `.sql` under `storage/migrations/sql`, and the live schema (see below) |
-| docs | code, routes, templates, config, mcp, db | `README.md`, `SKILL.md`, every `.md` under `docs/public` and `docs/specs` |
+| docs | code, routes, templates, config, mcp, db | `README.md`, `SKILL.md`, every `.md` under `docs/public` and `docs/specs`, and whether each file those documents name is on disk (see below) |
+| findings | every layer above | none: the rules read what the other layers wrote, so it is stale whenever any of them is |
 
 A layer's fingerprint (16 hex characters, on `layer:<name>`) hashes its own inputs (path, mtime, size)
 together with its dependencies' fingerprints, so it changes exactly when something the layer was built
@@ -291,11 +306,18 @@ the stored one; a layer that failed is not retried until its fingerprint changes
 retries at once). Fingerprints are taken before any input is read, so an edit that lands mid-run reads as
 stale next time, never falsely fresh.
 
+One input is only known after a build: which files the documents name (a stylesheet or
+script the graph has no node for, say), because that is what finding a stale reference needs to know. The docs layer
+therefore remembers which paths it looked for and whether each was there, covers that in its fingerprint,
+and after each build the indexer takes the fingerprint again from what the build recorded (the layer
+*settles*). Creating a file a document names, or removing one, makes the docs layer, and so the findings,
+stale; no document has to change.
+
 | Trigger | What runs |
 | --- | --- |
 | server boot (after the router is wired, in a goroutine) | every layer |
 | `POST /dev/graph/reindex` | every layer, ignoring caches |
-| `GET /dev/graph` (the page) and every `graph_query` call | only the stale layers, usually none: a freshness check is a few milliseconds |
+| `GET /dev/graph` (the page), every `/dev/graph/data/*` and `/dev/graph/reports/*` call, and every `graph_query` and graph tool call | only the stale layers, usually none: a freshness check is a few milliseconds |
 
 This is what makes an edit to `docs/**`, which the dev server's file watcher ignores, show up on the next
 page load without a restart. The `db` layer is the one whose input can change with no file changing: its
@@ -364,9 +386,31 @@ backticked spans make its `covers` edges. Resolution, in order (the first rule t
 7. a symbol: `pkg.Name` (one package by that name), `Type.Method` (one type by that name),
    `pkg.Type.Method`, or `pkg.Template` for a component. A bare identifier is **never** resolved.
 
+8. `dir.Name`: a function or type of the package in a directory (`storage/migrations.SetDialect`, the way a
+   function's ID is written).
+
 Links are resolved the same way, and `/dev/docs/specs/<slug>` and `/dev/docs/app/<slug>` resolve to the
-spec or doc with that slug. Anything that does not resolve is dropped, not recorded: a stale reference
-leaves no trace in the graph yet (the Phase 5 stale-docs finding will need one).
+spec or doc with that slug. Anything that does not resolve is not a `mentions` edge, but it is no longer
+dropped silently: a reference that is **unambiguously a pointer into this repository** and has nothing
+behind it is recorded as `unresolved_ref` (`"<line>:<text>"`) on the doc, and the `docs.stale_ref` finding
+reads that. It has to be conservative, because most backticked words are commands, library types or
+examples. A reference is recorded only when it is:
+
+- a path with a slash that ends in a source extension (`.go .templ .sql .md .yml .yaml .json .toml .css
+  .js .html .sh`, so a path into a directory that has since been removed counts, wherever that directory
+  used to be) or starts at something that exists at the repository root, that is neither a node of the
+  graph nor on disk, relative to the document or to the root. `net/http`, `application/json`, `example.com/x/y.go`, URLs, patterns (`docs/*.md`) and
+  placeholders (`controllers/<name>.go`) are not;
+- `pkg.Name` where `pkg` is the one package of that name, no library the module imports shares the name
+  (`middleware.RequestID` is chi's), `Name` is exported, and nothing called `Name` is declared at package
+  level there; `Type.Member` of a struct that embeds nothing and has no such field or method; `dir.Name`
+  where the directory holds a package and `Name` is gone;
+- a link to a `/dev/docs/...` page or to a relative file that is not there.
+
+Routes, node IDs, config keys and environment variables are never judged (documents use them as examples,
+and for things not built yet). The prose of a spec is not judged either, because it describes what is
+planned as well as what is done; only its status rows are, and the `docs.spec_missing` finding reads the
+ones marked implemented.
 
 **db.** The schema, from two sources that are merged when both exist, and never a row of data.
 
@@ -629,14 +673,99 @@ a Go symbol (`pkg.Name`, `dir/pkg.Name`, `Type.Method`, or a bare function, type
 the same ignoring case. A reference that fits several nodes is an error that lists them; one that fits none
 comes back with the nearest names.
 
-### Findings contract (for Phase 5)
+## Findings
 
-`graph_findings` and the `findings` of a `graph_context` read `finding` nodes as they will be written:
-`finding:<rule>:<subject id>` with `type kind:finding`, `rule`, `severity` and `message` literals, and an
-`about` edge to the subject, under label `layer:findings` with a `layer:findings` run node. Severities are
-ranked `error`/`high`/`critical`, then `warning`/`medium`, then `info`/`low`; anything else last. Until the layer
-runs, `graph_findings` answers `available: false` with a note that nothing was checked, and a briefing says
-the same: an empty list is never "clean".
+The `findings` layer derives problems from what the other layers wrote. It is built last, reads the store
+exactly as the agent tools do (`codegraph.Load`, without its own previous output), and is stale whenever any
+layer is. A finding is a node, so it is queryable, appears in `graph_context` of the node it is about, and
+survives only as long as its cause.
+
+```text
+finding:<rule>:<subject id>[#<detail>]   type kind:finding
+  rule, severity, message                literals; message says what is wrong and what to do
+  name                                   the rule's title
+  path, line                             where to look, when the rule knows
+  about  -->  the node at fault          exactly one
+rule:<name>                              type kind:rule
+  name, title, severity, description     what it looks for
+  checked                                it ran on this graph
+  note                                   when it did not: why
+```
+
+Severities are `error` (breaks a rule the project states), `warning` (wrong or stale) and `info` (a smell).
+`graph_findings` ranks `error`/`high`/`critical`, then `warning`/`medium`, then `info`/`low`.
+
+**A rule that did not run has not looked.** A rule whose layers are not built (say, `docs.route_undocumented`
+in an offline run with no router) is recorded with `checked=false` and the reason, and the layer is
+`partial`. A rule that has nothing to look at (`db.drift` and `db.unapplied` with no live database) is
+recorded the same way with `not applicable: ...` and does not make the layer partial. `graph_findings`
+returns every rule with its count and whether it ran, and says so in `note`, so "no findings" is never read
+as "clean". When there is no findings layer at all it answers `available: false`.
+
+| Rule | Severity | About | Finds |
+| --- | --- | --- | --- |
+| `layering` | error | the importing package (detail: the imported one) | an import the [layering rule](#package-classification) forbids; `path` and `line` are where the import is first used (a call, or a type in a signature or struct) |
+| `docs.stale_ref` | warning | the doc (detail: `line:text`) | a doc names a file, symbol or page that does not exist |
+| `docs.spec_missing` | warning | the spec row (detail: `line:text`) | a row marked implemented names something that does not exist |
+| `docs.route_undocumented` | info | the route | an application route (not under `/dev`) that no doc or spec mentions |
+| `config.undeclared` | warning | the config key or environment variable | code reads it, `config/env.yml` does not declare it |
+| `config.unused` | info | the config key | declared, and no code reads it (a read through a variable name is not seen) |
+| `code.unreferenced` | info | the function | an exported package-level function no other indexed code references (tests are not indexed, methods are not checked, a name a `.templ` file uses counts) |
+| `db.no_primary_key` | warning | the table | no primary key |
+| `db.fk_unindexed` | warning | the column | a foreign key that no index starts with |
+| `db.missing_fk` | info | the column (detail: the target column) | an `x_id` column that names a table (`implicit_ref`) but has no foreign key; the message gives the confidence |
+| `db.drift` | warning | the table, column or index | with a live database: only one side has it, or the two describe it differently. A table that only an unapplied migration introduces is that migration's finding instead |
+| `db.unapplied` | warning | the migration | with a live database: goose does not list it as applied |
+
+Finding the file and line of a layering violation needs two facts the graph does not store as quads, which
+the code index keeps (`ci.refs`, `ci.typeRefs`, `ci.identUses`, `ci.topLevel`): the findings layer reads the
+code index for those, nothing else.
+
+```js
+// the findings, worst first, and what is wrong with one node
+g.V().Has(g.IRI('type'), g.IRI('kind:finding')).Out(g.IRI('message')).All()
+g.V(g.IRI('pkg:controllers')).In(g.IRI('about')).Out(g.IRI('message')).All()
+// the rules, and which did not run
+g.V().Has(g.IRI('checked'), false).Out(g.IRI('note')).All()
+```
+
+## Human surface
+
+`/dev/graph` does not load every quad. The page is a shell (`assets/static/graph.js` and `graph.css`) that
+asks the server for **bounded views** and draws them with Cytoscape, so it stays quick however many quads
+the store holds (a view is at most 300 nodes by default, 1,500 at most, and says when it left some out; the
+server builds one in a few milliseconds from 90,000 quads). Data comes from `/dev/graph/data/*`, each call
+first bringing stale layers up to date:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /dev/graph/data/status` | the freshness banner: when and at which git sha the graph was indexed, quads, `+added/-removed` against the previous run, each layer's status and which are stale, the finding counts and which rules did not run |
+| `GET /dev/graph/data/view?preset=&focus=&depth=&kinds=&limit=` | a drawable subgraph: nodes (kind, label, finding count and worst severity, a flag), edges (violating imports and inferred relations marked), the kinds present, `total`, `truncated`, notes. `preset=manual` is the hand-added quads (the one thing the model does not hold) |
+| `GET /dev/graph/data/node?id=` | the inspector of any node, by ID or any reference `graph_context` takes: attributes, edges grouped by predicate (25 per group), findings about it, links |
+| `GET /dev/graph/data/search?q=&kinds=&limit=` | `graph_search` |
+| `GET /dev/graph/data/findings?severity=&rule=&limit=` | `graph_findings` |
+| `GET /dev/graph/data/table?name=` | what refers to a table (code that reads or writes it, routes and tools that may reach it, docs): `graph_impact` of the table grouped for the database explorer, with the same confidence labels |
+
+Presets: **Architecture** (packages in columns by architecture layer, a red edge for each import that breaks
+the rule), **Request flow** (route, middleware, handler, what it renders), **Database ER** (tables; declared
+foreign keys solid, inferred relations dashed with their confidence), **Docs ↔ code** (which docs mention
+which packages, routes, tables and tools; an orange dashed outline means nothing mentions it), **Config →
+usage**, **Findings**, and **Hand-added quads**. Any node opens as a focus view (its neighbourhood, a few
+edges per predicate, `more` says what was left out); double-clicking a node adds its neighbours to the
+canvas. A node's border is red, amber or blue when a finding is about it. The kind chips hide a kind
+(colour and shape per kind); the inspector links to the editor (`vscode://file/<abs path>:<line>`), to
+`/dev/docs/*`, to `/dev/db#table=<name>` (only when the database explorer is mounted) and to the node's place
+on a report. `/dev/graph#node=<id>` and `#preset=<id>` are deep links.
+
+Four generated reference pages, rebuilt from the graph on every load (so they cannot drift from the code),
+replace the hand-kept route table and schema listing of ARCHITECTURE.md and MEMORY_SCHEMA.md:
+`/dev/graph/reports/routes` (every route, its handler, middleware and docs), `/config` (every key, its
+environment variable, default, whether it is declared, who reads it; secrets are never shown),
+`/schema` (tables, columns, indexes, foreign keys, inferred relations with confidence, the code that reads
+and writes each table, migrations) and `/layers` (the packages of each architecture layer, the imports between
+layers, the rule, and the violations). Report rows carry stable anchors (`Anchor(id)`), so the inspector and
+the findings link straight to them. The database explorer's table view shows a "Referenced by" panel from
+`/dev/graph/data/table`.
 
 ## Fixture
 
@@ -651,24 +780,24 @@ the `routes` layer is fed the runtime facts its router would report (`fixtureRou
 
 | Fixture file | What it exercises |
 | --- | --- |
-| `main.go` | root package `pkg:.`, `arch_layer=wiring`, package doc; `cfg.Server.Port` and `cfg.Database.DSN` reads, and an `os.Getenv` of a variable `env.yml` does not declare |
-| `routes/routes.go` | wiring; imports every other layer; six routes (`GET /`, `GET /api/hello`, `GET /api/orders`, `GET /api/orders/{id}`, `/dev/mcp`, `/assets/`) and a middleware wrapper |
-| `config/env.yml`, `config/config.go` | placeholders with defaults, a default containing a colon, sensitive keys whose defaults must not appear, a static value, a key bound to a struct field that nothing reads, keys reachable only through `config.Get` |
-| `business/actions/notify.go` | `config.Get` of a whole group (`mail.smtp`) and of an undeclared key |
-| `assets/templates/*.templ` | components, a `children...` layout, `@Layout(...)` and `@Footer()` calls, a doc comment, a component whose Go package has only generated output |
-| `controllers/home.go` | a handler that renders a templ component (`func --renders--> tmpl`) |
-| `mcp/mcp.go` | a stand-in for the MCP SDK (the fixture is standard-library only) |
-| `docs/**`, `README.md` | an architecture page with every kind of mention (path, route, symbol, `Type.Method`, config key and group, environment variable, tool, template, links, a stale reference), a guide, and `SPEC_HELLO.md` whose status table has implemented, planned, partial and skipped rows |
-| `controllers/hello.go` | acceptance query 1: `HelloAPI` calls `actions.Hello`, and no table is reachable |
-| `controllers/orders.go` | acceptance query 2: `ListOrders` goes handler → service → store (clean); `GetOrder` calls the store directly (**layering violation**, on purpose); handler factories returning closures; unexported `writeJSON` |
-| `business/actions/hello.go` | single-function action; a two-sentence doc for first-sentence extraction |
-| `business/services/orders/orders.go` | interface type, struct type, pointer and value receivers, an unexported method |
-| `storage/orderstore/orderstore.go` | SQL as package constants and as literals in function bodies (a join, an `INSERT ... SELECT`, a `+` concatenation, a raw string, a `DELETE`) and one dynamic statement that names no table; `db:"…"` struct tags (a struct that maps to one table, one that fits several and maps to none) |
-| `storage/migrations/sql/0001_init.sql` | one goose migration, the sample from the spec (users, products, orders, order_items): a sensitive column default, unnamed and named keys and foreign keys, a composite-primary-key junction, and an implicit reference (`orders.user_id`, no foreign key). The cases beyond this (`ALTER` of existing tables, a shared primary key, renames and drops, a column that names no table, drift against a live database, unapplied migrations) are an inline second migration in `db_extra_test.go` (and `db_live_test.go`), so the tree carries no schema it does not need |
-| `storage/orderstore/zz_generated.go` | a `// Code generated … DO NOT EDIT.` file that is indexed with `generated=true` |
-| `middleware/logging.go` | middleware function |
-| `devmcp/devmcp.go` | `arch_layer=dev`; a dev package importing storage; two `mcp.AddTool` registrations (a handler struct with `omitempty` and `jsonschema` tags, and `struct{}`) |
-| `assets/templates/home_templ.go` | generated templ output that must be skipped; the package has no other Go file, so it must not appear |
+| `business/services/codegraph/testdata/fixture/main.go` | root package `pkg:.`, `arch_layer=wiring`, package doc; `cfg.Server.Port` and `cfg.Database.DSN` reads, and an `os.Getenv` of a variable `env.yml` does not declare |
+| `business/services/codegraph/testdata/fixture/routes/routes.go` | wiring; imports every other layer; six routes (`GET /`, `GET /api/hello`, `GET /api/orders`, `GET /api/orders/{id}`, `/dev/mcp`, `/assets/`) and a middleware wrapper |
+| `business/services/codegraph/testdata/fixture/config/env.yml`, `business/services/codegraph/testdata/fixture/config/config.go` | placeholders with defaults, a default containing a colon, sensitive keys whose defaults must not appear, a static value, a key bound to a struct field that nothing reads, keys reachable only through `config.Get` |
+| `business/services/codegraph/testdata/fixture/business/actions/notify.go` | `config.Get` of a whole group (`mail.smtp`) and of an undeclared key |
+| `business/services/codegraph/testdata/fixture/assets/templates/*.templ` | components, a `children...` layout, `@Layout(...)` and `@Footer()` calls, a doc comment, a component whose Go package has only generated output |
+| `business/services/codegraph/testdata/fixture/controllers/home.go` | a handler that renders a templ component (`func --renders--> tmpl`) |
+| `business/services/codegraph/testdata/fixture/mcp/mcp.go` | a stand-in for the MCP SDK (the fixture is standard-library only) |
+| `business/services/codegraph/testdata/fixture/docs/**`, `business/services/codegraph/testdata/fixture/README.md` | an architecture page with every kind of mention (path, route, symbol, `Type.Method`, config key and group, environment variable, tool, template, links, a stale reference), a guide, and `SPEC_HELLO.md` whose status table has implemented, planned, partial and skipped rows, and one implemented row (`Audit trail`) that names a file that does not exist (`docs.spec_missing`) |
+| `business/services/codegraph/testdata/fixture/controllers/hello.go` | acceptance query 1: `HelloAPI` calls `actions.Hello`, and no table is reachable |
+| `business/services/codegraph/testdata/fixture/controllers/orders.go` | acceptance query 2: `ListOrders` goes handler → service → store (clean); `GetOrder` calls the store directly (**layering violation**, on purpose); handler factories returning closures; unexported `writeJSON` |
+| `business/services/codegraph/testdata/fixture/business/actions/hello.go` | single-function action; a two-sentence doc for first-sentence extraction |
+| `business/services/codegraph/testdata/fixture/business/services/orders/orders.go` | interface type, struct type, pointer and value receivers, an unexported method |
+| `business/services/codegraph/testdata/fixture/storage/orderstore/orderstore.go` | SQL as package constants and as literals in function bodies (a join, an `INSERT ... SELECT`, a `+` concatenation, a raw string, a `DELETE`) and one dynamic statement that names no table; `db:"…"` struct tags (a struct that maps to one table, one that fits several and maps to none) |
+| `business/services/codegraph/testdata/fixture/storage/migrations/sql/0001_init.sql` | one goose migration, the sample from the spec (users, products, orders, order_items): a sensitive column default, unnamed and named keys and foreign keys, a composite-primary-key junction, and an implicit reference (`orders.user_id`, no foreign key). The cases beyond this (`ALTER` of existing tables, a shared primary key, renames and drops, a column that names no table, drift against a live database, unapplied migrations) are an inline second migration in `db_extra_test.go` (and `db_live_test.go`), so the tree carries no schema it does not need |
+| `business/services/codegraph/testdata/fixture/storage/orderstore/zz_generated.go` | a `// Code generated … DO NOT EDIT.` file that is indexed with `generated=true` |
+| `business/services/codegraph/testdata/fixture/middleware/logging.go` | middleware function |
+| `business/services/codegraph/testdata/fixture/devmcp/devmcp.go` | `arch_layer=dev`; a dev package importing storage; two `mcp.AddTool` registrations (a handler struct with `omitempty` and `jsonschema` tags, and `struct{}`) |
+| `business/services/codegraph/testdata/fixture/assets/templates/home_templ.go` | generated templ output that must be skipped; the package has no other Go file, so it must not appear |
 
 Edit the fixture only together with its goldens, in one commit. Facts asserted independently of the
 golden (so a wrongly regenerated golden is still caught) live in `Test<Layer>LayerFixtureFacts`; the
@@ -686,11 +815,11 @@ Decided no later than the phase named.
 | ~~2~~ | ~~Direction and predicate for tool → backing function~~ **Decided (Phase 2):** `func --registers--> tool`, the function that calls `mcp.AddTool`; a handler literal is a closure and resolves to it. | |
 | ~~2~~ | ~~`tmpl:` ID: package name or directory~~ **Decided (Phase 2):** directory, like `func:` and `typ:`, because two packages can share a name (`tmpl:assets/templates.Home`). | |
 | ~~2~~ | ~~Spec item ID: row number or text~~ **Decided (Phase 2):** a slug of the Item cell. A row number shifts whenever a row is inserted, which churns every mention of the items below it. | |
-| 2 | `documents` and unresolved doc references | Neither is emitted. `documents` needs an explicit convention to mean more than `mentions`. A doc mention that resolves to nothing leaves no trace, so the Phase 5 stale-docs finding needs the docs layer to record it (for example an `unresolved_ref` literal on the doc) before it can be derived. |
+| 2 | `documents` and unresolved doc references | `documents` is not emitted: it needs an explicit convention to mean more than `mentions`. **Decided (Phase 5):** a reference that is unambiguously a pointer into this repository and resolves to nothing is recorded as an `unresolved_ref` literal on the doc (or the spec row), conservatively: see [what the docs layer reads](#what-the-phase-2-layers-read). |
 | ~~3~~ | ~~How is an *inferred* edge marked? A triple has no room for method or confidence.~~ **Decided (Phase 3):** the edge stays a plain triple; each inferred edge has an annotation node `ann:<hash>` with `subject` and `object` (edges to the nodes), `predicate` (the predicate's name, a string), `method` and `confidence` (0 to 100), and `via` for a junction. | |
-| 5 | Drift as findings | The graph holds the facts a finding needs (`source`, `drift`, `applied`, `key`, the indexes, `implicit_ref`); the findings layer (Phase 5) turns them into rules: table without a primary key, foreign key column without an index, `_id` column with no foreign key, migration and live drift. |
-| 5 | Final layering rule and allow-list | The rule under [Package classification](#package-classification). The `govibe://graph/overview` resource already names the imports the provisional rule forbids, derived from `arch_layer`; the findings layer takes that over. |
-| 5 | The `finding` shape | As read by the agent tools: [Findings contract](#findings-contract-for-phase-5). Phase 5 adds `PredAbout` and the `rule`, `severity`, `message` predicates to `vocab.go`. |
+| ~~5~~ | ~~Drift as findings~~ **Decided (Phase 5):** `db.no_primary_key`, `db.fk_unindexed`, `db.missing_fk`, `db.drift` and `db.unapplied`; the last two apply only when a live database was read. | |
+| ~~5~~ | ~~Final layering rule and allow-list~~ **Decided (Phase 5):** the table under [Package classification](#package-classification), in `layering.go`; `wiring` and `dev` are the allow-list. The overview and the layers report read the same function. | |
+| ~~5~~ | ~~The `finding` shape~~ **Decided (Phase 5):** [Findings](#findings). One deviation from the first draft: a finding whose rule has several problems on one node carries a `#<detail>` suffix, and there is a `rule` kind so that "did not run" is part of the graph. | |
 | 6 | Sharper reach before the `calls` layer | File-level import edges (`file --imports--> pkg`) from the code layer would let a route's reach start at its handler's file instead of its whole package. Not done: it changes the code layer's output and goldens, and the `calls` layer supersedes it. |
 
 The `graph_query` tool description now shows the `'<iri>'` idiom (done in Phase 1).

@@ -30,7 +30,7 @@ func TestRunLayersRebuildsOnlyWhatWasAskedFor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := strings.Join(ix.LayerNames(), ","); got != "code,routes,templates,config,mcp,db,docs" {
+	if got := strings.Join(ix.LayerNames(), ","); got != "code,routes,templates,config,mcp,db,docs,findings" {
 		t.Errorf("layer names: %s", got)
 	}
 
@@ -40,29 +40,33 @@ func TestRunLayersRebuildsOnlyWhatWasAskedFor(t *testing.T) {
 	if err != nil || rep == nil {
 		t.Fatalf("%v %v", rep, err)
 	}
-	if got := strings.Join(layersRan(rep), ","); got != "config,docs" {
+	if got := strings.Join(layersRan(rep), ","); got != "config,docs,findings" {
 		t.Errorf("ran %s", got)
 	}
 	// a layer nothing is built on runs alone; the `layer:` prefix and case are accepted
+	rep, err = ix.RunLayers(ctx, []string{"layer:Findings"})
+	if err != nil || strings.Join(layersRan(rep), ",") != "findings" {
+		t.Errorf("%v %v", layersRan(rep), err)
+	}
 	rep, err = ix.RunLayers(ctx, []string{"layer:Docs"})
-	if err != nil || strings.Join(layersRan(rep), ",") != "docs" {
+	if err != nil || strings.Join(layersRan(rep), ",") != "docs,findings" {
 		t.Errorf("%v %v", layersRan(rep), err)
 	}
 	rep, err = ix.RunLayers(ctx, []string{" mcp ", "templates"})
-	if err != nil || strings.Join(layersRan(rep), ",") != "templates,mcp,docs" {
+	if err != nil || strings.Join(layersRan(rep), ",") != "templates,mcp,docs,findings" {
 		t.Errorf("two named: %v %v", layersRan(rep), err)
 	}
 
 	// a layer that is stale because its input changed comes along, with what was named
 	writeFile(t, root, "docs/public/GUIDE.md", "# Guide\n\nChanged.\n")
 	rep, err = ix.RunLayers(ctx, []string{"templates"})
-	if err != nil || strings.Join(layersRan(rep), ",") != "templates,docs" {
+	if err != nil || strings.Join(layersRan(rep), ",") != "templates,docs,findings" {
 		t.Errorf("a stale layer follows: %v %v", layersRan(rep), err)
 	}
 
 	// no names is a full run
 	rep, err = ix.RunLayers(ctx, nil)
-	if err != nil || len(layersRan(rep)) != 7 {
+	if err != nil || len(layersRan(rep)) != 8 {
 		t.Errorf("all: %v %v", layersRan(rep), err)
 	}
 

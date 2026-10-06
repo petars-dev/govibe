@@ -140,7 +140,7 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 		Description: "START HERE. Describes the project graph as it is right now: every kind of node with its count, ID format and a real example, " +
 			"every predicate with its count and what it links, how to read confidence and method, which tool answers which question, " +
 			"example graph_query queries, which layers are built, and how fresh the graph is (git sha, dirty, indexed_at, stale layers). " +
-			"Layers that are not built (findings, calls, git) are named, so an empty answer is not read as a clean one.",
+			"Layers that are not built (calls, git) are named, so an empty answer is not read as a clean one.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, codegraph.SchemaInfo, error) {
 		m, err := g.model(ctx)
@@ -247,8 +247,10 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "graph_findings",
 		Description: "What is stale, broken or against the rules: layering violations, docs that mention code that is gone, config keys declared and never read, " +
-			"tables without a primary key. `available` is false until the findings layer exists (it is Phase 5 of SPEC_GRAPH_INDEXER), " +
-			"and then an empty list means nothing was checked, not that nothing is wrong.",
+			"tables without a primary key, a route no doc mentions. Each finding has a rule, a severity (error, warning, info), a message that says what to do, " +
+			"and the node it is about; filter by `severity` or `rule` (a trailing * matches a prefix, e.g. `docs.*`). `rules` lists every rule and whether it ran on this graph: " +
+			"a rule that did not run (a layer it reads is not built, or there is no live database to compare with) has not looked, so no findings from it is not a clean bill; " +
+			"`available` is false when the whole findings layer is missing.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in findingsIn) (*mcp.CallToolResult, codegraph.FindingsResult, error) {
 		m, err := g.model(ctx)

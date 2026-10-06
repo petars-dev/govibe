@@ -105,41 +105,41 @@ func TestRefreshRebuildsOnlyStaleLayers(t *testing.T) {
 	// A spec edit: only the docs layer.
 	check("spec edit", func() {
 		appendTo(t, root, "docs/specs/SPEC_HELLO.md", "| Greeting analytics | No | | Planned: `actions.Hello` counts calls first |\n")
-	}, "docs")
+	}, "docs", "findings")
 	wantIDs(t, "the new spec row is in the graph", gizmoIDs(t, h, item+`.Out(g.IRI('status')).All()`), "planned")
-	wantIDs(t, "and the spec now has seven items",
+	wantIDs(t, "and the spec now has eight items",
 		gizmoIDs(t, h, `g.V(g.IRI('spec:hello')).Out(g.IRI('has_item')).All()`),
 		"<item:hello/get-api-hello-endpoint>", "<item:hello/landing-page>", "<item:hello/mcp-tool-fixture-ping>",
-		"<item:hello/greeting-history>", "<item:hello/localised-greetings>", "<item:hello/settings-fixture-db-max-conns>", "<item:hello/greeting-analytics>")
+		"<item:hello/greeting-history>", "<item:hello/localised-greetings>", "<item:hello/settings-fixture-db-max-conns>", "<item:hello/audit-trail>", "<item:hello/greeting-analytics>")
 
 	// A doc edit that adds a mention: only docs.
 	check("doc edit", func() {
 		appendTo(t, root, "docs/public/GUIDE.md", "\nSee also `fixture_echo`.\n")
-	}, "docs")
+	}, "docs", "findings")
 	wantIDs(t, "the new mention", gizmoIDs(t, h, `g.V(g.IRI('doc:docs/public/GUIDE.md')).Out(g.IRI('mentions')).Has(g.IRI('type'), g.IRI('kind:mcp_tool')).All()`), "<tool:fixture_echo>")
 
 	// A template edit: the templates layer, and docs, which mentions templates.
 	check("template edit", func() {
 		appendTo(t, root, "assets/templates/home.templ", "\ntempl Banner() {\n\t<p>hi</p>\n}\n")
-	}, "templates", "docs")
+	}, "templates", "docs", "findings")
 	wantIDs(t, "the new template", gizmoIDs(t, h, `g.V(g.IRI('tmpl:assets/templates.Banner')).Out(g.IRI('name')).All()`), "Banner")
 
 	// A config edit: config, and docs, which mentions keys.
 	check("env.yml edit", func() {
 		appendTo(t, root, "config/env.yml", "\ncache:\n  ttl: ${FIXTURE_CACHE_TTL:60}\n")
-	}, "config", "docs")
+	}, "config", "docs", "findings")
 	wantIDs(t, "the new key", gizmoIDs(t, h, `g.V(g.IRI('cfg:cache.ttl')).Out(g.IRI('default')).All()`), "60")
 
 	// A migration edit: the db layer, and docs, which mentions tables.
 	check("migration edit", func() {
 		writeFile(t, root, "storage/migrations/sql/0002_tags.sql", "-- +goose Up\nCREATE TABLE tags (id INT PRIMARY KEY, label VARCHAR(20));\n")
-	}, "db", "docs")
+	}, "db", "docs", "findings")
 	wantIDs(t, "the new table", gizmoIDs(t, h, `g.V(g.IRI('table:tags')).Out(g.IRI('source')).All()`), "migration")
 
 	// A Go source edit: the code layer and everything that resolves against it.
 	check("go edit", func() {
 		appendTo(t, root, "business/actions/hello.go", "\n// Bye says goodbye.\nfunc Bye() string { return \"bye\" }\n")
-	}, "code", "routes", "templates", "config", "mcp", "db", "docs")
+	}, "code", "routes", "templates", "config", "mcp", "db", "docs", "findings")
 	wantIDs(t, "the new function", gizmoIDs(t, h, `g.V(g.IRI('func:business/actions.Bye')).Out(g.IRI('doc')).All()`), "Bye says goodbye.")
 
 	// The layers that did not run kept their own records.
@@ -167,7 +167,7 @@ func TestRefreshReport(t *testing.T) {
 		t.Errorf("report has %d layers, want %d", len(rep.Layers), len(ix.layers))
 	}
 	for _, l := range rep.Layers {
-		if l.Ran != (l.Name == "docs") {
+		if l.Ran != (l.Name == "docs" || l.Name == "findings") {
 			t.Errorf("layer %s Ran = %v", l.Name, l.Ran)
 		}
 		if !l.Ran && (l.Added != 0 || l.Removed != 0) {
@@ -291,14 +291,14 @@ func TestFingerprintsIncludeDependencies(t *testing.T) {
 	appendTo(t, root, "docs/public/GUIDE.md", "\nx\n")
 	after := fps()
 	for name := range base {
-		if changed := base[name].fp != after[name].fp; changed != (name == "docs") {
+		if changed := base[name].fp != after[name].fp; changed != (name == "docs" || name == "findings") {
 			t.Errorf("after a doc edit, %s fingerprint changed = %v", name, changed)
 		}
 	}
 
 	appendTo(t, root, "controllers/hello.go", "\n// x\n")
 	next := fps()
-	for _, name := range []string{"code", "routes", "templates", "config", "mcp", "db", "docs"} {
+	for _, name := range []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "findings"} {
 		if next[name].fp == after[name].fp {
 			t.Errorf("after a Go edit, %s fingerprint did not change", name)
 		}

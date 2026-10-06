@@ -38,6 +38,10 @@ const (
 	KindIndex      = quad.IRI("kind:index")
 	KindMigration  = quad.IRI("kind:migration")
 	KindAnnotation = quad.IRI("kind:annotation")
+
+	// Phase 5: the findings layer.
+	KindFinding = quad.IRI("kind:finding")
+	KindRule    = quad.IRI("kind:rule")
 )
 
 // Structural predicates: an IRI object, drawn as an edge by the explorer.
@@ -73,6 +77,9 @@ const (
 	PredSubject      = quad.IRI("subject")       // annotation -> the inferred edge's subject
 	PredObject       = quad.IRI("object")        // annotation -> the inferred edge's object
 	PredVia          = quad.IRI("via")           // annotation -> the junction table
+
+	// Phase 5: the findings layer.
+	PredAbout = quad.IRI("about") // finding -> the node it is about
 )
 
 // Attribute predicates: a literal object, which a viewer can hide.
@@ -102,6 +109,13 @@ const (
 	PredTitle       = quad.IRI("title")
 	PredWhySkipped  = quad.IRI("why_skipped")
 	PredNote        = quad.IRI("note")
+
+	// Phase 5: findings and what they need from the docs layer.
+	PredRule          = quad.IRI("rule")           // finding: the rule that found it
+	PredSeverity      = quad.IRI("severity")       // finding, rule: error, warning or info
+	PredMessage       = quad.IRI("message")        // finding: what is wrong and what to do
+	PredChecked       = quad.IRI("checked")        // rule: it ran on this graph (false: a layer it reads is not built)
+	PredUnresolvedRef = quad.IRI("unresolved_ref") // doc, spec item: "<line>:<text>" of a reference to something that is gone
 
 	// Phase 3: the db layer.
 	PredDataType    = quad.IRI("data_type")
@@ -148,6 +162,7 @@ var structuralPredicates = []quad.IRI{
 	PredRegisters, PredHasItem, PredMentions, PredCovers,
 	PredHasColumn, PredHasIndex, PredFKTo, PredImplicitRef, PredManyToMany, PredIntroducedIn,
 	PredReadsTable, PredWritesTable, PredMapsTo, PredSubject, PredObject, PredVia,
+	PredAbout,
 }
 
 // archLayers is the closed set of `arch_layer` values.
@@ -232,6 +247,20 @@ func annID(subject, predicate, object quad.IRI) quad.IRI {
 	h := sha256.Sum256([]byte(string(subject) + "\x00" + string(predicate) + "\x00" + string(object)))
 	return quad.IRI("ann:" + hex.EncodeToString(h[:])[:12])
 }
+
+// findingID names one finding: the rule, the node it is about and, when one rule
+// finds several problems on the same node (a package that imports two forbidden
+// ones), a detail that tells them apart. `#` is the same separator the duplicate
+// suffix of a code ID uses.
+func findingID(rule string, subject quad.IRI, detail string) quad.IRI {
+	id := "finding:" + idKey(rule) + ":" + string(subject)
+	if detail != "" {
+		id += "#" + idKey(detail)
+	}
+	return quad.IRI(id)
+}
+
+func ruleID(name string) quad.IRI { return quad.IRI("rule:" + idKey(name)) }
 
 func itemID(specSlug, itemSlug string) quad.IRI {
 	return quad.IRI("item:" + idKey(specSlug) + "/" + idKey(itemSlug))

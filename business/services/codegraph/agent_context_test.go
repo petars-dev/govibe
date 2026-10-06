@@ -1,12 +1,13 @@
 package codegraph
 
 import (
-	"context"
+	"sort"
 	"strings"
 	"testing"
 
-	"github.com/cayleygraph/cayley"
 	"github.com/cayleygraph/quad"
+
+	"petars-dev/govibe/business/services/codegraph/internal/graphcheck"
 )
 
 func ctxOf(t *testing.T, m *Model, q ContextQuery) *Context {
@@ -184,7 +185,7 @@ func TestContextOfASpecAndOtherKinds(t *testing.T) {
 	m := fixtureGraph(t)
 
 	c := ctxOf(t, m, ContextQuery{Path: "docs/specs/SPEC_HELLO.md"})
-	if c.Node.ID != "spec:hello" || len(c.Items) != 6 {
+	if c.Node.ID != "spec:hello" || len(c.Items) != 7 {
 		t.Fatalf("%+v", c)
 	}
 	byStatus := map[string]int{}
@@ -273,38 +274,33 @@ func TestContextBoundsAHugePackage(t *testing.T) {
 	}
 }
 
-// --- findings: the Phase 5 contract, exercised with findings written by hand ---
+// --- findings ---
 
-// addFindingsLayer writes what a findings layer would: kind:finding nodes with
-// rule, severity, message and an `about` edge, and the layer's run node.
-func addFindingsLayer(t *testing.T, h *cayley.Handle, fs ...[4]string) {
+// modelWithout is the indexed fixture as a model that lacks one layer, the way a
+// graph looks that was written before that layer existed.
+func modelWithout(t *testing.T, layer string) *Model {
 	t.Helper()
-	label := quad.IRI("layer:findings")
-	add := func(s, p string, o quad.Value, l quad.IRI) {
-		if err := h.AddQuad(quad.Make(quad.IRI(s), quad.IRI(p), o, l)); err != nil {
-			t.Fatal(err)
+	h, _ := fixtureStore(t)
+	run := LayerLabel(layer)
+	var keep []quad.Quad
+	for _, q := range graphcheck.AllQuads(t, h) {
+		// the layer's own quads, and its run node and the build's link to it
+		if q.Label == quad.Value(run) || q.Subject == quad.Value(layerNodeID(layer)) || q.Object == quad.Value(layerNodeID(layer)) {
+			continue
 		}
+		keep = append(keep, q)
 	}
-	for _, f := range fs { // id, rule/severity packed as "rule|severity", message, about
-		parts := strings.SplitN(f[1], "|", 2)
-		add(f[0], "type", quad.IRI("kind:finding"), label)
-		add(f[0], "rule", quad.String(parts[0]), label)
-		add(f[0], "severity", quad.String(parts[1]), label)
-		add(f[0], "message", quad.String(f[2]), label)
-		add(f[0], "about", quad.IRI(f[3]), label)
-	}
-	add("layer:findings", "type", quad.IRI("kind:layer"), "layer:meta")
-	add("layer:findings", "status", quad.String("ok"), "layer:meta")
-	add("layer:findings", "name", quad.String("findings"), "layer:meta")
+	return modelOf(keep)
 }
 
-func TestFindingsAreUnavailableUntilTheLayerExists(t *testing.T) {
-	m := fixtureGraph(t)
+// A graph with no findings layer says nothing was checked: an empty list is
+// never read as "clean".
+func TestFindingsAreUnavailableWithoutTheLayer(t *testing.T) {
+	m := modelWithout(t, "findings")
 	res := m.Findings(FindingsQuery{})
-	if res.Available || len(res.Findings) != 0 || res.Findings == nil || !strings.Contains(res.Note, "not built yet") || !strings.Contains(res.Note, "does not mean the code is clean") {
+	if res.Available || len(res.Findings) != 0 || res.Findings == nil || !strings.Contains(res.Note, "not built") || !strings.Contains(res.Note, "does not mean the code is clean") {
 		t.Errorf("%+v", res)
 	}
-	// and a context says so too
 	c := ctxOf(t, m, ContextQuery{Symbol: "controllers.GetOrder"})
 	if !strings.Contains(strings.Join(c.Notes, " "), "findings layer is not built") {
 		t.Errorf("notes: %v", c.Notes)
@@ -312,63 +308,61 @@ func TestFindingsAreUnavailableUntilTheLayerExists(t *testing.T) {
 }
 
 func TestFindingsAreFilteredRankedAndAttachedToTheirNodes(t *testing.T) {
-	h, _ := fixtureStore(t)
-	addFindingsLayer(t, h,
-		[4]string{"finding:layering:func:controllers.GetOrder", "layering|error", "controller calls storage directly", "func:controllers.GetOrder"},
-		[4]string{"finding:stale-doc:doc:README.md", "stale-doc|warning", "mentions a path that is gone", "doc:README.md"},
-		[4]string{"finding:unused-config:cfg:mail.smtp.host", "unused-config|info", "declared, never read", "cfg:mail.smtp.host"},
-		[4]string{"finding:layering:func:controllers.HomePage", "layering|error", "controller calls storage directly", "func:controllers.HomePage"},
-	)
-	m, err := Load(context.Background(), h.QuadStore)
-	if err != nil {
-		t.Fatal(err)
-	}
+	m := fixtureGraph(t)
 
-	res := m.Findings(FindingsQuery{})
-	if !res.Available || res.Total != 4 || res.Note != "" {
+	res := m.Findings(FindingsQuery{Limit: 200})
+	if !res.Available || res.Total == 0 || len(res.Rules) != len(ruleCatalog()) {
 		t.Fatalf("%+v", res)
 	}
-	var order []string
+	// the two rules with nothing to compare against say so, so that "none" is not read as "clean"
+	if un := res.uncheckedRules(); strings.Join(un, ",") != "db.drift,db.unapplied" || !strings.Contains(res.Note, "db.drift, db.unapplied did not run") {
+		t.Errorf("unchecked %v, note %q", un, res.Note)
+	}
+	var worst []int
 	for _, f := range res.Findings {
-		order = append(order, f.Severity)
+		worst = append(worst, severityRank(f.Severity))
 	}
-	if strings.Join(order, ",") != "error,error,warning,info" {
-		t.Errorf("worst first: %v", order)
+	if !sort.IntsAreSorted(worst) {
+		t.Errorf("worst first: %v", worst)
 	}
-	if res.BySeverity["error"] != 2 || res.ByRule["layering"] != 2 {
+	if res.Findings[0].Severity != "error" || res.Findings[0].Rule != "layering" {
+		t.Errorf("the layering violation leads: %+v", res.Findings[0])
+	}
+	if res.BySeverity["error"] != 1 || res.ByRule["layering"] != 1 || res.BySeverity["info"] == 0 {
 		t.Errorf("counts: %v %v", res.BySeverity, res.ByRule)
 	}
-	if f := res.Findings[0]; f.Rule != "layering" || f.About != "func:controllers.GetOrder" || f.Message == "" {
+	f := res.Findings[0]
+	if f.About != "pkg:controllers" || f.ID != "finding:layering:pkg:controllers#pkg:storage/orderstore" || !strings.Contains(f.Message, "storage/orderstore") {
 		t.Errorf("a finding: %+v", f)
 	}
 
-	if got := m.Findings(FindingsQuery{Severity: "ERROR"}); got.Total != 2 || got.BySeverity["info"] != 1 {
-		t.Errorf("by severity: %+v", got)
+	if got := m.Findings(FindingsQuery{Severity: "ERROR"}); got.Total != 1 || got.BySeverity["info"] == 0 {
+		t.Errorf("by severity (the counts still describe every finding): %+v", got)
 	}
-	if got := m.Findings(FindingsQuery{Rule: "stale-doc"}); got.Total != 1 {
+	if got := m.Findings(FindingsQuery{Rule: "docs.stale_ref"}); got.Total != 1 || got.Findings[0].About != "doc:docs/public/ARCHITECTURE.md" {
 		t.Errorf("by rule: %+v", got)
 	}
-	if got := m.Findings(FindingsQuery{Rule: "un*"}); got.Total != 1 || got.Findings[0].Rule != "unused-config" {
+	if got := m.Findings(FindingsQuery{Rule: "config.*"}); got.Total != res.ByRule["config.undeclared"]+res.ByRule["config.unused"] || got.Total == 0 {
 		t.Errorf("by rule prefix: %+v", got)
 	}
-	if got := m.Findings(FindingsQuery{Severity: "error", Rule: "stale-doc"}); got.Total != 0 || got.Findings == nil {
+	if got := m.Findings(FindingsQuery{Severity: "error", Rule: "docs.stale_ref"}); got.Total != 0 || got.Findings == nil {
 		t.Errorf("no match: %+v", got)
 	}
-	if got := m.Findings(FindingsQuery{Limit: 1}); len(got.Findings) != 1 || !got.Truncated || got.Total != 4 {
+	if got := m.Findings(FindingsQuery{Limit: 1}); len(got.Findings) != 1 || !got.Truncated || got.Total != res.Total {
 		t.Errorf("limit: %+v", got)
 	}
 
-	// the briefing of a node carries the findings about it
-	c := ctxOf(t, m, ContextQuery{Symbol: "controllers.GetOrder"})
-	if len(c.Findings) != 1 || c.Findings[0].Rule != "layering" {
+	// the briefing of a package carries the findings about it
+	c := ctxOf(t, m, ContextQuery{Path: "controllers"})
+	if len(c.Findings) == 0 || c.Findings[0].Rule != "layering" {
 		t.Errorf("findings in a context: %+v", c.Findings)
 	}
 	if strings.Contains(strings.Join(c.Notes, " "), "findings layer") {
 		t.Errorf("no caveat once the layer exists: %v", c.Notes)
 	}
-	// and so does the file or package that holds it
-	c = ctxOf(t, m, ContextQuery{Path: "controllers"})
-	if len(c.Findings) != 2 {
-		t.Errorf("findings about a package's members: %+v", c.Findings)
+	// and so does the config key
+	c = ctxOf(t, m, ContextQuery{Node: "cfg:auth.api_key"})
+	if len(c.Findings) != 1 || c.Findings[0].Rule != "config.unused" {
+		t.Errorf("findings about a config key: %+v", c.Findings)
 	}
 }

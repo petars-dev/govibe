@@ -51,6 +51,14 @@ table.db-grid td.null{color:var(--muted);font-style:italic}
 .btn-danger{color:#e5534b;border-color:#e5534b}
 .btn-danger:hover{background:rgba(229,83,75,0.1)}
 .pagination{display:flex;gap:8px;align-items:center;margin-top:10px}
+.db-refs{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg-elev)}
+.db-refs h4{margin:10px 0 4px;font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;opacity:.7}
+.db-refs h4:first-child{margin-top:0}
+.db-refs ul{list-style:none;margin:0;padding:0}
+.db-refs li{padding:2px 0;font-size:.9rem}
+.db-refs .how{opacity:.65;font-size:.8rem;margin-left:6px}
+.db-refs .maybe{color:#d29922}
+.db-refs code{font-size:.85em}
 </style>
 </head><body class="docs-body">
 <header class="site-header">
@@ -301,8 +309,73 @@ async function loadSchema(name){
       });
     } else { fkDiv.appendChild(el('div', {class:'db-empty', text:'No foreign keys.'})); }
 
+    loadRefs(name, container);
     buildInsertForm(schema);
   }catch(e){ renderError(container, e); }
+}
+
+// What refers to the table, from the project graph (the indexer's model of the
+// code, routes and docs). Links go to the graph explorer and the editor; a route
+// reached only through a package import is marked as possible, not proven.
+async function loadRefs(name, container){
+  container.appendChild(el('h3', {text: 'Referenced by'}));
+  var box = el('div', {class: 'db-refs'});
+  container.appendChild(box);
+  try{
+    var r = await api('/dev/graph/data/table?name=' + encodeURIComponent(name));
+    if(!r.known){
+      box.appendChild(el('div', {class: 'db-empty', text: (r.notes && r.notes[0]) || 'The project graph does not know this table yet.'}));
+      return;
+    }
+    function link(item, label){
+      var a = el('a', {href: item.graph, text: label || item.name || item.id});
+      return a;
+    }
+    function section(title, items, fmt){
+      if(!items || !items.length) return;
+      box.appendChild(el('h4', {text: title + ' (' + items.length + ')'}));
+      var ul = el('ul');
+      items.forEach(function(it){ ul.appendChild(fmt(it)); });
+      box.appendChild(ul);
+    }
+    function where(it){
+      if(!it.path) return null;
+      var loc = it.path + (it.line ? ':' + it.line : '');
+      return it.editor ? el('a', {class: 'how', href: it.editor, text: loc}) : el('span', {class: 'how', text: loc});
+    }
+    section('Code', r.code, function(it){
+      var li = el('li', {}, [link(it)]);
+      if(it.access) li.appendChild(el('span', {class: 'how', text: it.access}));
+      if(!it.certain) li.appendChild(el('span', {class: 'how maybe', text: 'possible (same package)'}));
+      var w = where(it); if(w) li.appendChild(w);
+      return li;
+    });
+    section('Routes', r.routes, function(it){
+      var li = el('li', {}, [link(it)]);
+      if(it.access) li.appendChild(el('span', {class: 'how', text: it.access}));
+      li.appendChild(el('span', {class: 'how' + (it.certain ? '' : ' maybe'), text: it.certain ? 'certain' : 'possible, not proven (' + it.confidence + '%, ' + it.method.replace(/_/g, ' ') + ')'}));
+      return li;
+    });
+    section('MCP tools', r.tools, function(it){ return el('li', {}, [link(it), el('span', {class: 'how', text: it.certain ? '' : 'possible'})]); });
+    section('Docs and specs', r.docs, function(it){
+      var li = el('li', {}, [link(it, it.path || it.name)]);
+      if(it.spec) li.appendChild(el('span', {class: 'how', text: 'row of ' + it.spec}));
+      return li;
+    });
+    (r.findings || []).forEach(function(f){
+      box.appendChild(el('div', {class: 'db-error', text: f.severity + ' ' + f.rule + ': ' + f.message}));
+    });
+    if(!box.firstChild) box.appendChild(el('div', {class: 'db-empty', text: 'Nothing in the indexed code, routes or docs refers to this table.'}));
+    var links = (r.links || []).filter(function(l){ return l.kind === 'report' || l.kind === 'graph'; });
+    if(links.length){
+      var p = el('div', {class: 'how', style: 'margin-top:8px'});
+      links.forEach(function(l, i){ if(i) p.appendChild(document.createTextNode(' \u00b7 ')); p.appendChild(el('a', {href: l.url, text: l.label})); });
+      box.appendChild(p);
+    }
+    (r.notes || []).forEach(function(n){ box.appendChild(el('div', {class: 'how', text: n})); });
+  }catch(e){
+    box.appendChild(el('div', {class: 'db-empty', text: 'The project graph is not available (' + e.message + ').'}));
+  }
 }
 
 function buildInsertForm(schema){
@@ -410,7 +483,14 @@ async function runExplain(){
   }catch(e){ renderError(container, e); }
 }
 
+// /dev/db#table=orders opens that table (the graph explorer and its reports link here).
+function openFromHash(){
+  var m = /(?:^|[#&])table=([^&]+)/.exec(location.hash || '');
+  if(m){ try{ selectTable(decodeURIComponent(m[1].replace(/\+/g, ' '))); }catch(e){} }
+}
+window.addEventListener('hashchange', openFromHash);
+
 loadMeta();
-loadTables();
+loadTables().then(openFromHash);
 </script>
 </body></html>`

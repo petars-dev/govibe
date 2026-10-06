@@ -339,18 +339,18 @@ func TestLiveSchemaChangesMakeTheLayerStale(t *testing.T) {
 	users := tableOfSnap(snap, "users")
 	users.Columns = append(users.Columns, dbexplorer.SnapshotColumn{Name: "nickname", Type: "varchar(40)", Nullable: true})
 	stale, err := ix.Stale(ctx)
-	if err != nil || !reflect.DeepEqual(stale, []string{"db", "docs"}) {
-		t.Fatalf("Stale = %v (%v), want db and the docs that resolve against it", stale, err)
+	if err != nil || !reflect.DeepEqual(stale, []string{"db", "docs", "findings"}) {
+		t.Fatalf("Stale = %v (%v), want db and the layers that resolve against it", stale, err)
 	}
 	rep, err := ix.Refresh(ctx)
-	if err != nil || rep == nil || !reflect.DeepEqual(ran(rep), []string{"db", "docs"}) {
+	if err != nil || rep == nil || !reflect.DeepEqual(ran(rep), []string{"db", "docs", "findings"}) {
 		t.Fatalf("Refresh = %v %v", rep, err)
 	}
 	wantIDs(t, "the column only the live database has", gizmoIDs(t, h, `g.V(g.IRI('col:users.nickname')).Out(g.IRI('source')).All()`), "live")
 
 	// A new migration file is stale too.
 	writeFile(t, root, "storage/migrations/sql/0004_more.sql", "-- +goose Up\nCREATE TABLE extra (id INT PRIMARY KEY);\n")
-	if stale, _ := ix.Stale(ctx); !reflect.DeepEqual(stale, []string{"db", "docs"}) {
+	if stale, _ := ix.Stale(ctx); !reflect.DeepEqual(stale, []string{"db", "docs", "findings"}) {
 		t.Errorf("a new migration: Stale = %v", stale)
 	}
 	if _, err := ix.Refresh(ctx); err != nil {

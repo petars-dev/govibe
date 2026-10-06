@@ -8,6 +8,14 @@ import (
 	"github.com/cayleygraph/quad"
 )
 
+func (s *SchemaInfo) kindByName() map[string]KindInfo {
+	out := map[string]KindInfo{}
+	for _, k := range s.Kinds {
+		out[k.Kind] = k
+	}
+	return out
+}
+
 func TestSchemaDescribesTheGraphAsItIs(t *testing.T) {
 	m := fixtureGraph(t)
 	s := m.Schema([]string{"docs"})
@@ -30,7 +38,10 @@ func TestSchemaDescribesTheGraphAsItIs(t *testing.T) {
 	if kinds["route"].Example != "route:GET:/api/hello" || kinds["func"].Example != "func:controllers.HelloAPI" {
 		t.Errorf("examples are real nodes: %+v %+v", kinds["route"], kinds["func"])
 	}
-	if _, ok := kinds["finding"]; ok {
+	if kinds["finding"].Count == 0 || kinds["rule"].Count == 0 {
+		t.Errorf("findings and rules are part of the graph: %+v %+v", kinds["finding"], kinds["rule"])
+	}
+	if _, ok := modelWithout(t, "docs").Schema(nil).kindByName()["spec"]; ok {
 		t.Error("a kind with no nodes is not listed")
 	}
 
@@ -62,10 +73,16 @@ func TestSchemaDescribesTheGraphAsItIs(t *testing.T) {
 	}
 
 	notes := strings.Join(s.Notes, "\n")
-	for _, want := range []string{"findings layer is not built", "calls layer is not built", "git layer is not built", "docs layer is stale"} {
+	for _, want := range []string{"calls layer is not built", "git layer is not built", "docs layer is stale"} {
 		if !strings.Contains(notes, want) {
 			t.Errorf("notes lack %q:\n%s", want, notes)
 		}
+	}
+	if strings.Contains(notes, "findings layer") {
+		t.Errorf("the findings layer is built:\n%s", notes)
+	}
+	if notes := strings.Join(modelWithout(t, "findings").Schema(nil).Notes, "\n"); !strings.Contains(notes, "findings layer is not built") {
+		t.Errorf("a graph without findings says so:\n%s", notes)
 	}
 	if len(s.Conventions) < 5 || len(s.Questions) < 6 || len(s.Examples) != len(exampleQueries) {
 		t.Errorf("guidance: %d conventions %d questions %d examples", len(s.Conventions), len(s.Questions), len(s.Examples))
@@ -77,15 +94,15 @@ func TestSchemaDescribesTheGraphAsItIs(t *testing.T) {
 	}
 }
 
-// Every kind a layer can emit is described. The graph of the fixture has every
-// kind but finding; the vocabulary table is checked against the constants.
+// Every kind a layer can emit is described; the vocabulary table is checked
+// against the constants.
 func TestEveryKindConstantIsDescribed(t *testing.T) {
 	described := map[string]bool{}
 	for _, kd := range kindDocs {
 		described[kd.kind] = true
 	}
 	for _, k := range []quad.IRI{KindPackage, KindFile, KindFunc, KindType, KindBuild, KindLayer, KindRoute, KindMiddleware, KindTemplate, KindMCPTool,
-		KindConfigKey, KindEnvVar, KindDoc, KindSpec, KindSpecItem, KindTable, KindColumn, KindIndex, KindMigration, KindAnnotation} {
+		KindConfigKey, KindEnvVar, KindDoc, KindSpec, KindSpecItem, KindTable, KindColumn, KindIndex, KindMigration, KindAnnotation, KindFinding, KindRule} {
 		if name := strings.TrimPrefix(string(k), "kind:"); !described[name] {
 			t.Errorf("kind %s has no entry in kindDocs", name)
 		}
@@ -128,12 +145,12 @@ func TestOverviewRendersTheArchitecture(t *testing.T) {
 		"# Project graph overview",
 		"## Architecture layers", "**controllers**", "`controllers` (", "**storage**", "`storage/orderstore`",
 		"## Imports between layers", "controllers → business (2), storage (1)",
-		"`controllers` imports `storage/orderstore`", // the fixture's deliberate violation
+		"## Findings", "1 error", "**error** `layering`: controllers imports storage/orderstore", // the fixture's deliberate violation
 		"## Routes", "| GET | `/api/hello` | `controllers.HelloAPI` (controllers/hello.go:10) | 2 |", "| ANY | `/dev/mcp` (dev) |", "`middleware` (1 func)",
 		"## MCP tools", "`fixture_ping`", "registered by `devmcp.registerTools`",
 		"## Database", "`orders` (4 columns) → users (implicit, 95%)", "read by 2, written by 1 functions",
 		"## Config", "## Specs", "`docs/specs/SPEC_HELLO.md` (in_progress)",
-		"## Not covered", "findings layer is not built",
+		"## Not covered", "the calls layer is not built",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("overview lacks %q", want)
@@ -147,6 +164,17 @@ func TestOverviewRendersTheArchitecture(t *testing.T) {
 	}
 	if lines := strings.Count(md, "\n"); lines > 150 {
 		t.Errorf("an overview is a page, not a dump: %d lines", lines)
+	}
+
+	// a graph without the findings layer still names the layering violation, and says what is missing
+	old := modelWithout(t, "findings").Overview(nil)
+	for _, want := range []string{"Against the layering rule", "`controllers` imports `storage/orderstore`", "the findings layer is not built"} {
+		if !strings.Contains(old, want) {
+			t.Errorf("overview of a graph without findings lacks %q", want)
+		}
+	}
+	if strings.Contains(old, "## Findings") {
+		t.Error("no findings section without the layer")
 	}
 
 	h, _ := openStore(t)

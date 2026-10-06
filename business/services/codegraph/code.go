@@ -69,12 +69,23 @@ type codeIndex struct {
 
 	// Facts, in source order and deduplicated.
 	refs      []refSite  // pkg.Name references into other module packages
+	typeRefs  []refSite  // the same, in signatures and type declarations (not in bodies): where a type of another package is named
 	cfgChains []cfgChain // cfg.A.B selector chains
 	envReads  []envRead  // os.Getenv("X") / os.LookupEnv("X")
 	cfgCalls  []cfgCall  // config.Get("a.b") / config.Unmarshal("a.b", ...)
 	tools     []toolReg  // mcp.AddTool(srv, &mcp.Tool{...}, handler)
 	toolWarns []string
 	sql       []sqlText // SQL-looking strings used inside storage and business functions
+
+	// topLevel holds every name declared at package level (functions, types,
+	// variables, constants), by directory: what a doc's `pkg.Name` must be
+	// found in to still exist.
+	topLevel map[string]map[string]bool
+	// identUses records, by directory and name, the declared functions inside
+	// which an exported identifier is used as a bare name ("" for a package-level
+	// initializer): the evidence that an exported function is called from its own
+	// package. Qualified uses from other packages are refs.
+	identUses map[string]map[string]map[quad.IRI]bool
 
 	// pkgStrings holds the string constants of storage and business packages by
 	// directory and name, so a function that passes `listSQL` to a query counts
@@ -107,12 +118,14 @@ type funcInfo struct {
 }
 
 type typeInfo struct {
-	id     quad.IRI
-	dir    string
-	name   string
-	file   string
-	line   int
-	fields []fieldInfo // set for struct types
+	id       quad.IRI
+	dir      string
+	name     string
+	file     string
+	line     int
+	fields   []fieldInfo // set for struct types
+	isStruct bool        // declared as a struct
+	embeds   bool        // a struct that embeds another type, whose methods and fields it promotes
 }
 
 // fieldInfo is one named field of a struct. An inline struct type carries its
@@ -170,6 +183,52 @@ type toolReg struct {
 	emptyInput  bool   // the handler takes struct{}
 }
 
+// declare records a name declared at package level.
+func (ci *codeIndex) declare(dir, name string) {
+	if ci.topLevel[dir] == nil {
+		ci.topLevel[dir] = map[string]bool{}
+	}
+	ci.topLevel[dir][name] = true
+}
+
+// useIdent records that fn (or a package-level initializer, "") uses the
+// exported identifier name as a bare name.
+func (ci *codeIndex) useIdent(dir, name string, fn quad.IRI) {
+	byName := ci.identUses[dir]
+	if byName == nil {
+		byName = map[string]map[quad.IRI]bool{}
+		ci.identUses[dir] = byName
+	}
+	if byName[name] == nil {
+		byName[name] = map[quad.IRI]bool{}
+	}
+	byName[name][fn] = true
+}
+
+// usedWithin reports whether a function other than self, or a package-level
+// initializer, of the package in dir uses name as a bare identifier.
+func (ci *codeIndex) usedWithin(dir, name string, self quad.IRI) bool {
+	for fn := range ci.identUses[dir][name] {
+		if fn != self {
+			return true
+		}
+	}
+	return false
+}
+
+// hasEmbedded reports whether a struct embeds another type.
+func hasEmbedded(st *ast.StructType) bool {
+	if st.Fields == nil {
+		return false
+	}
+	for _, f := range st.Fields.List {
+		if len(f.Names) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // funcAt returns the declared function whose body contains file:line.
 func (ci *codeIndex) funcAt(file string, line int) *funcInfo {
 	for _, f := range ci.funcsByFile[file] {
@@ -214,6 +273,8 @@ func buildCodeIndex(ctx context.Context, root string, sc *scan) (*codeIndex, err
 		funcsByName: map[string]*funcInfo{},
 		typesByKey:  map[string]*typeInfo{},
 		pkgStrings:  map[string]map[string]string{},
+		topLevel:    map[string]map[string]bool{},
+		identUses:   map[string]map[string]map[quad.IRI]bool{},
 	}
 	set := newQuadSet("code")
 	fset := token.NewFileSet()
@@ -366,6 +427,9 @@ func (ci *codeIndex) emitFile(set *quadSet, fset *token.FileSet, ids *idAllocato
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			recv := receiverName(d)
+			if recv == "" {
+				ci.declare(pf.dir, d.Name.Name)
+			}
 			id := ids.alloc(funcID(pf.dir, recv, d.Name.Name))
 			name := d.Name.Name
 			if recv != "" {
@@ -394,11 +458,19 @@ func (ci *codeIndex) emitFile(set *quadSet, fset *token.FileSet, ids *idAllocato
 				ast.Inspect(d.Body, col.visit)
 				col.fn = ""
 			}
+			col.fn = id
+			if d.Recv != nil {
+				ast.Inspect(d.Recv, col.visitType)
+			}
+			ast.Inspect(d.Type, col.visitType)
+			col.fn = ""
 		case *ast.GenDecl:
 			switch d.Tok {
 			case token.TYPE:
 				for _, spec := range d.Specs {
 					ts := spec.(*ast.TypeSpec)
+					ci.declare(pf.dir, ts.Name.Name)
+					ast.Inspect(ts.Type, col.visitType)
 					id := ids.alloc(typeID(pf.dir, ts.Name.Name))
 					set.add(id, PredType, KindType)
 					set.str(id, PredName, ts.Name.Name)
@@ -419,6 +491,7 @@ func (ci *codeIndex) emitFile(set *quadSet, fset *token.FileSet, ids *idAllocato
 					ti := &typeInfo{id: id, dir: pf.dir, name: ts.Name.Name, file: pf.sf.rel, line: line}
 					if st, ok := ts.Type.(*ast.StructType); ok {
 						ti.fields = structFields(fset, st)
+						ti.isStruct, ti.embeds = true, hasEmbedded(st)
 					}
 					ci.types = append(ci.types, ti)
 					if key := pf.dir + "\x00" + ts.Name.Name; ci.typesByKey[key] == nil {
@@ -426,6 +499,13 @@ func (ci *codeIndex) emitFile(set *quadSet, fset *token.FileSet, ids *idAllocato
 					}
 				}
 			case token.VAR, token.CONST:
+				for _, spec := range d.Specs {
+					if vs, ok := spec.(*ast.ValueSpec); ok {
+						for _, n := range vs.Names {
+							ci.declare(pf.dir, n.Name)
+						}
+					}
+				}
 				// Package-level initializers: facts found here belong to the package.
 				ast.Inspect(d, col.visit)
 			}
@@ -545,10 +625,31 @@ func (c *collector) visit(n ast.Node) bool {
 			}
 		}
 	case *ast.Ident:
+		if ast.IsExported(x.Name) {
+			c.ci.useIdent(c.dir, x.Name, c.fn)
+		}
 		// A package-level string constant used by name.
 		if c.sql && c.fn != "" {
 			if s, ok := c.ci.pkgStrings[c.dir][x.Name]; ok {
 				c.sqlText(x.Pos(), s)
+			}
+		}
+	}
+	return true
+}
+
+// visitType records the other packages a type expression names: the parameters
+// and results of a function, the fields of a struct. They are kept apart from
+// refs, which the templates layer reads as "this function uses that component".
+func (c *collector) visitType(n ast.Node) bool {
+	if x, ok := n.(*ast.SelectorExpr); ok {
+		if id, ok := x.X.(*ast.Ident); ok {
+			if path, ok := c.imps[id.Name]; ok {
+				if d, ok := moduleDir(c.ci.module, path); ok && d != c.dir {
+					if c.firstOnce("tref\x00" + string(c.fn) + "\x00" + c.dir + "\x00" + d + "\x00" + x.Sel.Name) {
+						c.ci.typeRefs = append(c.ci.typeRefs, refSite{site: c.site(x.Pos()), toDir: d, name: x.Sel.Name})
+					}
+				}
 			}
 		}
 	}

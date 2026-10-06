@@ -53,6 +53,7 @@ stateless streamable HTTP, so any MCP-capable agent can point at
 - `db_insert_test_row`, `db_reset_test_data` (gated, see below)
 - `graph_query` — a read-only Gizmo query against the embedded Cayley graph store that also
   backs `/dev/graph` (e.g. `g.V().All()`)
+- (`/dev/db#table=<name>` opens a table; its Schema tab ends with a "Referenced by" panel from the project graph: the code that reads or writes it, the routes and tools that may reach it, and the docs that mention it, each marked certain or possible.)
 - `graph_schema`, `graph_context`, `graph_impact`, `graph_path`, `graph_search`, `graph_neighbors`,
   `graph_findings`, `graph_reindex` — the higher-level agent tools over the same graph, which holds a
   model of the project including the database schema and which code touches which table; start with

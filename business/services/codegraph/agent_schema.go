@@ -35,7 +35,8 @@ var kindDocs = []kindDoc{
 	{"index", "db", "idx:<table>.<name>", "idx:orders.PRIMARY", "A table index; the primary key is PRIMARY."},
 	{"migration", "db", "mig:<file stem>", "mig:0001_init", "A goose migration; introduced_in says which created a table, column or index."},
 	{"annotation", "db", "ann:<hash>", "", "How sure the indexer is of one inferred edge (implicit_ref, many_to_many): its method and confidence."},
-	{"finding", "findings", "finding:<rule>:<subject id>", "", "A derived problem: a layering violation, a stale doc, an unused config key. Not built yet (Phase 5)."},
+	{"finding", "findings", "finding:<rule>:<subject id>[#<detail>]", "finding:layering:pkg:controllers#pkg:storage/dbexplorer", "A derived problem: a layering violation, a stale doc, an unused config key. `about` is the node at fault; `rule`, `severity` and `message` say what and how to fix it."},
+	{"rule", "findings", "rule:<name>", "rule:layering", "A check of the findings layer, and whether it ran on this graph (`checked`; `note` says why not). A rule that did not run has not looked: no findings from it is not a clean bill."},
 	{"build", "meta", "build:latest", "build:latest", "The most recent index run: git sha, dirty flag, when, how long."},
 	{"layer", "meta", "layer:<name>", "layer:code", "One layer's last run: status, quads, fingerprint, errors."},
 }
@@ -72,7 +73,7 @@ var predicateDocs = map[string]string{
 	"subject":        "annotation -> where the inferred edge starts.",
 	"object":         "annotation -> where the inferred edge ends.",
 	"via":            "annotation -> the junction table of a many_to_many edge.",
-	"about":          "finding -> the node it is about (findings layer: not built yet).",
+	"about":          "finding -> the node at fault.",
 	// attributes
 	"name":             "Short display name.",
 	"doc":              "First sentence of the doc comment.",
@@ -119,9 +120,11 @@ var predicateDocs = map[string]string{
 	"applied":          "The live database has applied the migration.",
 	"predicate":        "On an annotation: the inferred predicate's name.",
 	"confidence":       "On an annotation: 0 to 100, how sure the inference is.",
-	"rule":             "A finding's rule.",
-	"severity":         "A finding's severity.",
-	"message":          "A finding's message.",
+	"rule":             "The rule that produced a finding.",
+	"severity":         "error (breaks a stated rule), warning (wrong or stale) or info (a smell); a rule's own default on a rule node.",
+	"message":          "What is wrong and what to do about it.",
+	"checked":          "On a rule: it ran on this graph. false means a layer it reads is not built (see note) and its absence of findings proves nothing.",
+	"unresolved_ref":   "On a doc or spec row: \"<line>:<text>\" of something it names that does not exist (a file, a symbol, a page).",
 	"git_sha":          "Short HEAD sha when the graph was indexed.",
 	"dirty":            "The work tree had uncommitted changes.",
 	"indexed_at":       "When it was indexed.",
@@ -202,7 +205,6 @@ type SchemaInfo struct {
 // plannedLayers are every layer SPEC_GRAPH_INDEXER names; the ones missing from
 // a graph are reported, so an empty answer is not read as a clean one.
 var plannedLayers = []struct{ name, phase, gives string }{
-	{"findings", "Phase 5", "findings (layering violations, stale docs, unused config); graph_findings is empty until then and its answers say so"},
 	{"calls", "Phase 6", "call edges; until then route -> table reach is estimated from package imports (method package_imports, confidence <= 60)"},
 	{"git", "Phase 6", "last commit and churn per file"},
 }
@@ -301,7 +303,7 @@ func (m *Model) Schema(stale []string) *SchemaInfo {
 			s.Notes = append(s.Notes, fmt.Sprintf("The %s layer is not built (%s of SPEC_GRAPH_INDEXER): no %s.", pl.name, pl.phase, pl.gives))
 		}
 	}
-	s.Notes = append(s.Notes, m.warnings("code", "routes", "templates", "config", "mcp", "db", "docs")...)
+	s.Notes = append(s.Notes, m.warnings("code", "routes", "templates", "config", "mcp", "db", "docs", "findings")...)
 	for _, l := range stale {
 		s.Notes = append(s.Notes, fmt.Sprintf("The %s layer is stale (its inputs changed since it was built, or it failed and has not been retried); graph_reindex rebuilds it.", l))
 	}
@@ -340,9 +342,11 @@ type FindingsQuery struct {
 
 // FindingsResult is the output of graph_findings.
 type FindingsResult struct {
-	// Available is false until the findings layer (Phase 5) is built: an empty
-	// list then means "nothing was checked", not "nothing is wrong".
+	// Available is false when the findings layer is not built: an empty list then
+	// means "nothing was checked", not "nothing is wrong". The same holds for a
+	// rule in Rules that did not run.
 	Available  bool           `json:"available"`
+	Rules      []RuleInfo     `json:"rules,omitempty"` // every rule, and whether it ran on this graph
 	Findings   []FindingRef   `json:"findings"`
 	Total      int            `json:"total"`
 	BySeverity map[string]int `json:"by_severity,omitempty"`
@@ -362,7 +366,7 @@ const (
 func (m *Model) Findings(q FindingsQuery) *FindingsResult {
 	res := &FindingsResult{Findings: []FindingRef{}, AsOf: m.AsOf(), Available: m.layerBuilt("findings")}
 	if !res.Available {
-		res.Note = "The findings layer is not built yet (Phase 5 of SPEC_GRAPH_INDEXER), so nothing has been checked: an empty list does not mean the code is clean."
+		res.Note = "The findings layer is not built, so nothing has been checked: an empty list does not mean the code is clean."
 		if st := m.layerStatus("findings"); st != "" {
 			res.Note = fmt.Sprintf("The findings layer did not run successfully (status %s), so its findings are missing.", st)
 		}
@@ -387,6 +391,11 @@ func (m *Model) Findings(q FindingsQuery) *FindingsResult {
 		}
 		all = append(all, fr)
 	}
+	res.Rules = m.ruleInfos(res.ByRule)
+	if un := res.uncheckedRules(); len(un) > 0 {
+		res.Note = fmt.Sprintf("%s did not run (see rules[].note for why): no findings from %s does not mean it is clean.",
+			strings.Join(un, ", "), plural(len(un), "it", "them"))
+	}
 	sortFindings(all)
 	res.Total = len(all)
 	if len(all) > limit {
@@ -396,4 +405,29 @@ func (m *Model) Findings(q FindingsQuery) *FindingsResult {
 		res.Findings = all
 	}
 	return res
+}
+
+// ruleInfos lists every rule of the graph, with how many findings each has.
+func (m *Model) ruleInfos(byRule map[string]int) []RuleInfo {
+	var out []RuleInfo
+	for _, r := range m.byKind["rule"] {
+		name := r.Str("name")
+		out = append(out, RuleInfo{
+			Name: name, Title: r.Str("title"), Severity: r.Str("severity"), Description: r.Str("description"),
+			Checked: r.Bool("checked"), Note: r.Str("note"), Findings: byRule[name],
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// uncheckedRules names the rules that did not run.
+func (r *FindingsResult) uncheckedRules() []string {
+	var out []string
+	for _, ri := range r.Rules {
+		if !ri.Checked {
+			out = append(out, ri.Name)
+		}
+	}
+	return out
 }

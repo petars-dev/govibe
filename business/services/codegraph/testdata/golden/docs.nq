@@ -39,6 +39,7 @@
 <doc:docs/public/ARCHITECTURE.md> <path> "docs/public/ARCHITECTURE.md" <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <title> "Fixture Architecture" <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <type> <kind:doc> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <unresolved_ref> "13:legacy/handler.go" <layer:docs> .
 <doc:docs/public/GUIDE.md> <mentions> <doc:docs/public/ARCHITECTURE.md> <layer:docs> .
 <doc:docs/public/GUIDE.md> <mentions> <file:main.go> <layer:docs> .
 <doc:docs/public/GUIDE.md> <mentions> <file:routes/routes.go> <layer:docs> .
@@ -47,6 +48,13 @@
 <doc:docs/public/GUIDE.md> <path> "docs/public/GUIDE.md" <layer:docs> .
 <doc:docs/public/GUIDE.md> <title> "Fixture Guide" <layer:docs> .
 <doc:docs/public/GUIDE.md> <type> <kind:doc> <layer:docs> .
+<item:hello/audit-trail> <line> "16"^^<schema:Integer> <layer:docs> .
+<item:hello/audit-trail> <name> "Audit trail" <layer:docs> .
+<item:hello/audit-trail> <note> "Done in business/actions/audit.go, which was removed again (a stale row)" <layer:docs> .
+<item:hello/audit-trail> <path> "docs/specs/SPEC_HELLO.md" <layer:docs> .
+<item:hello/audit-trail> <status> "implemented" <layer:docs> .
+<item:hello/audit-trail> <type> <kind:spec_item> <layer:docs> .
+<item:hello/audit-trail> <unresolved_ref> "16:business/actions/audit.go" <layer:docs> .
 <item:hello/get-api-hello-endpoint> <covers> <func:controllers.HelloAPI> <layer:docs> .
 <item:hello/get-api-hello-endpoint> <covers> <route:GET:/api/hello> <layer:docs> .
 <item:hello/get-api-hello-endpoint> <line> "10"^^<schema:Integer> <layer:docs> .
@@ -90,6 +98,7 @@
 <item:hello/settings-fixture-db-max-conns> <path> "docs/specs/SPEC_HELLO.md" <layer:docs> .
 <item:hello/settings-fixture-db-max-conns> <status> "partial" <layer:docs> .
 <item:hello/settings-fixture-db-max-conns> <type> <kind:spec_item> <layer:docs> .
+<spec:hello> <has_item> <item:hello/audit-trail> <layer:docs> .
 <spec:hello> <has_item> <item:hello/get-api-hello-endpoint> <layer:docs> .
 <spec:hello> <has_item> <item:hello/greeting-history> <layer:docs> .
 <spec:hello> <has_item> <item:hello/landing-page> <layer:docs> .

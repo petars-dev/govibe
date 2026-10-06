@@ -20,13 +20,8 @@ const (
 	overviewRoutes           = 60
 )
 
-// archRule is the provisional layering rule of GRAPH_SCHEMA.md and SKILL.md: an
-// import from the first arch layer to any of the second is a violation. `wiring`
-// and `dev` packages may import anything.
-var archRule = map[string][]string{
-	"controllers": {"storage"},
-	"storage":     {"business", "controllers"},
-}
+// overviewFindings is how many findings the overview lists (the rest are counted).
+const overviewFindings = 12
 
 // Overview renders the architecture of the project as markdown.
 func (m *Model) Overview(stale []string) string {
@@ -85,10 +80,8 @@ func (m *Model) Overview(stale []string) string {
 				continue
 			}
 			counts[pair{from, to}]++
-			for _, bad := range archRule[from] {
-				if bad == to {
-					violations = append(violations, fmt.Sprintf("`%s` imports `%s`", p.Str("path"), imp.Str("path")))
-				}
+			if layerVerdict(from, to) != "" {
+				violations = append(violations, fmt.Sprintf("`%s` imports `%s`", p.Str("path"), imp.Str("path")))
 			}
 		}
 	}
@@ -106,16 +99,18 @@ func (m *Model) Overview(stale []string) string {
 			}
 		}
 		b.WriteString("\n")
-		if len(violations) > 0 {
+		if len(violations) > 0 && !m.layerBuilt("findings") {
+			// With the findings layer these are its `layering` findings, listed below.
 			sort.Strings(violations)
-			b.WriteString("Against the layering rule (controllers must not import storage; storage must not import business or controllers; wiring and dev packages are exempt). " +
-				"This is the provisional rule of GRAPH_SCHEMA.md; the findings layer will own it:\n")
+			b.WriteString("Against the layering rule (only business may call storage; storage depends on nothing above it; wiring and dev packages are exempt):\n")
 			for _, v := range violations {
 				b.WriteString("- " + v + "\n")
 			}
 			b.WriteString("\n")
 		}
 	}
+
+	m.overviewFindings(&b)
 
 	// routes
 	routes := append([]*Node(nil), m.byKind["route"]...)
@@ -233,7 +228,7 @@ func (m *Model) Overview(stale []string) string {
 			notes = append(notes, fmt.Sprintf("the %s layer is not built (%s)", pl.name, pl.phase))
 		}
 	}
-	notes = append(notes, m.warnings("code", "routes", "templates", "config", "mcp", "db", "docs")...)
+	notes = append(notes, m.warnings("code", "routes", "templates", "config", "mcp", "db", "docs", "findings")...)
 	if len(notes) > 0 {
 		b.WriteString("## Not covered\n\n")
 		for _, n := range notes {
@@ -241,6 +236,47 @@ func (m *Model) Overview(stale []string) string {
 		}
 	}
 	return b.String()
+}
+
+// overviewFindings lists the errors and warnings of the findings layer, and
+// counts the rest. Nothing is written when the layer is not built: the overview's
+// "Not covered" section says so.
+func (m *Model) overviewFindings(b *strings.Builder) {
+	if !m.layerBuilt("findings") {
+		return
+	}
+	res := m.Findings(FindingsQuery{Limit: maxFindingsLimit})
+	b.WriteString("## Findings\n\n")
+	var parts []string
+	for _, sev := range []string{sevError, sevWarning, sevInfo} {
+		if n := res.BySeverity[sev]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, sev))
+		}
+	}
+	if len(parts) == 0 {
+		b.WriteString("None: every rule that could run found nothing.")
+	} else {
+		b.WriteString(strings.Join(parts, ", ") + ".")
+	}
+	if unchecked := res.uncheckedRules(); len(unchecked) > 0 {
+		b.WriteString(" Not checked: " + strings.Join(unchecked, ", ") + ".")
+	}
+	b.WriteString(" `graph_findings` lists them.\n\n")
+	shown := 0
+	for _, f := range res.Findings {
+		if severityRank(f.Severity) > 1 {
+			break // info is counted, not listed
+		}
+		if shown == overviewFindings {
+			fmt.Fprintf(b, "- … and more errors and warnings\n")
+			break
+		}
+		fmt.Fprintf(b, "- **%s** `%s`: %s\n", f.Severity, f.Rule, oneLine(f.Message, 200))
+		shown++
+	}
+	if shown > 0 {
+		b.WriteString("\n")
+	}
 }
 
 func layerSummary(ls []LayerInfo) string {
