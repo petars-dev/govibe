@@ -18,7 +18,7 @@ Directory Layout
 - storage: DB access and migrations (mariadb driver wrapper, goose migrations, dev-only dbexplorer, dev-only graphdb)
 - business: actions (single-function business logic) and services (packages)
 - business/services/codegraph: dev-only graph indexer that fills the /dev/graph store with the project's own structure (Go code, routes and their handlers, templates, config keys and their use, MCP tools, the database schema and who reads which table, docs and specs) on every boot, and refreshes stale layers on page load and graph_query. Two opt-in layers (off by default) add the call graph (which function calls which, so a route's path to a table is exact) and git history (last commit, churn, files that change together); `govibe graph index` builds the same graph offline and gates CI on its findings
-- devmcp: dev-only MCP server (official Go SDK) mounted at /dev/mcp, exposing db_* tools and the graph_* agent surface (graph_schema first, then graph_context, graph_impact, graph_path, graph_search, graph_neighbors, graph_findings, graph_reindex, and the raw graph_query) plus two resources and the explain-change prompt to local agents
+- devmcp: dev-only MCP server (official Go SDK) mounted at /dev/`mcp`, exposing db_* tools and the graph_* agent surface (graph_schema first, then graph_context, graph_impact, graph_path, graph_search, graph_neighbors, graph_findings, graph_reindex, and the raw graph_query) plus two resources and the explain-change prompt to local agents
 
 Key Constraints
 - Controllers contain no business logic. They only call actions/services and render responses.
