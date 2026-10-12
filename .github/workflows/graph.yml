@@ -1,9 +1,12 @@
 name: graph
 
 # Index the project into a throw-away graph store and fail the build on findings
-# that docs/graph/baseline.json does not accept (a layering violation, say).
-# `make graph-check` runs the same command locally. What the findings are, and how
-# the baseline works: docs/specs/SPEC_GRAPH_INDEXER.md (Phase 6).
+# that the baseline does not accept (a layering violation, say). `make graph-check`
+# and `make graph-check-app` run the same commands locally. What the findings are,
+# and how the baseline works: docs/specs/SPEC_GRAPH_INDEXER.md (Phase 6).
+#
+# Two projects are gated: the framework itself, and the reference app in
+# examples/hello, judged as an application. Both baselines are empty.
 on:
   push:
     branches: [main]
@@ -21,7 +24,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Index the project and gate on new findings
+      - name: Index the framework and gate on new findings
         # --dir is a scratch directory, so nothing here can collide with a dev
         # server's lock. --calls also checks that the module type-checks. To index
         # the git history too, add --git and give checkout `fetch-depth: 0`.
@@ -31,4 +34,13 @@ jobs:
           --calls
           --fail-on error
           --baseline docs/graph/baseline.json
+          --format github
+      - name: Index the reference app as an application and gate on new findings
+        run: >-
+          go run ./cmd/govibe graph index
+          --root examples/hello
+          --dir "$RUNNER_TEMP/govibe-graph-app"
+          --calls
+          --fail-on error
+          --baseline examples/hello/docs/graph/baseline.json
           --format github

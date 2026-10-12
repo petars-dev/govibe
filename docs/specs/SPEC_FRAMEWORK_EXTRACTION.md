@@ -433,8 +433,9 @@ reports:digest   @every 6h     UTC       2026-10-10 18:30:00  skip     -        
 ### Dev tooling: hosting, production exclusion, reserved names
 - **Hosted in the app process** in v1 (Option C): the live router, the bolt lock and the single database pool
   stay together, as SPEC_GRAPH_INDEXER constraint 1 requires.
-- **Excluded from production by construction.** `kernel` reaches `devtools` only through a file tagged
-  `govibe_dev`; the untagged twin is a no-op. The default build links none of it. `make dev` and `.air.toml`
+- **Excluded from production by construction.** `kernel` reaches `devtools` only through one file tagged
+  `govibe_dev` that registers the mount function in its `init` (no untagged twin: the indexer reads every file whatever
+  its build constraints, so a twin would declare the same function twice). The default build links none of it. `make dev` and `.air.toml`
   pass `-tags govibe_dev`; the runtime `!IsProd()` gate stays as a second lock. A tagged build that finds
   `APP_ENV=prod` refuses to mount and logs why. When a local build lacks the tag, boot logs one line saying
   `/dev` is not compiled in and how to enable it. `schedule list` and every other runtime command are **not** dev-only.
@@ -725,6 +726,7 @@ Each phase ends with the test suite green, the graph gate green, and a run from 
      becomes the contributor guide; drop `SPEC_SAMPLE`.
    - Done when: `examples/hello` meets the Hello GoVibe done criteria, its default-tag binary has no dev packages, the
      framework's own tests and goldens are identical, and the framework's gate passes with an empty baseline.
+   - **Status: done 2026-10-12, see "Phase 2 results".**
 3. **Phase 3 — Profile, the app-only graph, findings and the docs surface**
    - T3.1 `Profile` replaces the constants (config file defaults to `env.yml`); `govibe.yml` loader with layout, rule and
      `derived` path overrides; a second fixture with a non-default layout.
@@ -861,6 +863,73 @@ reports only the layering finding, on a developer machine (live router: 7 findin
 - **An independent review of the Phase 1 diff** found nine things; seven were fixed and tested: `govibe serve` now runs `go run .` in its own process group and signals the group (`go run` exits on SIGTERM without telling the server it started, which would have left the server running); the docs pages read `docs/public` and `docs/specs` from the application root (`controllers.DocsRoot`, set by `devtools.Mount`) and no longer from the working directory; a connection that will not finish no longer fails a stop (after the graceful window the server closes it); `govibe graph index` in a project without a root `env.yml` still reads `MARIADB_DSN` from the environment; test files have a cap of their own and cannot fail the code layer; the test-reference scan ignores composite-literal keys and declared field names; `migrate down` with nothing applied says so (it was an error before as well). Two were left as designed: the dev panel keeps its own copies of `theme.css`, `theme.js` and the logo (D20: the demo and the panel must not share a file), and an unquoted placeholder is still typed as YAML would type it ("exactly as today"; quote it to keep a string, which the generated `env.yml` comments say).
 - Phase 0's amendments AM1 to AM14 are still unsigned: Phase 1 used the parts it needed (AM4, AM7, AM8 and AM11 for the kernel, the route snapshot, `routeinfo`, goose's Provider API and the root-resolved assets directory) and nothing that touches Go versions or tool pins (AM1 to AM3 belong to Phase 5).
 
+## Phase 2 results (physical split)
+Done 2026-10-12, on top of the committed Phase 1. The framework is the module `github.com/petars-dev/govibe` with the public
+packages `govibe`, `config`, `web` and `govibetest`; everything else is `internal/`; the Hello GoVibe demo is its own module in
+`examples/hello`, running on `govibe.Main`; a default build links no dev tooling. Every step was verified in a scratch copy under
+`env -i`: build, vet, the full suite twice (default, and `-tags govibe_dev`), both gates, and the apps run for real (below).
+
+| Task | Result |
+| --- | --- |
+| T2.1 rename | `petars-dev/govibe` is now `github.com/petars-dev/govibe` in 48 files (the spec's 38 plus Phase 1's new ones), as its own step before any move (AM13), after a separate gofmt fix of `cmd/govibe/cmd_generate.go` and `root.go`. The goldens did not change. `docs/spikes/scripts/s7-rename.sh` needed two fixes it now has: it only saw tracked files (Phase 1's new files would have kept the old path and its own check would not have noticed), and it rewrote the spike evidence under `docs/spikes` (patches, notes, even its own defaults), which records the old path on purpose |
+| T2.2 moves | `business/services/codegraph`, `storage/dbexplorer`, `storage/graphdb`, `devmcp` to `internal/{codegraph,dbexplorer,graphdb,devmcp}`; `controllers/dev*.go` and their tests into `internal/devtools/devui` (which already held the panel's files); `middleware` into `web` (`RequestLogger`, `DevNoCache`); `logger` and `storage/mariadb` into `internal/kernel`. The public `govibe` package (`govibe.go`: `App`, `Runtime`, `RunFunc` and `Command` as aliases of the kernel's types, plus `Main` and `Run`) and a minimal `govibetest.Boot` (no database, no dev tools, closes with the test) are new. Fixture and golden files moved untouched |
+| T2.3 `examples/hello` | The Hello app is a module of its own (`github.com/petars-dev/govibe/examples/hello`): `main.go` on `govibe.Main`, `env.yml`, `routes`, three controllers, the action, the templ page with its own static files, the embedded migration, its own `docs/` (it names the demo routes and the framework's), `README.md` and the app-facing `SKILL.md` (the rules the framework's old root `SKILL.md` held, updated; Phase 5 templates it). `main_test.go` boots it through `govibetest` and checks the done criteria. A root `go.work` joins the modules; `replace => ../..` in the example's `go.mod` coexists with it. `make dev` runs it; `.air.toml` rebuilds it when the framework changes too |
+| T2.4 commands | `routes` (every route and who registered it) and `version` are runtime commands next to `serve`, `migrate`, `inspect` and `help`; the tool's `govibe serve` and `govibe migrate` run `go run -tags govibe_dev .` in the project root |
+| T2.5 tag | `internal/kernel/devmount.go` declares the hook, `devmount_dev.go` (`govibe_dev`) sets it; the kernel names the dev tools nowhere else (AM5). **Reference app, default build: 241 packages, 8.7 MB; with the tag: 443 packages, 30.3 MB** (S1 predicted 240 and 8.9 MB). A dev build refuses `APP_ENV=prod` and says so; a default build says once that `/dev` is not compiled in. Tests: `TestDefaultBuildLinksNoDevTools` (in `examples/hello`), the kernel's tagged and untagged dev-mount tests, and a `ci` workflow (`test` both ways, `production` boots the default binary under `APP_ENV=dev` and finds nothing under `/dev`, `/_govibe/static/graph.js` or `/assets/static/graph.js`, and no `/dev` link on `/` (AM4), `devpanel`, below) |
+| T2.6 findings | The dev UI declares `devui.Explorer` (the explorer satisfies it). The layering finding is gone, **through reclassification**: the handlers are in a `dev` package and the explorer is a `support` package, and `layerVerdict` allows every pair of framework layers (wiring, dev, support), so the empty baseline says nothing about the framework's own layering until the Profile (Phase 3) gives it rules of its own; `devui` still imports `internal/dbexplorer` for its types. `docs/graph/baseline.json` is empty, `govibe.yml` exists (comments only: the loader is T3.1; it already marks the project root). **Both gates report 0 findings of any severity** with an empty baseline, at `--fail-on info`: the framework, and `examples/hello` judged as an app (`--root examples/hello`). An offline run does not run `db.drift`, `db.unapplied` or `docs.route_undocumented` (no router, no database): of those only the `devpanel` CI job, which asks the booted app's live panel, exercises the last, until `inspect --json` feeds the CLI (T3.6) |
+| T2.7 architecture test | `arch_test.go`, by `go list`: `internal/devtools` does not import the kernel; the public packages import no dev package, directly or in a default build; nothing imports `examples/`; the example imports only the four public packages (the compiler would allow its `internal/`, since the paths share a prefix). Checked by planting one violation of each in a scratch copy: all four are caught |
+| T2.8 docs | `README.md`, `docs/public/ARCHITECTURE.md` and `docs/public/MEMORY_SCHEMA.md` are the framework's; the root `SKILL.md` is the contributor guide; `SPEC_SAMPLE.md` is gone; `GRAPH_SCHEMA.md` and `DEV_DB_EXPLORER.md` name the new paths |
+
+**Verified by running it** (scratch copy, clean environment): the reference app with the tag, in a real browser (the htmx button returns "Hello GoVibe!", the
+graph page draws the app's own architecture, no console errors), over MCP (`graph_context` on `GET /api/hello` resolves to `func:controllers.HelloAPI`,
+`graph_impact` on the action lists both routes), under the tool's `govibe serve` (and its graceful stop), and under Air (`make air`); the default binary under
+`APP_ENV=dev` (404 on every `/dev` path, no dev link, `routes` and `version` work); `make templ` leaves the committed templ output byte-identical; the CI
+`devpanel` script run as written, from a clean graph store.
+
+**Deviations and things to know**
+- **A regression the split caused, found by running the panel, and fixed: handlers of an app that is a module of its own were "not application code".** The routes
+  layer found where the binary was compiled from where the *indexer's own package* was compiled, which only works when the indexer and the app are one module. It
+  now takes the hint the app supplies (`codegraph.Options.RootHint`, the app's `Routes` function as the runtime reports it, passed by the kernel through
+  `devtools.Deps`), as AM7 prescribes; the framework's own tests index the framework, so no test saw it. A unit test covers the root math (absolute, `-trimpath`,
+  module cache, root package, foreign symbols), an integration test shows a handler spelled as in another checkout resolving only with the hint, and the `devpanel`
+  CI job asks a booted app. The rest of AM7 (the `inspect --json` fields, scope) stays in Phase 3.
+- **Tag seam: one tagged file with an `init` hook, not a tagged file plus an untagged twin** (see Design): the indexer ignores build constraints, so a twin would
+  have defined `mountDev` twice and broken the graph's invariants.
+- **`go.work` also lists the indexer's fixture module.** A `go.work` above a nested module that is not a member breaks every `go` command run inside it
+  ("directory prefix . does not contain modules listed in go.work"), which the calls layer does on the fixture. `go.work.sum` is committed.
+- **The public types are aliases of the kernel's** (`type App = kernel.App`), so one definition serves the kernel and the app; pkg.go.dev shows an alias
+  without its fields, so the fields are repeated in the doc comment of `govibe.App`. Revisit in T7.4.
+- **Tests that indexed "this repository" as an app were retargeted at the framework.** The repository no longer contains the Hello app, so the live-router
+  tests use real framework handlers (`GET /_govibe/static/htmx.min.js` is `web.ServeHTMX`; the dev pages) and assert framework facts: no layering violation, no
+  migrations, no templates, `internal/*` package IDs. The app-shaped assertions (route to controller to action, templates, tables, the layering finding) were
+  already covered on the fixture, which mirrors the Hello app and whose goldens did not change. The graph's `graph_schema` examples still name the Hello demo's
+  route and IDs, which every app born from the scaffold has.
+- **The indexer's `classifyPackage` learned one thing:** `internal/devmcp` is `dev`, as the top-level `devmcp` was (the documented table is updated). Nothing
+  else about its layout assumptions changed: the Profile is Phase 3.
+- **Two info findings the reference app showed in its own live panel** (`docs.route_undocumented` for the framework's `/_govibe/static/*` routes, which a doc of
+  the framework used to mention) were fixed by documenting those routes in the app's `ARCHITECTURE.md` (an app does want to know which URLs the framework
+  occupies) rather than by a rule change; AM10 (skip framework-origin routes) still belongs to Phase 3, and removes the need.
+- **`make` changes:** `dev`, `run`, `build`, `air`, `graph-*` work on the example; new `test`, `test-dev`, `check` and `graph-check-app`; `cli-migrate`,
+  `cli-serve` and the `tailwind` target are gone (the tool's `serve` and `migrate` run in an app directory, and there is no Tailwind input file left at the root). `make templ`
+  runs inside `examples/hello` only, so it can no longer overwrite the indexer's fixture.
+- **Not run here:** the database tests (`GOVIBE_TEST_MARIADB_DSN`), `-race` on the kernel's dev test (the upstream `checkptr` issue of Phase 1), the GitHub Actions
+  workflows themselves (their scripts were run locally, but `ci.yml` has not been through GitHub), and `go install` of the tool from the module path (no tag is published).
+- The Hello page links to `/dev/db` in a dev build even with no database configured (it answers 404): pre-existing, from Phase 1's page.
+- **An independent review of the Phase 2 diff** found seven things; six were fixed and tested, one is noted: (1) the root hint did not work when `App.Routes` is written in package
+  `main` (an inline closure in `newApp`, say), because the runtime names such a function `main.f` with no import path; the kernel now completes it from the binary's build
+  information (`rootHint`, `qualifyMain`; `inspect --json` reports the same), checked by re-running the reviewer's mutation end to end; (2) the example's test and the CI `production` job could not
+  catch a broken asset embed, because in a local environment the framework serves `./assets` from disk: the test now boots under `APP_ENV=prod`, the CI job serves from outside the repository and
+  requests the app's own files (both shown to fail when the embed is removed); (3) `explain-change` had lost its "update GRAPH_SCHEMA.md and SPEC_GRAPH_INDEXER.md" hint and its ARCHITECTURE.md hint in the
+  move (they matched the old paths, and an existing test used the old path too): restored, with a test; (4) `arch_test.go` passed with nothing checked when `go.work` was absent (`go list -e`
+  returns a placeholder): it now fails loudly; (5) the retargeted e2e test had lost its one positive wire-level finding: restored on a small violating module; (6) smaller items: `version` shows a local
+  `replace`, `make build`'s output is ignored, the README's "start your own app" list now builds (a `.gitkeep` keeps each embed pattern matching) and no longer suggests copying the example out of the
+  repository, "three handlers" not "two controllers", and stale test-run comments. (7) `TestOpenGivesUpOnALockedStore` (`internal/graphdb`, untouched) failed once on temp-directory cleanup in a
+  dev-tag run while other jobs were running, and passed 15 of 15 alone: an existing flake, not addressed here.
+- **A mismatch Phase 2 did not cause and leaves for the owner:** `config/defaults.yml` ships `dev.graph.calls: ${GRAPH_CALLS:true}`, while `GRAPH_SCHEMA.md` and `SPEC_GRAPH_INDEXER.md` call the calls layer opt-in
+  and off by default. `ARCHITECTURE.md` now states what the config does; decide which is meant.
+- Amendments: AM4, AM5 and AM13 are applied as written (AM13 with the script fixes above), AM8 was Phase 1's, AM7's root hint is in; AM1 to AM3 (Go version and tool pins) and the
+  sign-off of all fourteen are still open.
+
 ## Risks
 | Risk | Mitigation |
 | --- | --- |
@@ -928,11 +997,11 @@ reports only the layering finding, on a developer machine (live router: 7 findin
 | Phase 0 decision sign-off | No | | Pending the owner: accept or flip AM1 to AM14, and decide AM1 (Go version and tool pins) before Phase 5 |
 | Phase 1 kernel, layered config, router split, framework-owned dev assets | Yes | | Done 2026-10-11, see "Phase 1 results"; the kernel's types are in `internal/kernel` until the public `govibe` package (Phase 2) |
 | Removal of mail settings, dead WorkOS client, `code.unreferenced` false positive | Yes | | Phase 1: keys, client, mentions and the `go.mod` entries are gone; the rule counts references from tests |
-| Phase 2 physical split, public API, module rename, `examples/hello` | No | | Planned: mechanical moves only |
-| Production exclusion of dev code (tag plus CI job) | No | | Planned: Phase 2, from spike S1 |
-| The framework's own layering finding resolved, empty baseline | No | | Planned: Phase 2 |
+| Phase 2 physical split, public API, module rename, `examples/hello` | Yes | | Done 2026-10-12, see "Phase 2 results"; one logic fix was needed (the routes layer's root hint) |
+| Production exclusion of dev code (tag plus CI job) | Yes | | Phase 2: `govibe_dev`, 241 against 443 packages, a test and a CI job (A7) |
+| The framework's own layering finding resolved, empty baseline | Yes | | Phase 2: both gates (framework, `examples/hello`) report 0 findings at any severity |
 | `env.yml` in the project root (embedded, environment-resolved as today) | Yes | | Phase 1 for this repository (embedded by `main.go`, over `config/defaults.yml`); the scaffold's copy is Phase 5 |
-| Hello GoVibe demo in every generated app (`web.IfDev`, synced from `examples/hello`) | No | | Phase 1 did the demo's side (`web.IfDev` and `web.HTMXScript` in `home.templ`); `examples/hello` is Phase 2 and the generated copy Phase 5 |
+| Hello GoVibe demo in every generated app (`web.IfDev`, synced from `examples/hello`) | Partly | | `examples/hello` exists as a module of its own (Phase 2); the generated copy and the sync check are Phase 5 |
 | Phase 3 profile, origin, `framework.import` rule, offline facts, fixture rebuild | No | | Planned |
 | App-only graph view (scope in the `Model`, app map, switch, tools) | No | | Planned: Phase 3 |
 | Findings: reasons in the baseline, rule overrides, test references | Partly | | Test references: done in Phase 1. Reasons in the baseline and rule overrides: Phase 3 |

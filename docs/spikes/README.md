@@ -9,7 +9,7 @@ few pieces a later phase can start from. Delete it once the phases that reuse it
 | Path | What it is | Used by |
 | --- | --- | --- |
 | `notes/S1.md` to `S9.md` | One note per spike: method, exact commands and numbers, surprises, "Consequence for the design" | the spec's results table |
-| `scripts/s7-rename.sh` | The module rename (`petars-dev/govibe` to `github.com/petars-dev/govibe`); idempotent, skips the spec on purpose | T2.1, as is |
+| `scripts/s7-rename.sh` | The module rename (`petars-dev/govibe` to `github.com/petars-dev/govibe`); idempotent, skips the spec and this directory on purpose | T2.1, used 2026-10-12 after two fixes (it now sees untracked files and leaves `docs/spikes` alone) |
 | `scripts/s2-refresh_mod.sh`, `s2-show_routes.py` | Rebuild the module-cache variant of the scratch app; print the route table | reproducing S2 |
 | `scripts/s9-collect.sh`, `s9-analyze.py` | Collect views, reports and tool output per scope; compare them | reproducing S9 |
 | `patches/s1-tag-exclusion.patch` | The `govibe_dev` split: a tagged dev mount, an untagged twin, nine tagged controllers | T2.5 and AM5 |

@@ -1,4 +1,4 @@
-module petars-dev/govibe
+module github.com/petars-dev/govibe
 
 go 1.25.0
 

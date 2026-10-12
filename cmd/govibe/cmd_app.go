@@ -10,13 +10,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"petars-dev/govibe/internal/kernel"
+	"github.com/petars-dev/govibe/internal/kernel"
 )
 
 // serve and migrate run the application, so they live in the application binary
 // (its embedded env.yml, migrations and assets are not the tool's to read). The
-// tool keeps the muscle memory and delegates: `govibe serve` is `go run . serve`
-// in the project root, one boot path for both.
+// tool keeps the muscle memory and delegates: `govibe serve` is
+// `go run -tags govibe_dev . serve` in the project root, one boot path for both. The
+// dev tag compiles the dev tools in (the panel, the graph, the MCP server); a
+// production build never passes it.
 
 func init() {
 	rootCmd.AddCommand(serveCmd, migrateCmd)
@@ -27,7 +29,7 @@ func init() {
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Run the application's HTTP server (go run . serve in the project root)",
+	Short: "Run the application's HTTP server with the dev tools (go run -tags govibe_dev . serve in the project root)",
 	Args:  cobra.NoArgs,
 	// The application has said what it had to say; cobra's own error and usage text would only add noise.
 	SilenceUsage:  true,
@@ -39,7 +41,7 @@ var serveCmd = &cobra.Command{
 
 var migrateCmd = &cobra.Command{
 	Use:   "migrate",
-	Short: "Run database migrations (go run . migrate in the project root)",
+	Short: "Run database migrations (go run -tags govibe_dev . migrate in the project root)",
 }
 
 func appSubcommand(parent, name, short string) *cobra.Command {
@@ -55,12 +57,15 @@ func appSubcommand(parent, name, short string) *cobra.Command {
 	}
 }
 
-// appCommand is `go run . <args>` in the project root, wired to this process's
+// devTags is the build tag that compiles the dev tools into the application.
+const devTags = "govibe_dev"
+
+// appCommand is `go run -tags govibe_dev . <args>` in the project root, wired to this process's
 // terminal and environment. It runs in a process group of its own (on systems that
 // have them), so a signal can reach the application behind `go run`, which does not
 // pass SIGTERM on to the program it started.
 func appCommand(root string, args ...string) *exec.Cmd {
-	c := exec.Command("go", append([]string{"run", "."}, args...)...)
+	c := exec.Command("go", append([]string{"run", "-tags", devTags, "."}, args...)...)
 	c.Dir = root
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	ownProcessGroup(c)

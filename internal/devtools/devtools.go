@@ -19,15 +19,14 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
 
-	"petars-dev/govibe/business/services/codegraph"
-	"petars-dev/govibe/config"
-	"petars-dev/govibe/controllers"
-	"petars-dev/govibe/devmcp"
-	"petars-dev/govibe/internal/devtools/devui"
-	appmw "petars-dev/govibe/middleware"
-	"petars-dev/govibe/storage/dbexplorer"
-	"petars-dev/govibe/storage/graphdb"
-	"petars-dev/govibe/web"
+	"github.com/petars-dev/govibe/config"
+	"github.com/petars-dev/govibe/internal/codegraph"
+	"github.com/petars-dev/govibe/internal/dbexplorer"
+	"github.com/petars-dev/govibe/internal/devmcp"
+	"github.com/petars-dev/govibe/internal/devtools/devui"
+	"github.com/petars-dev/govibe/internal/graphdb"
+	"github.com/petars-dev/govibe/internal/routeinfo"
+	"github.com/petars-dev/govibe/web"
 )
 
 // Deps is everything the dev tools need from the process that hosts them.
@@ -43,6 +42,11 @@ type Deps struct {
 	// Root is the application's root directory: the graph indexes it and the graph
 	// store lives under it.
 	Root string
+	// RootHint is the application's own Routes function as the Go runtime reports it
+	// (zero when it has none): it tells the graph where the running binary's sources
+	// were compiled, so route handlers resolve to the application's code even when
+	// the application is a module of its own and the framework a dependency.
+	RootHint routeinfo.Ref
 }
 
 // Mount registers the dev tools and starts the indexer. It never fails the
@@ -55,17 +59,17 @@ func Mount(d Deps) (stop func()) {
 
 	// The panel's own files: stylesheets, scripts, the graph renderer, the logo.
 	r.Group(func(g chi.Router) {
-		g.Use(appmw.DevNoCache)
+		g.Use(web.DevNoCache)
 		g.Handle(web.StaticPrefix+"/*", http.StripPrefix(web.StaticPrefix, http.FileServerFS(devui.Static())))
 	})
 
 	// Dev docs routes (renders Markdown docs to HTML)
 	r.Route("/dev/docs", func(dd chi.Router) {
-		dd.Use(controllers.DocsRoot(d.Root)) // read the project's docs, wherever the process started
-		dd.Get("/app", controllers.DevDocsAppIndex)
-		dd.Get("/app/{slug}", controllers.DevDocsAppFile)
-		dd.Get("/specs", controllers.DevDocsSpecs)
-		dd.Get("/specs/{slug}", controllers.DevDocsSpecFile)
+		dd.Use(devui.DocsRoot(d.Root)) // read the project's docs, wherever the process started
+		dd.Get("/app", devui.DevDocsAppIndex)
+		dd.Get("/app/{slug}", devui.DevDocsAppFile)
+		dd.Get("/specs", devui.DevDocsSpecs)
+		dd.Get("/specs/{slug}", devui.DevDocsSpecFile)
 	})
 
 	var quadStore graph.QuadStore
@@ -90,17 +94,17 @@ func Mount(d Deps) (stop func()) {
 	var explorer *dbexplorer.Explorer
 	if d.DB != nil {
 		explorer = dbexplorer.New(d.DB, dbexplorer.Options{AllowMutations: cfg.Dev.DB.AllowMutations})
-		r.Get("/dev/db", controllers.DevDBConsole)
+		r.Get("/dev/db", devui.DevDBConsole)
 		r.Route("/dev/db/api", func(api chi.Router) {
-			api.Get("/meta", controllers.DevDBMeta(explorer))
-			api.Get("/tables", controllers.DevDBListTables(explorer))
-			api.Get("/tables/{table}", controllers.DevDBDescribeTable(explorer))
-			api.Get("/tables/{table}/rows", controllers.DevDBBrowseRows(explorer))
-			api.Get("/tables/{table}/sample", controllers.DevDBSampleRows(explorer))
-			api.Post("/tables/{table}/rows", controllers.DevDBInsertRow(explorer))
-			api.Delete("/tables/{table}/rows", controllers.DevDBResetTable(explorer))
-			api.Post("/query", controllers.DevDBQuery(explorer))
-			api.Post("/explain", controllers.DevDBExplain(explorer))
+			api.Get("/meta", devui.DevDBMeta(explorer))
+			api.Get("/tables", devui.DevDBListTables(explorer))
+			api.Get("/tables/{table}", devui.DevDBDescribeTable(explorer))
+			api.Get("/tables/{table}/rows", devui.DevDBBrowseRows(explorer))
+			api.Get("/tables/{table}/sample", devui.DevDBSampleRows(explorer))
+			api.Post("/tables/{table}/rows", devui.DevDBInsertRow(explorer))
+			api.Delete("/tables/{table}/rows", devui.DevDBResetTable(explorer))
+			api.Post("/query", devui.DevDBQuery(explorer))
+			api.Post("/explain", devui.DevDBExplain(explorer))
 		})
 		logrus.WithField("mutations", explorer.AllowMutations()).Info("embedded database explorer enabled at /dev/db")
 	} else {
@@ -115,16 +119,16 @@ func Mount(d Deps) (stop func()) {
 	if quadStore != nil {
 		// The opt-in layers (the call graph, git history) cost more than parsing, so
 		// they are on only when config asks; graph_reindex can switch one on later.
-		opts := codegraph.Options{Root: d.Root, Router: r, Calls: cfg.Dev.Graph.Calls, Git: cfg.Dev.Graph.Git}
+		opts := codegraph.Options{Root: d.Root, Router: r, RootHint: d.RootHint, Calls: cfg.Dev.Graph.Calls, Git: cfg.Dev.Graph.Git}
 		if explorer != nil {
 			opts.Schema = explorer.Snapshot
 		}
 		indexer = codegraph.New(quadStore, opts)
 		// The explorer page draws bounded views of the graph; its data comes from
 		// /dev/graph/data/*. Links into /dev/db exist only when that is mounted.
-		ui := &controllers.GraphUI{Indexer: indexer, Store: quadStore, DB: explorer != nil}
-		r.Get("/dev/graph", controllers.DevGraphPage(indexer))
-		r.Post("/dev/graph/reindex", controllers.DevGraphReindex(indexer))
+		ui := &devui.GraphUI{Indexer: indexer, Store: quadStore, DB: explorer != nil}
+		r.Get("/dev/graph", devui.DevGraphPage(indexer))
+		r.Post("/dev/graph/reindex", devui.DevGraphReindex(indexer))
 		r.Route("/dev/graph/data", func(dd chi.Router) {
 			dd.Get("/status", ui.Status())
 			dd.Get("/view", ui.View())
@@ -135,7 +139,7 @@ func Mount(d Deps) (stop func()) {
 		})
 		// Generated reference pages: routes, config, schema and layers, always read
 		// from the graph as it is now.
-		reports := controllers.DevGraphReports(indexer, explorer != nil)
+		reports := devui.DevGraphReports(indexer, explorer != nil)
 		r.Get("/dev/graph/reports", reports)
 		r.Get("/dev/graph/reports/{name}", reports)
 	}

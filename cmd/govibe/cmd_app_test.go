@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// serve and migrate are the application's own commands: the tool runs `go run .` in
+// serve and migrate are the application's own commands: the tool runs `go run -tags govibe_dev .` in
 // the project root with the same arguments, wired to its terminal.
 func TestAppCommandRunsTheApplicationInTheRoot(t *testing.T) {
 	c := appCommand("/work/shop", "migrate", "status")
-	if got := strings.Join(c.Args, " "); got != "go run . migrate status" {
+	if got := strings.Join(c.Args, " "); got != "go run -tags govibe_dev . migrate status" {
 		t.Errorf("args = %q", got)
 	}
 	if c.Dir != "/work/shop" {

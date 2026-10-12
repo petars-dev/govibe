@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -22,7 +23,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/sirupsen/logrus"
 
-	"petars-dev/govibe/web"
+	"github.com/petars-dev/govibe/internal/routeinfo"
+	"github.com/petars-dev/govibe/web"
 )
 
 // isolate keeps a test off the developer's real resources: no database from the
@@ -324,9 +326,9 @@ func TestCommandDeclarationsAreChecked(t *testing.T) {
 	}
 }
 
-func TestMarkDevOnlyWhenDevToolsAreMounted(t *testing.T) {
-	root := isolate(t)
-	probe := App{Routes: func(rt *Runtime, r chi.Router) error {
+// probeApp has one page that says whether it sees the dev marker.
+func probeApp() App {
+	return App{Routes: func(rt *Runtime, r chi.Router) error {
 		r.Get("/probe", func(w http.ResponseWriter, r *http.Request) {
 			if web.IsDev(r.Context()) {
 				_, _ = w.Write([]byte("dev"))
@@ -336,6 +338,11 @@ func TestMarkDevOnlyWhenDevToolsAreMounted(t *testing.T) {
 		})
 		return nil
 	}}
+}
+
+func TestMarkDevOnlyWhenDevToolsAreMounted(t *testing.T) {
+	isolate(t)
+	probe := probeApp()
 
 	// prod refuses to mount, even when asked: no marker, no routes.
 	b, err := Build(context.Background(), probe, Options{Dev: true})
@@ -359,33 +366,6 @@ func TestMarkDevOnlyWhenDevToolsAreMounted(t *testing.T) {
 	defer b2.Close()
 	if _, body, _ := get(t, b2.Router, "/probe"); body != "plain" || b2.DevMounted {
 		t.Fatalf("dev without Dev option: %q mounted=%v", body, b2.DevMounted)
-	}
-
-	// dev and asked for: mounted, pages see it, the panel's files are served.
-	b3, err := Build(context.Background(), probe, Options{Dev: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b3.Close()
-	if !b3.DevMounted {
-		t.Fatal("dev tools were not mounted")
-	}
-	if _, body, _ := get(t, b3.Router, "/probe"); body != "dev" {
-		t.Fatalf("a page must see the dev marker, got %q", body)
-	}
-	if code, body, _ := get(t, b3.Router, "/_govibe/static/theme.css"); code != 200 || len(body) == 0 {
-		t.Fatalf("the panel's theme = %d", code)
-	}
-	// The panel's files are the framework's, and never served from the app's /assets.
-	if code, _, _ := get(t, b3.Router, "/assets/static/graph.js"); code != 404 {
-		t.Fatalf("/assets/static/graph.js = %d", code)
-	}
-	if code, _, _ := get(t, b3.Router, "/_govibe/static/graph.js"); code != 200 {
-		t.Fatalf("/_govibe/static/graph.js = %d", code)
-	}
-	// The graph store lives under the application root, never next to the process.
-	if _, err := os.Stat(filepath.Join(root, "docs", "graph")); err != nil {
-		t.Fatalf("the graph store is not under the root: %v", err)
 	}
 }
 
@@ -424,7 +404,7 @@ func TestInspectJSON(t *testing.T) {
 	if doc.Schema != InspectSchema || doc.App.Name != "shop" || !strings.HasPrefix(doc.Go, "go") {
 		t.Fatalf("header: %+v", doc)
 	}
-	if doc.Framework.Module != "petars-dev/govibe" {
+	if doc.Framework.Module != "github.com/petars-dev/govibe" {
 		t.Fatalf("framework module = %q", doc.Framework.Module)
 	}
 	// The app's Routes function is where the compile-time root is recovered from
@@ -694,5 +674,54 @@ func TestServeClosesStuckConnectionsAfterTheGracefulWindow(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("serve did not stop with a connection still open")
+	}
+}
+
+// An app's Routes written in package main is named "main.f" by the runtime: the hint
+// the dev tools use to find the app's sources needs the package's import path.
+func TestQualifyMain(t *testing.T) {
+	const path = "github.com/acme/shop"
+	for in, want := range map[string]string{
+		"main.main.newApp.func1":               path + ".main.newApp.func1",
+		"main.routes":                          path + ".routes",
+		"github.com/acme/shop/routes.Register": "github.com/acme/shop/routes.Register",
+		"mainframe.Handler":                    "mainframe.Handler",
+		"":                                     "",
+	} {
+		if got := qualifyMain(in, path); got != want {
+			t.Errorf("qualifyMain(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := qualifyMain("main.f", ""); got != "main.f" {
+		t.Errorf("with no build information the symbol stays as it is, got %q", got)
+	}
+}
+
+// inspect reports the hint with the same completion, so the tool reading it sees the
+// same thing the dev tools do.
+func TestRootHintOfARoutesFunction(t *testing.T) {
+	app := App{Routes: func(*Runtime, chi.Router) error { return nil }}
+	got := rootHint(app)
+	if got.File == "" || !strings.Contains(got.Symbol, "kernel.TestRootHintOfARoutesFunction") {
+		t.Errorf("hint = %+v", got)
+	}
+	if rootHint(App{}) != (routeinfo.Ref{}) {
+		t.Error("an app with no Routes has no hint")
+	}
+}
+
+func TestFrameworkVersionShowsALocalReplace(t *testing.T) {
+	const module = "github.com/petars-dev/govibe"
+	deps := []*debug.Module{{Path: "github.com/go-chi/chi/v5", Version: "v5.1.0"}}
+	if got := frameworkVersion(deps, module); got != "(devel)" {
+		t.Errorf("no such dependency: %q", got)
+	}
+	deps = append(deps, &debug.Module{Path: module, Version: "v0.3.1"})
+	if got := frameworkVersion(deps, module); got != "v0.3.1" {
+		t.Errorf("a release: %q", got)
+	}
+	deps[1] = &debug.Module{Path: module, Version: "v0.0.0", Replace: &debug.Module{Path: "../.."}}
+	if got := frameworkVersion(deps, module); got != "v0.0.0 (replaced by ../..)" {
+		t.Errorf("a local checkout: %q", got)
 	}
 }

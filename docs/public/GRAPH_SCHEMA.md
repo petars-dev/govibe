@@ -24,7 +24,7 @@ and agents work from.
 ## Spike results
 
 Phase 0 ran the IRI / literal / label round trip against the Cayley version in `go.mod` (v0.7.7). The
-findings are pinned by `storage/graphdb/contract_test.go`; if that test fails after a dependency
+findings are pinned by `internal/graphdb/contract_test.go`; if that test fails after a dependency
 upgrade, read this section before touching the indexer.
 
 | # | Finding | Consequence |
@@ -85,7 +85,7 @@ run) and **opaque**: never parse one, follow edges and attributes instead.
   escaped.
 - **Directories** are repo-relative with `/` separators; the module root is `.`. So the root package is
   `pkg:.` and its `main` is `func:..main`.
-- **Methods** include the receiver type without `*`: `func:storage/dbexplorer.Explorer.DescribeTable`.
+- **Methods** include the receiver type without `*`: `func:internal/dbexplorer.Explorer.DescribeTable`.
 - **Closures** get no node. A handler that is a closure resolves to its enclosing function.
 - **Duplicate names.** Two declarations can share an ID (several `init` functions, or one function in
   files with different build tags). The first keeps the plain ID; the second and later get `#2`, `#3`,
@@ -95,9 +95,9 @@ run) and **opaque**: never parse one, follow edges and attributes instead.
 | Kind | `type` object | ID | Example | Owner layer | Phase |
 | --- | --- | --- | --- | --- | --- |
 | package | `kind:package` | `pkg:<dir>` | `pkg:business/actions` | code | 1 |
-| file | `kind:file` | `file:<path>` | `file:controllers/devdb.go`, `file:assets/templates/home.templ` | code (`.go`), templates (`.templ`) | 1, 2 |
+| file | `kind:file` | `file:<path>` | `file:controllers/orders.go`, `file:assets/templates/home.templ` | code (`.go`), templates (`.templ`) | 1, 2 |
 | function, method | `kind:func` | `func:<dir>.<Name>` or `func:<dir>.<Recv>.<Name>` | `func:controllers.HelloAPI` | code | 1 |
-| type | `kind:type` | `typ:<dir>.<Name>` | `typ:storage/dbexplorer.Explorer` | code | 1 |
+| type | `kind:type` | `typ:<dir>.<Name>` | `typ:internal/dbexplorer.Explorer` | code | 1 |
 | build | `kind:build` | `build:latest` | `build:latest` | meta | 1 |
 | layer run | `kind:layer` | `layer:<name>` | `layer:code` | meta | 1 |
 | route | `kind:route` | `route:<METHOD>:<path>`; `<METHOD>` is `ANY` for a route registered for every method | `route:GET:/dev/db/api/tables/{table}`, `route:ANY:/dev/mcp` | routes | 2 |
@@ -246,9 +246,9 @@ It is not an indexer layer despite the shared word.
 | `storage/**` | `storage` |
 | `middleware/**` | `middleware` |
 | `routes/**`, the module root `.`, `cmd/**`, `internal/kernel/**` | `wiring` |
-| `devmcp/**`, `internal/devtools/**` | `dev` |
+| `devmcp/**`, `internal/devtools/**`, `internal/devmcp/**` | `dev` |
 | `assets/**` | `views` |
-| anything else (`config`, `web`, `logger`, `internal/migrate`, …) | `support` |
+| anything else (`config`, `web`, `internal/migrate`, `internal/codegraph`, …) | `support` |
 
 The layering rule (final since Phase 5, `layering.go`, and the one thing the `layering` findings, the
 architecture overview and the layers report all read): SKILL.md's two constraints written as data, plus what
@@ -262,7 +262,7 @@ they imply.
 | `wiring`, `dev` | nothing | they assemble the application: this is the allow-list (`routes`, `main`, `cmd`, `internal/kernel`, `devmcp`, `internal/devtools`) |
 
 A package a controller (or a middleware) uses to reach storage is therefore a finding, whatever it is used
-for: `controllers/devdb.go` importing `storage/dbexplorer` is the one this repository has.
+for. (This repository has none: the dev stack's controllers live in `internal/devtools/devui`, a `dev` package, and the stores they read are `support` packages of the framework.)
 
 ## Layers
 
@@ -541,7 +541,7 @@ a path git quotes is left out. In a shallow clone the layer is `partial` (the hi
 
 ## Writer contract
 
-What the Phase 1 writer (`business/services/codegraph/writer.go`) does, given F7, F8 and F11:
+What the Phase 1 writer (`internal/codegraph/writer.go`) does, given F7, F8 and F11:
 
 1. Build the layer's quads in memory as typed terms (`quad.IRI`, `quad.String`, ...), never through the
    JSON or N-Quads parsers. Every quad carries the layer's label.
@@ -909,8 +909,8 @@ is no router, so `docs.route_undocumented` cannot) are listed in the report, and
 is an error.
 
 **The baseline.** Only a *new* finding fails: a project is rarely clean on the day a gate is switched on, and a
-gate that fails on day one gets switched off. `docs/graph/baseline.json` is the known debt (today: the one
-layering violation `controllers/devdb.go` has, importing `storage/dbexplorer`), committed and reviewed like any
+gate that fails on day one gets switched off. `docs/graph/baseline.json` is the known debt (the framework's own
+baseline is empty: a finding is fixed, or accepted with a reason), committed and reviewed like any
 other change. The gate keys on finding IDs, so a finding that moves to another line stays accepted, and a
 baseline entry that no finding matches any more is reported as paid debt (`--update-baseline` drops it). A
 finding whose ID carries a line (a stale reference in a doc) is a new finding when the line moves: gate on
@@ -924,35 +924,35 @@ annotation on the line it is about. Add `--git` and `fetch-depth: 0` to index hi
 
 ## Fixture
 
-`business/services/codegraph/testdata/fixture/` is a miniature GoVibe-shaped app (module
+`internal/codegraph/testdata/fixture/` is a miniature GoVibe-shaped app (module
 `example.com/fixture`, standard library only) that the indexer's golden tests run against. It
 compiles, is never run, and is invisible to the main module (`go list ./...` and `go vet ./...` skip
 `testdata`). Each layer's golden N-Quads are `testdata/golden/<layer>.nq`; regenerate them with
-`go test ./business/services/codegraph -update` after an intended change and review the diff. The
+`go test ./internal/codegraph -update` after an intended change and review the diff. The
 fixture is never run, so
 the `routes` layer is fed the runtime facts its router would report (`fixtureRoutes` in `layers_test.go`);
 `routes_chi_test.go` covers the real chi traversal on a router built from this repository's handlers.
 
 | Fixture file | What it exercises |
 | --- | --- |
-| `business/services/codegraph/testdata/fixture/main.go` | root package `pkg:.`, `arch_layer=wiring`, package doc; `cfg.Server.Port` and `cfg.Database.DSN` reads, and an `os.Getenv` of a variable `env.yml` does not declare |
-| `business/services/codegraph/testdata/fixture/routes/routes.go` | wiring; imports every other layer; six routes (`GET /`, `GET /api/hello`, `GET /api/orders`, `GET /api/orders/{id}`, `/dev/mcp`, `/assets/`) and a middleware wrapper |
-| `business/services/codegraph/testdata/fixture/config/env.yml`, `business/services/codegraph/testdata/fixture/config/config.go` | placeholders with defaults, a default containing a colon, sensitive keys whose defaults must not appear, a static value, a key bound to a struct field that nothing reads, keys reachable only through the dynamic `Get` |
-| `business/services/codegraph/testdata/fixture/business/actions/notify.go` | `config.Get("queue.broker")` of a whole group, and of an undeclared key |
-| `business/services/codegraph/testdata/fixture/assets/templates/*.templ` | components, a `children...` layout, `@Layout(...)` and `@Footer()` calls, a doc comment, a component whose Go package has only generated output |
-| `business/services/codegraph/testdata/fixture/controllers/home.go` | a handler that renders a templ component (`func --renders--> tmpl`) |
-| `business/services/codegraph/testdata/fixture/mcp/mcp.go` | a stand-in for the MCP SDK (the fixture is standard-library only) |
-| `business/services/codegraph/testdata/fixture/docs/**`, `business/services/codegraph/testdata/fixture/README.md` | an architecture page with every kind of mention (path, route, symbol, `Type.Method`, config key and group, environment variable, tool, template, links, a stale reference), a guide, and `SPEC_HELLO.md` whose status table has implemented, planned, partial and skipped rows, and one implemented row (`Audit trail`) that names a file that does not exist (`docs.spec_missing`) |
-| `business/services/codegraph/testdata/fixture/controllers/hello.go` | acceptance query 1: `HelloAPI` calls `actions.Hello`, and no table is reachable |
-| `business/services/codegraph/testdata/fixture/controllers/orders.go` | acceptance query 2: `ListOrders` goes handler → service → store (clean); `GetOrder` calls the store directly (**layering violation**, on purpose); handler factories returning closures; unexported `writeJSON`. For the calls layer: a call inside each closure, a call through the `Lister` interface (two candidates, the store and the service itself: confidence 70), and `HomePage`'s call into generated output (no edge) |
-| `business/services/codegraph/testdata/fixture/business/actions/hello.go` | single-function action; a two-sentence doc for first-sentence extraction |
-| `business/services/codegraph/testdata/fixture/business/services/orders/orders.go` | interface type, struct type, pointer and value receivers, an unexported method |
-| `business/services/codegraph/testdata/fixture/storage/orderstore/orderstore.go` | SQL as package constants and as literals in function bodies (a join, an `INSERT ... SELECT`, a `+` concatenation, a raw string, a `DELETE`) and one dynamic statement that names no table; `db:"…"` struct tags (a struct that maps to one table, one that fits several and maps to none) |
-| `business/services/codegraph/testdata/fixture/storage/migrations/sql/0001_init.sql` | one goose migration, the sample from the spec (users, products, orders, order_items): a sensitive column default, unnamed and named keys and foreign keys, a composite-primary-key junction, and an implicit reference (`orders.user_id`, no foreign key). The cases beyond this (`ALTER` of existing tables, a shared primary key, renames and drops, a column that names no table, drift against a live database, unapplied migrations) are an inline second migration in `db_extra_test.go` (and `db_live_test.go`), so the tree carries no schema it does not need |
-| `business/services/codegraph/testdata/fixture/storage/orderstore/zz_generated.go` | a `// Code generated … DO NOT EDIT.` file that is indexed with `generated=true` |
-| `business/services/codegraph/testdata/fixture/middleware/logging.go` | middleware function |
-| `business/services/codegraph/testdata/fixture/devmcp/devmcp.go` | `arch_layer=dev`; a dev package importing storage; two `mcp.AddTool` registrations (a handler struct with `omitempty` and `jsonschema` tags, and `struct{}`) |
-| `business/services/codegraph/testdata/fixture/assets/templates/home_templ.go` | generated templ output that must be skipped; the package has no other Go file, so it must not appear |
+| `internal/codegraph/testdata/fixture/main.go` | root package `pkg:.`, `arch_layer=wiring`, package doc; `cfg.Server.Port` and `cfg.Database.DSN` reads, and an `os.Getenv` of a variable `env.yml` does not declare |
+| `internal/codegraph/testdata/fixture/routes/routes.go` | wiring; imports every other layer; six routes (`GET /`, `GET /api/hello`, `GET /api/orders`, `GET /api/orders/{id}`, `/dev/mcp`, `/assets/`) and a middleware wrapper |
+| `internal/codegraph/testdata/fixture/config/env.yml`, `internal/codegraph/testdata/fixture/config/config.go` | placeholders with defaults, a default containing a colon, sensitive keys whose defaults must not appear, a static value, a key bound to a struct field that nothing reads, keys reachable only through the dynamic `Get` |
+| `internal/codegraph/testdata/fixture/business/actions/notify.go` | `config.Get("queue.broker")` of a whole group, and of an undeclared key |
+| `internal/codegraph/testdata/fixture/assets/templates/*.templ` | components, a `children...` layout, `@Layout(...)` and `@Footer()` calls, a doc comment, a component whose Go package has only generated output |
+| `internal/codegraph/testdata/fixture/controllers/home.go` | a handler that renders a templ component (`func --renders--> tmpl`) |
+| `internal/codegraph/testdata/fixture/mcp/mcp.go` | a stand-in for the MCP SDK (the fixture is standard-library only) |
+| `internal/codegraph/testdata/fixture/docs/**`, `internal/codegraph/testdata/fixture/README.md` | an architecture page with every kind of mention (path, route, symbol, `Type.Method`, config key and group, environment variable, tool, template, links, a stale reference), a guide, and `SPEC_HELLO.md` whose status table has implemented, planned, partial and skipped rows, and one implemented row (`Audit trail`) that names a file that does not exist (`docs.spec_missing`) |
+| `internal/codegraph/testdata/fixture/controllers/hello.go` | acceptance query 1: `HelloAPI` calls `actions.Hello`, and no table is reachable |
+| `internal/codegraph/testdata/fixture/controllers/orders.go` | acceptance query 2: `ListOrders` goes handler → service → store (clean); `GetOrder` calls the store directly (**layering violation**, on purpose); handler factories returning closures; unexported `writeJSON`. For the calls layer: a call inside each closure, a call through the `Lister` interface (two candidates, the store and the service itself: confidence 70), and `HomePage`'s call into generated output (no edge) |
+| `internal/codegraph/testdata/fixture/business/actions/hello.go` | single-function action; a two-sentence doc for first-sentence extraction |
+| `internal/codegraph/testdata/fixture/business/services/orders/orders.go` | interface type, struct type, pointer and value receivers, an unexported method |
+| `internal/codegraph/testdata/fixture/storage/orderstore/orderstore.go` | SQL as package constants and as literals in function bodies (a join, an `INSERT ... SELECT`, a `+` concatenation, a raw string, a `DELETE`) and one dynamic statement that names no table; `db:"…"` struct tags (a struct that maps to one table, one that fits several and maps to none) |
+| `internal/codegraph/testdata/fixture/storage/migrations/sql/0001_init.sql` | one goose migration, the sample from the spec (users, products, orders, order_items): a sensitive column default, unnamed and named keys and foreign keys, a composite-primary-key junction, and an implicit reference (`orders.user_id`, no foreign key). The cases beyond this (`ALTER` of existing tables, a shared primary key, renames and drops, a column that names no table, drift against a live database, unapplied migrations) are an inline second migration in `db_extra_test.go` (and `db_live_test.go`), so the tree carries no schema it does not need |
+| `internal/codegraph/testdata/fixture/storage/orderstore/zz_generated.go` | a `// Code generated … DO NOT EDIT.` file that is indexed with `generated=true` |
+| `internal/codegraph/testdata/fixture/middleware/logging.go` | middleware function |
+| `internal/codegraph/testdata/fixture/devmcp/devmcp.go` | `arch_layer=dev`; a dev package importing storage; two `mcp.AddTool` registrations (a handler struct with `omitempty` and `jsonschema` tags, and `struct{}`) |
+| `internal/codegraph/testdata/fixture/assets/templates/home_templ.go` | generated templ output that must be skipped; the package has no other Go file, so it must not appear |
 
 Edit the fixture only together with its goldens, in one commit. Facts asserted independently of the
 golden (so a wrongly regenerated golden is still caught) live in `Test<Layer>LayerFixtureFacts`; the

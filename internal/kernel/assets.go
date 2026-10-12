@@ -9,8 +9,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/sirupsen/logrus"
 
-	"petars-dev/govibe/config"
-	appmw "petars-dev/govibe/middleware"
+	"github.com/petars-dev/govibe/config"
+	"github.com/petars-dev/govibe/web"
 )
 
 // FindRoot is the application's root directory: the configured root (the `root`
@@ -57,7 +57,7 @@ func mountAssets(r chi.Router, cfg config.Config, embedded fs.FS, root string) s
 				fsServer := http.FileServer(http.Dir(dir))
 				logrus.WithField("path", dir).Info("serving assets from filesystem (dev mode)")
 				r.Group(func(g chi.Router) {
-					g.Use(appmw.DevNoCache)
+					g.Use(web.DevNoCache)
 					g.Handle("/assets/*", http.StripPrefix("/assets", fsServer))
 				})
 				return "disk " + dir

@@ -4,7 +4,10 @@ tmp_dir = "tmp"
 [build]
   # Delegate to the Makefile so templ generation always runs before the build.
   cmd = "make air-build"
-  bin = "tmp/govibe-dev"
+  bin = "tmp/hello-dev"
+  # The app is examples/hello, but Air runs from the repository root so a change to the
+  # framework rebuilds it too; GOVIBE_ROOT tells the app where its own files are.
+  full_bin = "GOVIBE_ROOT=examples/hello APP_ENV=dev LOG_LEVEL=debug ./tmp/hello-dev"
   include_ext = ["go", "templ", "yml", "yaml"]
   exclude_dir = ["tmp", "docs", ".git", ".idea"]
   # Skip templ's generated output so it doesn't retrigger a rebuild loop.

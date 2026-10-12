@@ -21,18 +21,19 @@ NEW=${3:-github.com/petars-dev/govibe}
 cd "$ROOT"
 
 # Paths (relative, grep -v patterns) that must keep mentioning OLD.
-EXCLUDES='^(\./)?(\.git/|\.idea/|\.vscode/|docs/graph/.*\.bolt$|docs/specs/SPEC_FRAMEWORK_EXTRACTION\.md$)'
+EXCLUDES='^(\./)?(\.git/|\.idea/|\.vscode/|docs/graph/.*\.bolt$|docs/spikes/|docs/specs/SPEC_FRAMEWORK_EXTRACTION\.md$)'
 
 old_re=$(printf '%s' "$OLD" | sed 's/[.[\*^$/]/\\&/g')
 # OLD, not preceded by a path/host character, not followed by a name character.
 PERL_RE="(?<![A-Za-z0-9._/-])${old_re}(?![A-Za-z0-9_-])"
 
-# Candidate files: tracked files inside a git repo (ignored files such as .idea/ are not ours to
-# rewrite), else every text file. Portable (BSD grep has no -P): a fixed-string prefilter, then
+# Candidate files: tracked and untracked-but-not-ignored files inside a git repo (ignored files such as
+# .idea/ and the graph's bolt store are not ours to rewrite; an untracked file is, or one added since the
+# last commit would keep the old path and the check below would never see it), else every text file. Portable (BSD grep has no -P): a fixed-string prefilter, then
 # perl decides on the real pattern.
 candidates() {
 	if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-		git ls-files -z | xargs -0 grep -IlF -- "$OLD" 2>/dev/null || true
+		git ls-files -z -co --exclude-standard | xargs -0 grep -IlF -- "$OLD" 2>/dev/null || true
 	else
 		grep -rIlF --exclude-dir=.git -- "$OLD" . 2>/dev/null || true
 	fi

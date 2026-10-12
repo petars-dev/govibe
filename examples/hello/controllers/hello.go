@@ -1,0 +1,12 @@
+package controllers
+
+import (
+	"github.com/petars-dev/govibe/examples/hello/business/actions"
+	"net/http"
+)
+
+// Hello returns a plain text greeting, useful for htmx swaps.
+func Hello(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(actions.Hello()))
+}

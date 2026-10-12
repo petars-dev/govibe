@@ -15,7 +15,7 @@ import (
 
 // The fixture module the indexer's own tests use: one error finding, on purpose
 // (GetOrder calls the store directly), and one declared dependency-free module.
-const fixture = "../../business/services/codegraph/testdata/fixture"
+const fixture = "../../internal/codegraph/testdata/fixture"
 
 func runIndex(t *testing.T, o graphIndexOptions) (string, error) {
 	t.Helper()

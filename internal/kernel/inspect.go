@@ -11,8 +11,8 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"petars-dev/govibe/config"
-	"petars-dev/govibe/internal/routeinfo"
+	"github.com/petars-dev/govibe/config"
+	"github.com/petars-dev/govibe/internal/routeinfo"
 )
 
 // InspectSchema versions the document `inspect --json` prints. The tools that read
@@ -146,7 +146,7 @@ func (b *Built) Inspect() Inspect {
 		}
 	}
 	if b.App.Routes != nil {
-		doc.App.RootHint = ref(routeinfo.FuncRef(reflect.ValueOf(b.App.Routes)))
+		doc.App.RootHint = ref(rootHint(b.App))
 	}
 
 	doc.Routes = []InspectRoute{}
@@ -167,6 +167,31 @@ func (b *Built) Inspect() Inspect {
 		})
 	}
 	return doc
+}
+
+// rootHint is the app's Routes function as the runtime reports it: where the app's
+// sources were compiled, for the tools that must map a route's handler onto them.
+// The runtime names a function of package main "main.f", with no import path, and an
+// app's Routes is often written in main (a closure in newApp, say); the binary's own
+// build information knows that package's path, so the symbol is completed with it.
+func rootHint(app App) routeinfo.Ref {
+	if app.Routes == nil {
+		return routeinfo.Ref{}
+	}
+	ref := routeinfo.FuncRef(reflect.ValueOf(app.Routes))
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		ref.Symbol = qualifyMain(ref.Symbol, bi.Path)
+	}
+	return ref
+}
+
+// qualifyMain turns "main.f" into "<import path of package main>.f"; any other
+// symbol is returned as it is.
+func qualifyMain(symbol, mainPath string) string {
+	if rest, ok := strings.CutPrefix(symbol, "main."); ok && mainPath != "" {
+		return mainPath + "." + rest
+	}
+	return symbol
 }
 
 func ref(r routeinfo.Ref) InspectRef { return InspectRef{Symbol: r.Symbol, File: r.File, Line: r.Line} }

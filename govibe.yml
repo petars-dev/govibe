@@ -1,0 +1,7 @@
+# govibe.yml: the project manifest (docs/specs/SPEC_FRAMEWORK_EXTRACTION.md, "Project
+# profile"). The framework's own layout needs no overrides, so this is empty on purpose.
+#
+# Nothing reads keys from this file yet: the profile loader is Phase 3 (T3.1). Until
+# then the file only marks the project root (internal/kernel.FindRoot looks for it, then
+# for go.mod), and the framework's gate (`make graph-check`) runs on the default profile
+# with an empty baseline (docs/graph/baseline.json).

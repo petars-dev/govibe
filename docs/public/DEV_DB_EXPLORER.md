@@ -33,7 +33,7 @@ Visit `/dev/db` for a single-page explorer:
 
 ## The whole schema at once
 
-`Explorer.Snapshot` (in `storage/dbexplorer`) reads the entire schema of the connected database with
+`Explorer.Snapshot` (in `internal/dbexplorer`) reads the entire schema of the connected database with
 one `information_schema` query per kind (tables, columns, indexes, foreign keys with their `ON
 DELETE`/`ON UPDATE` actions, comments) plus the goose migrations that are applied. It reads no rows and
 leaves out volatile counters, so two snapshots of an unchanged schema are equal. It is not exposed over

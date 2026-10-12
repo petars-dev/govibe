@@ -17,13 +17,10 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
 
-	"petars-dev/govibe/config"
-	"petars-dev/govibe/internal/migrate"
-	"petars-dev/govibe/internal/routeinfo"
-	"petars-dev/govibe/logger"
-	appmw "petars-dev/govibe/middleware"
-	"petars-dev/govibe/storage/mariadb"
-	"petars-dev/govibe/web"
+	"github.com/petars-dev/govibe/config"
+	"github.com/petars-dev/govibe/internal/migrate"
+	"github.com/petars-dev/govibe/internal/routeinfo"
+	"github.com/petars-dev/govibe/web"
 )
 
 // App declares what an application contributes. Every field is optional.
@@ -99,7 +96,7 @@ func (b *Built) Close() error {
 }
 
 // Names the framework owns: an application cannot declare a command or a route there.
-var builtinCommands = []string{"serve", "migrate", "inspect", "help"}
+var builtinCommands = []string{"serve", "migrate", "routes", "version", "inspect", "help"}
 
 // Reserved URL namespaces: /dev is the dev panel, /_govibe is framework runtime.
 var reservedPrefixes = []string{"/dev", "/_govibe"}
@@ -115,7 +112,7 @@ func openRuntime(ctx context.Context, app App, opt Options) (*Runtime, []func() 
 	if opt.Quiet {
 		level = "warn"
 	}
-	logger.Setup(level)
+	Setup(level)
 
 	var log logrus.FieldLogger = logrus.StandardLogger()
 	if app.Name != "" {
@@ -125,7 +122,7 @@ func openRuntime(ctx context.Context, app App, opt Options) (*Runtime, []func() 
 
 	var closers []func() error
 	if opt.DB && cfg.Database.MariaDB.DSN != "" {
-		dbx, err := mariadb.Open(cfg.Database.MariaDB.DSN)
+		dbx, err := OpenDB(cfg.Database.MariaDB.DSN)
 		if err != nil {
 			return nil, nil, fmt.Errorf("db open: %w", err)
 		}
@@ -166,8 +163,16 @@ func Build(ctx context.Context, app App, opt Options) (*Built, error) {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(appmw.RequestLogger)
-	devWanted := opt.Dev && devCompiled && !cfg.IsProd()
+	r.Use(web.RequestLogger)
+	devWanted := opt.Dev && mountDev != nil && !cfg.IsProd()
+	if opt.Dev {
+		switch {
+		case mountDev != nil && cfg.IsProd():
+			logrus.Warn("dev tools are compiled in but the environment is production: /dev is not mounted")
+		case mountDev == nil && !cfg.IsProd():
+			logrus.Info("dev tools are not compiled into this binary, so /dev is off (build with -tags govibe_dev)")
+		}
+	}
 	if devWanted {
 		// Pages ask web.IfDev whether to show their links to the dev tools.
 		r.Use(web.MarkDev)

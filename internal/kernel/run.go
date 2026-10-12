@@ -16,7 +16,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"petars-dev/govibe/internal/migrate"
+	"github.com/petars-dev/govibe/internal/migrate"
 )
 
 // shutdownTimeout is how long a stopping server waits for requests in flight before
@@ -35,8 +35,9 @@ func Main(app App) {
 }
 
 // Run executes one command line against the app: `serve` (the default), `migrate
-// up|down|status`, `inspect --json`, or one of the app's own commands. It is what
-// Main calls, and what tests and tooling call with their own writers.
+// up|down|status`, `routes`, `version`, `inspect --json`, or one of the app's own
+// commands. It is what Main calls, and what tests and tooling call with their own
+// writers.
 func Run(ctx context.Context, app App, args []string, out, errOut io.Writer) error {
 	name := "serve"
 	switch {
@@ -59,6 +60,10 @@ func Run(ctx context.Context, app App, args []string, out, errOut io.Writer) err
 		return runMigrate(ctx, app, args, out)
 	case "inspect":
 		return runInspect(ctx, app, args, out)
+	case "routes":
+		return runRoutes(ctx, app, args, out)
+	case "version":
+		return runVersion(app, args, out)
 	case "help":
 		return usage(ctx, app, out)
 	}
@@ -96,6 +101,8 @@ func usage(ctx context.Context, app App, out io.Writer) error {
 	fmt.Fprintf(out, "usage: %s <command> [flags]\n\ncommands:\n", strings.TrimSpace(app.Name+" "))
 	fmt.Fprintln(out, "  serve                   run the HTTP server (the default)")
 	fmt.Fprintln(out, "  migrate up|down|status  apply, roll back or list database migrations")
+	fmt.Fprintln(out, "  routes                  list the routes and who registered them, with no database")
+	fmt.Fprintln(out, "  version                 print the app and framework versions")
 	fmt.Fprintln(out, "  inspect --json          print the routes and commands, with no database")
 	cmds := append([]Command(nil), b.Commands...)
 	sort.Slice(cmds, func(i, j int) bool { return cmds[i].Use < cmds[j].Use })

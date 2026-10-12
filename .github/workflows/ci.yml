@@ -1,0 +1,102 @@
+name: ci
+
+# The framework's tests, run both ways (the default build and the govibe_dev build the
+# dev tools are compiled into), and the production check: a default build links and
+# serves no dev tooling (SPEC_FRAMEWORK_EXTRACTION, acceptance scenario A7).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build both ways
+        run: |
+          go build ./... ./examples/hello/...
+          go build -tags govibe_dev ./... ./examples/hello/...
+      - name: Vet
+        run: go vet ./... ./examples/hello/...
+      - name: Test (default build)
+        run: go test ./... ./examples/hello/...
+      - name: Test (dev tools compiled in)
+        run: go test -tags govibe_dev ./... ./examples/hello/...
+
+  production:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build the reference app the way a deployment does (no dev tag)
+        run: go build -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/hello" ./examples/hello
+      - name: No dev package is linked
+        # The same check as TestDefaultBuildLinksNoDevTools, on the shipped binary's own dependency list.
+        run: |
+          if go list -deps -tags '' ./examples/hello | grep -E 'cayleygraph|modelcontextprotocol|golang.org/x/tools|yuin/goldmark|alecthomas/chroma|govibe/internal/(devtools|codegraph|dbexplorer|devmcp|graphdb)'; then
+            echo "the default build links dev tooling"; exit 1
+          fi
+      - name: Serve it, and find no dev tooling
+        run: |
+          # From outside the repository, so the app's files come from what the binary embeds
+          # (in a development environment the framework would serve ./assets from disk).
+          cd "$RUNNER_TEMP"
+          APP_ENV=dev PORT=18080 "$RUNNER_TEMP/hello" &
+          pid=$!
+          trap 'kill $pid' EXIT
+          for i in $(seq 1 50); do curl -fs localhost:18080/api/hello >/dev/null && break; sleep 0.2; done
+          [ "$(curl -s localhost:18080/api/hello)" = '{"message":"Hello GoVibe!"}' ]
+          for p in /dev/graph /dev/docs/app /dev/db /dev/mcp /_govibe/static/graph.js /assets/static/graph.js; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "localhost:18080$p")
+            [ "$code" = 404 ] || { echo "$p answered $code, want 404"; exit 1; }
+          done
+          for p in /assets/static/theme.css /assets/static/home.css /assets/static/govibe-logo.png /assets/static/govibe-hero.png /_govibe/static/htmx.min.js; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "localhost:18080$p")
+            [ "$code" = 200 ] || { echo "$p answered $code, want 200 (is the embed complete?)"; exit 1; }
+          done
+          ! curl -s localhost:18080/ | grep -q 'href="/dev'
+
+  devpanel:
+    # The dev build of the reference app, judged through the panel's own agent surface:
+    # the app's routes must resolve to the app's code (an application is a module of its
+    # own, so the indexer cannot find it by where the indexer was compiled), and the app
+    # must have no findings of its own.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build the reference app with the dev tools
+        run: go build -tags govibe_dev -o "$RUNNER_TEMP/hello-dev" ./examples/hello
+      - name: Serve it from its own directory and ask the graph about a route
+        run: |
+          cd examples/hello
+          APP_ENV=dev PORT=18081 "$RUNNER_TEMP/hello-dev" &
+          pid=$!
+          trap 'kill $pid' EXIT
+          ask() {
+            curl -s -X POST localhost:18081/dev/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" |
+              python3 -c 'import sys,json; raw=sys.stdin.read(); l=[x for x in raw.splitlines() if x.startswith("data:")]; d=json.loads(l[0][5:] if l else raw); print(json.dumps(d["result"].get("structuredContent", {})))'
+          }
+          for i in $(seq 1 60); do
+            handler=$(ask graph_context '{"route":"GET /api/hello"}' 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin).get("handler",{}).get("id",""))' 2>/dev/null || true)
+            [ "$handler" = "func:controllers.HelloAPI" ] && break
+            sleep 1
+          done
+          [ "$handler" = "func:controllers.HelloAPI" ] || { echo "GET /api/hello did not resolve to func:controllers.HelloAPI (got '$handler')"; exit 1; }
+          findings=$(curl -s localhost:18081/dev/graph/data/findings | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["findings"]))')
+          [ "$findings" = 0 ] || { echo "the reference app has $findings finding(s) in its own panel"; curl -s localhost:18081/dev/graph/data/findings; exit 1; }

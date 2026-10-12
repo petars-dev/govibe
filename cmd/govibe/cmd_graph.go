@@ -14,11 +14,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"petars-dev/govibe/business/services/codegraph"
-	"petars-dev/govibe/config"
-	"petars-dev/govibe/storage/dbexplorer"
-	"petars-dev/govibe/storage/graphdb"
-	"petars-dev/govibe/storage/mariadb"
+	"github.com/petars-dev/govibe/config"
+	"github.com/petars-dev/govibe/internal/codegraph"
+	"github.com/petars-dev/govibe/internal/dbexplorer"
+	"github.com/petars-dev/govibe/internal/graphdb"
+	"github.com/petars-dev/govibe/internal/kernel"
 )
 
 func init() {
@@ -131,7 +131,7 @@ func schemaFromConfig(root string) (func(context.Context) (*dbexplorer.Snapshot,
 	if err != nil || cfg.Database.MariaDB.DSN == "" {
 		return nil, nil, ""
 	}
-	dbx, err := mariadb.Open(cfg.Database.MariaDB.DSN)
+	dbx, err := kernel.OpenDB(cfg.Database.MariaDB.DSN)
 	if err != nil || dbx == nil {
 		return nil, nil, "MARIADB_DSN is set but the database could not be opened, so the schema is read from the migrations alone"
 	}
