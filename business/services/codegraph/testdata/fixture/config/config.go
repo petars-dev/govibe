@@ -19,5 +19,5 @@ type Config struct {
 // Load returns the settings. The fixture is never run, so this is a stub.
 func Load() Config { return Config{} }
 
-// Get returns a setting by dotted path, e.g. Get("mail.smtp.host").
+// Get returns a setting by dotted path, e.g. Get("queue.broker.host").
 func Get(path string) (string, bool) { return "", false }

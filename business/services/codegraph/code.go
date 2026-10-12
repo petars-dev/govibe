@@ -72,10 +72,14 @@ type codeIndex struct {
 	typeRefs  []refSite  // the same, in signatures and type declarations (not in bodies): where a type of another package is named
 	cfgChains []cfgChain // cfg.A.B selector chains
 	envReads  []envRead  // os.Getenv("X") / os.LookupEnv("X")
-	cfgCalls  []cfgCall  // config.Get("a.b") / config.Unmarshal("a.b", ...)
+	cfgCalls  []cfgCall  // config.Get("a.b") / config.Unmarshal("a.b", ...), or the same methods on a config value (rt.Config.Get)
 	tools     []toolReg  // mcp.AddTool(srv, &mcp.Tool{...}, handler)
 	toolWarns []string
 	sql       []sqlText // SQL-looking strings used inside storage and business functions
+
+	// What the test sources reference (they add no nodes): see readTests.
+	testRefs   map[string]bool            // "dir\x00Name", referenced as pkg.Name
+	testIdents map[string]map[string]bool // dir -> exported bare names an in-package test mentions
 
 	// topLevel holds every name declared at package level (functions, types,
 	// variables, constants), by directory: what a doc's `pkg.Name` must be
@@ -275,6 +279,8 @@ func buildCodeIndex(ctx context.Context, root string, sc *scan) (*codeIndex, err
 		pkgStrings:  map[string]map[string]string{},
 		topLevel:    map[string]map[string]bool{},
 		identUses:   map[string]map[string]map[quad.IRI]bool{},
+		testRefs:    map[string]bool{},
+		testIdents:  map[string]map[string]bool{},
 	}
 	set := newQuadSet("code")
 	fset := token.NewFileSet()
@@ -384,6 +390,10 @@ func buildCodeIndex(ctx context.Context, root string, sc *scan) (*codeIndex, err
 		for imp := range p.imports {
 			set.add(id, PredImports, pkgID(imp))
 		}
+	}
+
+	if err := ci.readTests(ctx, fset, sc.extra); err != nil {
+		return nil, err
 	}
 
 	ci.quads = set.quads
@@ -702,10 +712,33 @@ func flattenSelector(x *ast.SelectorExpr) (*ast.Ident, []string) {
 	}
 }
 
+// configReaders are the dynamic helpers of the loaded configuration: with a literal
+// key they read one setting, or (Unmarshal, and a group key) everything below it.
+var configReaders = map[string]bool{"Get": true, "String": true, "Unmarshal": true}
+
+// configReceiver reports whether x is, by naming convention, a loaded config value:
+// a variable called cfg or conf, or a field called Config (rt.Config). Without type
+// information the receiver can only be recognised by its name.
+func configReceiver(x ast.Expr) bool {
+	switch e := x.(type) {
+	case *ast.Ident:
+		return configRoots[e.Name]
+	case *ast.SelectorExpr:
+		return e.Sel.Name == "Config"
+	}
+	return false
+}
+
 func (c *collector) call(call *ast.CallExpr) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return
+	}
+	// rt.Config.Get("a.b"), cfg.Unmarshal("a", &v): the helpers as methods.
+	if configReaders[sel.Sel.Name] && configReceiver(sel.X) {
+		if key, ok := stringArg(call, 0); ok && c.firstOnce("cfgcall\x00"+string(c.fn)+"\x00"+c.dir+"\x00"+sel.Sel.Name+"\x00"+key) {
+			c.ci.cfgCalls = append(c.ci.cfgCalls, cfgCall{site: c.site(call.Pos()), callee: sel.Sel.Name, key: key})
+		}
 	}
 	id, ok := sel.X.(*ast.Ident)
 	if !ok {
@@ -1065,8 +1098,19 @@ func classifyPackage(dir string) string {
 	if dir == "." {
 		return "wiring"
 	}
-	top, _, _ := strings.Cut(dir, "/")
+	top, rest, _ := strings.Cut(dir, "/")
 	switch top {
+	case "internal":
+		// The framework's own packages: the kernel boots the app, the dev tools
+		// host the panel (both assemble the process and may import anything); the
+		// rest is support.
+		switch sub, _, _ := strings.Cut(rest, "/"); sub {
+		case "kernel":
+			return "wiring"
+		case "devtools":
+			return "dev"
+		}
+		return "support"
 	case "controllers":
 		return "controllers"
 	case "business":

@@ -1,0 +1,259 @@
+package gc
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/go-co-op/gocron/v2"
+	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
+)
+
+func utc(y int, m time.Month, d, h, mi, s int) time.Time {
+	return time.Date(y, m, d, h, mi, s, 0, time.UTC)
+}
+
+type hits struct {
+	mu sync.Mutex
+	at []time.Time
+}
+
+func (h *hits) add(t time.Time) { h.mu.Lock(); h.at = append(h.at, t); h.mu.Unlock() }
+func (h *hits) n() int          { h.mu.Lock(); defer h.mu.Unlock(); return len(h.at) }
+func (h *hits) fmt(loc *time.Location) []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var o []string
+	for _, t := range h.at {
+		o = append(o, t.In(loc).Format("01-02 15:04 MST"))
+	}
+	return o
+}
+
+// drive advances the fake clock from run to run (gocron re-arms asynchronously, so stepping needs real sleeps).
+func drive(t *testing.T, fc *clockwork.FakeClock, j gocron.Job, until time.Time) {
+	for fc.Now().Before(until) {
+		next, err := j.NextRun()
+		step := time.Minute // fallback: NextRun can be stale (zero, or in the past) while a run is in flight
+		if err == nil && next.After(fc.Now()) && !next.After(until) {
+			step = next.Sub(fc.Now())
+		} else if rest := until.Sub(fc.Now()); rest < step {
+			step = rest
+		}
+		fc.Advance(step)
+		time.Sleep(8 * time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+}
+
+func newSched(t *testing.T, fc *clockwork.FakeClock, loc *time.Location) gocron.Scheduler {
+	s, err := gocron.NewScheduler(gocron.WithClock(fc), gocron.WithLocation(loc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Shutdown() })
+	return s
+}
+
+func TestOfflineNextWithoutEngine(t *testing.T) {
+	// 1) through the pluggable Cron interface: no scheduler, no clock
+	c := gocron.NewDefaultCron(false)
+	now := utc(2026, 10, 11, 18, 17, 43)
+	if err := c.IsValid("0 2 * * *", time.UTC, now); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("NewDefaultCron.Next(now) offline = %s", c.Next(now).Format(time.RFC3339))
+	// 2) the job route: NextRun before Start
+	fc := clockwork.NewFakeClockAt(now)
+	s := newSched(t, fc, time.UTC)
+	j, err := s.NewJob(gocron.CronJob("0 2 * * *", false), gocron.NewTask(func() {}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nr, err := j.NextRun()
+	t.Logf("job.NextRun() before Start() = %s err=%v", nr.Format(time.RFC3339), err)
+	// 3) @every via CronJob and via DurationJob
+	j2, err := s.NewJob(gocron.CronJob("@every 6h", false), gocron.NewTask(func() {}))
+	t.Logf("CronJob(\"@every 6h\") err=%v", err)
+	if err == nil {
+		nr, _ := j2.NextRun()
+		t.Logf("  NextRun before Start = %s", nr.Format(time.RFC3339))
+	}
+}
+
+func TestInvalidSpecMessages(t *testing.T) {
+	fc := clockwork.NewFakeClockAt(utc(2026, 10, 11, 12, 0, 0))
+	s := newSched(t, fc, time.UTC)
+	for _, spec := range []string{"* * *", "61 * * * *", "@every", "@weekly2", "CRON_TZ=Nowhere/Land * * * * *", "0 0 9 * * *", "CRON_TZ=Europe/Sofia", "@every 0s", "@every 30s", "0 0 31 2 *", "@every -5m"} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Logf("%-34q -> PANIC %v", spec, r)
+				}
+			}()
+			_, err := s.NewJob(gocron.CronJob(spec, false), gocron.NewTask(func() {}), gocron.WithName("orders:export"))
+			t.Logf("%-34q -> err=%v", spec, err)
+		}()
+	}
+}
+
+func TestFiresAtExactTimes(t *testing.T) {
+	fc := clockwork.NewFakeClockAt(utc(2026, 10, 11, 12, 2, 0))
+	s := newSched(t, fc, time.UTC)
+	h := &hits{}
+	j, _ := s.NewJob(gocron.CronJob("*/5 * * * *", false), gocron.NewTask(func() { h.add(fc.Now()) }))
+	s.Start()
+	time.Sleep(20 * time.Millisecond)
+	drive(t, fc, j, utc(2026, 10, 11, 13, 0, 0))
+	t.Logf("*/5 fires=%d first=%v last=%v", h.n(), h.fmt(time.UTC)[0], h.fmt(time.UTC)[h.n()-1])
+	h2 := &hits{}
+	fc2 := clockwork.NewFakeClockAt(utc(2026, 10, 11, 12, 2, 30))
+	s2 := newSched(t, fc2, time.UTC)
+	j2, _ := s2.NewJob(gocron.DurationJob(10*time.Minute), gocron.NewTask(func() { h2.add(fc2.Now()) }))
+	s2.Start()
+	time.Sleep(20 * time.Millisecond)
+	drive(t, fc2, j2, utc(2026, 10, 11, 12, 40, 0))
+	t.Logf("DurationJob(10m) from start 12:02:30 fires=%v", h2.fmt(time.UTC))
+}
+
+type mon struct {
+	mu sync.Mutex
+	c  map[gocron.JobStatus]int
+}
+
+func (m *mon) IncrementJob(_ uuid.UUID, _ string, _ []string, st gocron.JobStatus) {
+	m.mu.Lock()
+	m.c[st]++
+	m.mu.Unlock()
+}
+func (m *mon) RecordJobTiming(time.Time, time.Time, uuid.UUID, string, []string) {}
+
+func TestOverlapSingleton(t *testing.T) {
+	fc := clockwork.NewFakeClockAt(utc(2026, 10, 11, 12, 0, 0))
+	m := &mon{c: map[gocron.JobStatus]int{}}
+	s, _ := gocron.NewScheduler(gocron.WithClock(fc), gocron.WithLocation(time.UTC), gocron.WithMonitor(m))
+	t.Cleanup(func() { _ = s.Shutdown() })
+	release := make(chan struct{})
+	var started atomic.Int32
+	j, _ := s.NewJob(gocron.DurationJob(10*time.Minute), gocron.NewTask(func() { started.Add(1); <-release }), gocron.WithSingletonMode(gocron.LimitModeReschedule))
+	s.Start()
+	time.Sleep(20 * time.Millisecond)
+	drive(t, fc, j, utc(2026, 10, 11, 12, 35, 0))
+	m.mu.Lock()
+	t.Logf("singleton LimitModeReschedule: started=%d (due at :10 :20 :30; first never returned); monitor statuses=%v", started.Load(), m.c)
+	m.mu.Unlock()
+	close(release)
+}
+
+func TestPanicRecovered(t *testing.T) {
+	fc := clockwork.NewFakeClockAt(utc(2026, 10, 11, 12, 0, 0))
+	s := newSched(t, fc, time.UTC)
+	var n, panics atomic.Int32
+	j, _ := s.NewJob(gocron.DurationJob(10*time.Minute), gocron.NewTask(func() {
+		if n.Add(1) == 1 {
+			panic("kaboom")
+		}
+	}), gocron.WithEventListeners(gocron.AfterJobRunsWithPanic(func(_ uuid.UUID, _ string, _ any) { panics.Add(1) })))
+	s.Start()
+	time.Sleep(20 * time.Millisecond)
+	drive(t, fc, j, utc(2026, 10, 11, 12, 35, 0))
+	t.Logf("panic job: runs=%d panicListener=%d (scheduler survived)", n.Load(), panics.Load())
+}
+
+func TestTimeoutViaContext(t *testing.T) {
+	// gocron has no per-job timeout option; a task may take a context.Context first parameter. What is that context?
+	fc := clockwork.NewFakeClockAt(utc(2026, 10, 11, 12, 0, 0))
+	s := newSched(t, fc, time.UTC)
+	var hasDeadline atomic.Bool
+	var ran atomic.Int32
+	j, _ := s.NewJob(gocron.DurationJob(10*time.Minute), gocron.NewTask(func(ctx context.Context) {
+		ran.Add(1)
+		_, ok := ctx.Deadline()
+		hasDeadline.Store(ok)
+	}))
+	s.Start()
+	time.Sleep(20 * time.Millisecond)
+	drive(t, fc, j, utc(2026, 10, 11, 12, 15, 0))
+	t.Logf("task ctx has a deadline: %v (ran=%d): timeouts are the task's own job to implement", hasDeadline.Load(), ran.Load())
+}
+
+func TestShutdownWaitsForRunning(t *testing.T) {
+	fc := clockwork.NewFakeClockAt(utc(2026, 10, 11, 12, 0, 0))
+	s, _ := gocron.NewScheduler(gocron.WithClock(fc), gocron.WithLocation(time.UTC), gocron.WithStopTimeout(30*time.Second))
+	finish := make(chan struct{})
+	j, _ := s.NewJob(gocron.DurationJob(10*time.Minute), gocron.NewTask(func() { <-finish }))
+	s.Start()
+	time.Sleep(20 * time.Millisecond)
+	drive(t, fc, j, utc(2026, 10, 11, 12, 11, 0))
+	done := make(chan error, 1)
+	go func() { done <- s.Shutdown() }()
+	time.Sleep(50 * time.Millisecond)
+	fc.Advance(31 * time.Second)
+	select {
+	case err := <-done:
+		t.Logf("Shutdown returned after stop timeout elapsed on the fake clock: err=%v", err)
+	case <-time.After(3 * time.Second):
+		t.Log("Shutdown did NOT return after the fake clock passed WithStopTimeout (timeout is on real clock or blocked)")
+		close(finish)
+		<-done
+	}
+}
+
+// dedupeCron is the extension point: wrap the default Cron and drop the second occurrence of a repeated wall-clock minute.
+type dedupeCron struct {
+	gocron.Cron
+	loc *time.Location
+}
+
+func (d dedupeCron) Next(last time.Time) time.Time {
+	n := d.Cron.Next(last)
+	const w = "2006-01-02 15:04"
+	if !n.IsZero() && n.In(d.loc).Format(w) == last.In(d.loc).Format(w) {
+		return d.Cron.Next(n)
+	}
+	return n
+}
+
+func TestDST(t *testing.T) {
+	sof, _ := time.LoadLocation("Europe/Sofia")
+	run := func(name string, custom bool, spec string, from time.Time, span time.Duration) []string {
+		fc := clockwork.NewFakeClockAt(from)
+		s := newSched(t, fc, sof)
+		h := &hits{}
+		opts := []gocron.JobOption{}
+		if custom {
+			opts = append(opts, gocron.WithCronImplementation(dedupeCron{Cron: gocron.NewDefaultCron(false), loc: sof}))
+		}
+		j, err := s.NewJob(gocron.CronJob(spec, false), gocron.NewTask(func() { h.add(fc.Now()) }), opts...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Start()
+		time.Sleep(20 * time.Millisecond)
+		drive(t, fc, j, from.Add(span))
+		t.Logf("%-46s %v", name, h.fmt(sof))
+		return h.fmt(sof)
+	}
+	g := run("default Cron: gap day 03:30 (03-27..03-31)", false, "30 3 * * *", time.Date(2026, 3, 27, 12, 0, 0, 0, sof), 4*24*time.Hour)
+	f := run("default Cron: repeat day 03:30 (10-24..10-27)", false, "30 3 * * *", time.Date(2026, 10, 24, 12, 0, 0, 0, sof), 3*24*time.Hour)
+	c := run("custom Cron (dedupe): repeat day 03:30", true, "30 3 * * *", time.Date(2026, 10, 24, 12, 0, 0, 0, sof), 3*24*time.Hour)
+	z := run("CRON_TZ=Europe/Sofia inside a UTC scheduler", false, "CRON_TZ=Europe/Sofia 30 3 * * *", time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC), 3*24*time.Hour)
+	t.Logf("counts: gap=%d (want 3) repeat-default=%d (raw robfig: 4) repeat-custom=%d (want 3) cron_tz=%d", len(g), len(f), len(c), len(z))
+	_ = fmt.Sprint
+}
+
+func TestDSTHourlyAcrossFallBackAndGapPolicy(t *testing.T) {
+	ny, _ := time.LoadLocation("America/New_York")
+	fc := clockwork.NewFakeClockAt(time.Date(2026, 11, 1, 0, 45, 0, 0, ny))
+	s := newSched(t, fc, ny)
+	h := &hits{}
+	j, _ := s.NewJob(gocron.CronJob("30 * * * *", false), gocron.NewTask(func() { h.add(fc.Now()) }))
+	s.Start()
+	time.Sleep(20 * time.Millisecond)
+	drive(t, fc, j, time.Date(2026, 11, 1, 0, 45, 0, 0, ny).Add(5*time.Hour))
+	t.Logf("gocron hourly :30 across NY fall-back (5 real hours, want 5 fires): n=%d %v", h.n(), h.fmt(ny))
+}

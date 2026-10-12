@@ -1,14 +1,19 @@
+# The framework's own settings and their defaults. Embedded in the config package and
+# layered under the application's env.yml (the project root): the app's file wins,
+# maps merge deeply, lists are replaced. Values are `${ENV:default}` placeholders,
+# resolved from the process environment.
 env: ${APP_ENV:local}
+
+# The application's root directory. What must not depend on the directory the process
+# was started from (the dev assets directory, the graph store) resolves against it.
+# Empty: the nearest directory above the working directory that holds govibe.yml or go.mod.
+root: ${GOVIBE_ROOT:}
 
 server:
   # Port the HTTP server listens on.
   port: ${PORT:8080}
   # Log level for logrus: panic,fatal,error,warn,info,debug,trace
   log_level: ${LOG_LEVEL:info}
-
-workos:
-  api_key: ${WORKOS_API_KEY:}
-  client_id: ${WORKOS_CLIENT_ID:}
 
 database:
   # Goose migration dialect (mysql, postgres, sqlite3, ... — see
@@ -36,12 +41,3 @@ dev:
     calls: ${GRAPH_CALLS:true}
     # Index last commit, churn and the files that change together (runs `git log`).
     git: ${GRAPH_GIT:false}
-
-# Example of how to add a new feature area (mail service). Values resolved from ENV at runtime.
-mail:
-  smtp:
-    host: ${SMTP_HOST:}
-    port: ${SMTP_PORT:587}
-    username: ${SMTP_USERNAME:}
-    password: ${SMTP_PASSWORD:}
-    from: ${SMTP_FROM:noreply@example.com}

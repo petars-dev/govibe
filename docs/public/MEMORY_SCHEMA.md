@@ -11,7 +11,7 @@ Schema notes:
 - Any table in the app's database can be introspected live at `/dev/db` (schema, indexes, foreign keys, sample rows) or via the `db_describe_table`/`db_list_tables` MCP tools — prefer that over keeping this file in perfect sync for exploratory work; still update it for schema decisions that need a written record.
 
 ## Embedded graph store (dev-only)
-- Cayley quad store persisted to `docs/graph/indexes.bolt` (bolt allows one process at a time). The file is derived data and is git-ignored; it never exists in production.
+- Cayley quad store persisted to a bolt file in `docs/graph/` (bolt allows one process at a time). The file is derived data and is git-ignored; it never exists in production.
 - It holds the graph indexer's output (currently the `code`, `routes`, `templates`, `config`, `mcp`, `db`, `docs`, `findings` and `meta` layers, about 7,300 quads on this repo), rebuilt on every server boot and by `POST /dev/graph/reindex`, and refreshed layer by layer when a `/dev/graph` page load or a graph tool call (`graph_query`, `graph_context`, ...) finds a layer's inputs changed, plus any quads added by hand through `/dev/graph`. Indexer quads carry a `layer:<name>` IRI label and are replaced wholesale per layer; unlabelled quads and quads with any other label are never touched. Node kinds, ID formats, predicates, labels, and the rules for writing and querying them are in `docs/public/GRAPH_SCHEMA.md`.
 
 ## In-memory stores

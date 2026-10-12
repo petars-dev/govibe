@@ -1,5 +1,7 @@
 package templates
 
+import "petars-dev/govibe/web"
+
 // Home renders the GoVibe landing page: a small demo of the templ+htmx stack,
 // themed to match the /dev/docs site (same tokens, header and toggle).
 templ Home() {
@@ -11,8 +13,8 @@ templ Home() {
             <link rel="icon" href="/assets/static/govibe-logo.png" />
             <link rel="stylesheet" href="/assets/static/theme.css" />
             <link rel="stylesheet" href="/assets/static/home.css" />
-            <!-- Use vendored official htmx 2.0.0 to avoid CDN/SRI issues -->
-            <script src="/assets/htmx/htmx.min.js"></script>
+            <!-- htmx is vendored and served by the framework, pinned per release: no CDN/SRI issues -->
+            @web.HTMXScript()
             <!-- Bootstraps the dark/light toggle before first paint. -->
             <script src="/assets/static/theme.js"></script>
         </head>
@@ -22,12 +24,14 @@ templ Home() {
                     <a class="brand-link" href="/"><img class="brand-logo" src="/assets/static/govibe-logo.png" alt="GoVibe" /></a>
                     <span class="brand-name">GoVibe</span>
                 </div>
-                <nav class="top-tabs">
-                    <a class="tab" href="/dev/docs/app">Docs</a>
-                    <a class="tab" href="/dev/docs/specs">Specs</a>
-                    <a class="tab" href="/dev/graph">Graph</a>
-                    <a class="tab" href="/dev/db">DB</a>
-                </nav>
+                @web.IfDev() {
+                    <nav class="top-tabs">
+                        <a class="tab" href="/dev/docs/app">Docs</a>
+                        <a class="tab" href="/dev/docs/specs">Specs</a>
+                        <a class="tab" href="/dev/graph">Graph</a>
+                        <a class="tab" href="/dev/db">DB</a>
+                    </nav>
+                }
                 <div class="header-actions">
                     <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
                         <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zm10.48 0l1.79-1.79 1.41 1.41-1.79 1.8-1.41-1.42zM12 4V1h-1v3h1zm0 19v-3h-1v3h1zm7-11h3v-1h-3v1zm-19 0h3v-1H0v1zm3.55 8.45l1.41 1.41 1.79-1.79-1.41-1.41-1.79 1.79zM18.24 18.24l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM12 7a5 5 0 100 10 5 5 0 000-10z"></path></svg>
@@ -45,11 +49,13 @@ templ Home() {
                                 Server-rendered <code>templ</code> views, progressive interactivity via vendored htmx, a chi router,
                                 and thin sqlx storage &mdash; compiled into a single deployable binary. No Node runtime, no bundler.
                             </p>
-                            <div class="cta">
-                                <a class="btn btn-primary" href="/dev/docs/app">Browse the docs</a>
-                                <a class="btn btn-ghost" href="/dev/docs/specs">Read the specs</a>
-                                <a class="btn btn-ghost" href="/dev/db">Open DB explorer</a>
-                            </div>
+                            @web.IfDev() {
+                                <div class="cta">
+                                    <a class="btn btn-primary" href="/dev/docs/app">Browse the docs</a>
+                                    <a class="btn btn-ghost" href="/dev/docs/specs">Read the specs</a>
+                                    <a class="btn btn-ghost" href="/dev/db">Open DB explorer</a>
+                                </div>
+                            }
                         </div>
                         <div class="hero-art">
                             <img src="/assets/static/govibe-hero.png" alt="The GoVibe gopher mascot" width="560" height="560" loading="eager" />
@@ -83,10 +89,12 @@ templ Home() {
                             <h3>Explicit layering</h3>
                             <p>Controllers orchestrate; actions/services hold logic; only storage touches the database.</p>
                         </div>
-                        <div class="feature-card">
-                            <h3>Dev DB explorer &amp; MCP</h3>
-                            <p>A Faucet-like <a href="/dev/db">database explorer</a> with schema browsing, filtered queries and sampling, plus an embedded <a href="/dev/db">MCP server</a> exposing the same tools to local agents. Dev-only.</p>
-                        </div>
+                        @web.IfDev() {
+                            <div class="feature-card">
+                                <h3>Dev DB explorer &amp; MCP</h3>
+                                <p>A Faucet-like <a href="/dev/db">database explorer</a> with schema browsing, filtered queries and sampling, plus an embedded <a href="/dev/db">MCP server</a> exposing the same tools to local agents. Dev-only.</p>
+                            </div>
+                        }
                     </div>
                 </section>
 
@@ -103,7 +111,11 @@ templ Home() {
             </main>
 
             <footer class="site-footer">
-                GoVibe &mdash; more in the <a href="/dev/docs/app">Application Docs</a> and <a href="/dev/docs/specs">Specs</a>.
+                if web.IsDev(ctx) {
+                    GoVibe &mdash; more in the <a href="/dev/docs/app">Application Docs</a> and <a href="/dev/docs/specs">Specs</a>.
+                } else {
+                    GoVibe
+                }
             </footer>
         </body>
     </html>

@@ -3,7 +3,7 @@ GoVibe Web App Framework Skeleton
 Overview
 This repository contains a pragmatic Go web app skeleton with:
 - templ for typesafe server-rendered HTML
-- htmx 2.0 vendored under assets for simple interactivity without node/npm
+- htmx 2.0 vendored in the framework and served at /_govibe/static/htmx.min.js (`web.HTMXScript()` renders the tag) for simple interactivity without node/npm
 - chi v5 router with middleware and subroutes
 - goose v3 for SQL migrations embedded into the binary
 - sqlx over database/sql with mysql driver (MariaDB compatible)
@@ -11,10 +11,15 @@ This repository contains a pragmatic Go web app skeleton with:
 - All assets embedded for single deployable binary
 
 Directory Layout
-- assets: htmx, templates (templ), static files, embed.go to embed all assets
+- main.go: the whole boot is one declaration, `kernel.Main(newApp())`; the app hands over its embedded env.yml, migrations and assets and its routes, and the framework runs it
+- env.yml: this app's settings (project root, embedded by main.go), layered over the framework defaults in config/defaults.yml
+- config: the layered loader (`config.Load`): `Config` holds the typed keys, `Get` and `Unmarshal` read the app's own
+- assets: templates (templ), static files, embed.go to embed them (the dev panel's files and htmx belong to the framework, not here)
+- web: helpers the app's controllers and views share with the framework (`HTMXScript`, `IfDev`)
 - controllers: HTTP handlers that only orchestrate actions/services -> views/API
 - middleware: cross-cutting HTTP middleware
-- routes: central route wiring (routes.go)
+- routes: the app's route registration (`routes.Register`); the framework builds the router around it and mounts the dev tools
+- internal/kernel: the one boot path (config once, one database pool, migrations, router, graceful shutdown, `inspect --json`); internal/devtools mounts the dev panel; internal/migrate runs goose; internal/routeinfo reads a router into plain data
 - storage: DB access and migrations (mariadb driver wrapper, goose migrations, dev-only dbexplorer, dev-only graphdb)
 - business: actions (single-function business logic) and services (packages)
 - business/services/codegraph: dev-only graph indexer that fills the /dev/graph store with the project's own structure (Go code, routes and their handlers, templates, config keys and their use, MCP tools, the database schema and who reads which table, docs and specs) on every boot, and refreshes stale layers on page load and graph_query. Two opt-in layers (off by default) add the call graph (which function calls which, so a route's path to a table is exact) and git history (last commit, churn, files that change together); `govibe graph index` builds the same graph offline and gates CI on its findings
@@ -35,19 +40,18 @@ Local Development
    - Download Tailwind v4 standalone to `.tools/tailwind`
    - Example build: `.tools/tailwind -i ./assets/static/input.css -o ./assets/static/tailwind.css --minify`
    - You can also commit a simple pre-built CSS to `assets/static/tailwind.css` for now.
-5. Config file: env variables are centralized in `config/env.yml` and resolved from the process ENV.
-   - Example overrides: `APP_ENV`, `PORT`, `LOG_LEVEL`, `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `MARIADB_DSN`.
+5. Config file: settings are centralized in `env.yml` (project root) over the framework defaults in `config/defaults.yml`, and resolved from the process ENV.
+   - Example overrides: `APP_ENV`, `PORT`, `LOG_LEVEL`, `MARIADB_DSN`.
 6. Run the server: `go run .` or `make dev`
    - Visit http://localhost:8080
    - `/` renders the Hello GoVibe page.
    - `/api/hello` returns `{"message":"Hello GoVibe!"}`.
 
 Configuration
-- Centralized in `config/env.yml` and resolved at runtime:
+- Centralized in `env.yml` and the framework defaults in `config/defaults.yml`, resolved at runtime (the app's file wins; maps merge deeply, lists are replaced; a quoted `"${V:1.10}"` stays a string):
   - APP_ENV: one of local, dev/development, staging, prod/production (defaults to local)
   - PORT: HTTP port (default 8080)
   - LOG_LEVEL: logrus level (panic,fatal,error,warn,info,debug,trace)
-  - WORKOS_API_KEY, WORKOS_CLIENT_ID: optional; client is initialized if provided
   - MARIADB_DSN: if set, app connects to MariaDB/MySQL and runs embedded goose migrations on startup
     Example DSN: `user:pass@tcp(127.0.0.1:3306)/traceloop?parseTime=true&multiStatements=true`
   - DATABASE_TYPE: goose migration dialect (default `mysql`; see github.com/pressly/goose/v3 for
@@ -57,7 +61,8 @@ Configuration
     `/dev/db` UI/API and MCP test-data mutation tools (`db_insert_test_row`, `db_reset_test_data`).
   - GRAPH_CALLS, GRAPH_GIT: if true, switch on the opt-in `calls` and `git` layers of the project graph at boot
     (default false; `graph_reindex` naming one of them switches it on without a restart).
-  - Example feature: `mail.smtp.*` values can be defined and loaded dynamically.
+  - GOVIBE_ROOT: the application's root directory (default: the nearest directory above the working directory holding govibe.yml or go.mod); the dev assets directory and the graph store resolve against it.
+  - Your own settings: declare them in `env.yml` under a name of your own, such as `shop.currency`, and read them through the runtime's config.
 
 Dev-Only Tooling (never mounted in production)
 - `/dev/graph`: embedded Cayley graph store + query console (bolt file under docs/graph). The store is filled on every boot with a model of the project: Go code, routes and their handlers, templates, config keys and their use, MCP tools, the database schema (from the migrations and, if `MARIADB_DSN` is set, the live database, with drift between them) and which code reads or writes which table, docs and specs (see `docs/public/GRAPH_SCHEMA.md` for node IDs, predicates and example queries, e.g. `g.V(g.IRI('route:GET:/api/hello')).Out(g.IRI('handled_by')).All()`). Edits to docs and specs show up on the next page load or `graph_query` without a restart; `POST /dev/graph/reindex` rebuilds everything on demand. The page draws bounded views (architecture, request flow, database ER, docs against code, config usage, findings) with an inspector, a freshness banner and a findings panel; `/dev/graph/reports/{routes,config,schema,layers}` are reference pages generated from the graph, so prefer them to hand-written route and schema tables. **Findings** (layering violations, docs that name files that are gone, config declared and never read, ...) are in the panel and from `graph_findings`; a rule that did not run is listed as such.
@@ -76,27 +81,25 @@ Dev-Only Tooling (never mounted in production)
     with layers `["calls"]`) reach from a route to a table is a chain of calls and "no table is reached" is a measured
     answer; with `git` on, `graph_context` and `graph_impact` also say what usually changes with a file. Resources `govibe://graph/overview` (architecture map) and `govibe://graph/schema`, and
     the prompt `explain-change` (paths or a diff in, impact and docs to update out) come from the same graph.
-- All three are wired in `routes/routes.go` behind `!cfg.IsProd()`.
+- All three are mounted by `devtools.Mount` (`internal/devtools`), which the kernel calls only when `!cfg.IsProd()`; none of it is in a production process.
 
 Adding Features
 - New pages: add a `.templ` file under assets/templates, run `templ generate`, add a controller that renders it, then map route in routes/routes.go
 - New APIs: add an action/service in business/, call it from a controller in controllers/, add the route
-- DB changes: create a new SQL file in storage/migrations/sql/ with goose directives, and reference DB from storage packages. On start, Up() runs automatically.
-- New configuration blocks: define variables in `config/env.yml` using `${ENV:default}`, then either:
+- DB changes: create a new SQL file in storage/migrations/sql/ with goose directives, and reference DB from storage packages. On start, the kernel runs them automatically (`internal/migrate`).
+- New configuration blocks: define variables in `env.yml` using `${ENV:default}`, then either:
   1) Add fields to the `config.Config` struct to bind statically; or
-  2) Use dynamic helpers: `config.Unmarshal("mail.smtp", &smtpCfg)` or `config.Get("mail.smtp.host")`.
+  2) Use the dynamic helpers on the runtime's config: `rt.Config.Unmarshal("shop", &shopCfg)` or `rt.Config.Get("shop.currency")`.
 
 CLI
 - The repo includes a GoVibe CLI using Cobra in `cmd/govibe`.
 - Build it with `go build -o govibe ./cmd/govibe`.
 - Commands:
-  - `govibe serve` runs the HTTP server using `config/env.yml`.
+  - `govibe serve` runs the application (`go run . serve` in the project root: one boot path, with the database, migrations and the dev tools).
   - `govibe generate` runs `templ generate`.
-  - `govibe migrate up` applies embedded goose migrations.
-  - `govibe migrate down` applies one down migration.
-  - `govibe migrate status` prints migration status.
+  - `govibe migrate up|down|status` applies, rolls back one, or lists the embedded goose migrations (they run in the application binary: `./app migrate up`).
   - `govibe graph index` indexes the project into a graph store (`--dir`, a scratch directory while a dev server holds the default one) and prints each layer's status and the findings. `--calls` and `--git` switch on the opt-in layers; `--fail-on error --baseline docs/graph/baseline.json` exits 1 on a finding the baseline does not accept (what CI runs: `.github/workflows/graph.yml`, locally `make graph-check`); `--update-baseline` accepts what is there; `--format json|github`. Exit 2 means indexing itself failed.
-- To add new commands: add a `cmd_*.go` file in `cmd/govibe`, define a `cobra.Command`, and register it in `init()` (see `cmd_migrate.go`).
+- To add new commands: add a `cmd_*.go` file in `cmd/govibe`, define a `cobra.Command`, and register it in `init()` (see `cmd_graph.go`).
 
 Testing
 - Add unit tests next to packages using `_test.go` files.
@@ -117,7 +120,7 @@ Environment & Local Dev Guidelines
 - In local/dev:
   - Static assets served with no-cache headers for faster iteration.
   - Air handles templ codegen and server reload; no separate watch commands needed.
-- Configuration is centralized in `config/env.yml` with `${ENV:default}` placeholders. Prefer adding new keys there, not ad-hoc env lookups in code.
+- Configuration is centralized in `env.yml` with `${ENV:default}` placeholders. Prefer adding new keys there, not ad-hoc env lookups in code.
 
 Spec-Driven Development Guidelines
 - Keep human-readable docs in `docs/`:

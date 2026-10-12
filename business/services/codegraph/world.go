@@ -69,7 +69,8 @@ func (w *world) codeFingerprint() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		files := append([]sourceFile(nil), sc.files...)
+		// The tests are inputs too: an edit to one can change what counts as referenced.
+		files := append(append([]sourceFile(nil), sc.files...), sc.extra...)
 		if sf, ok := statRegular(w.root, "go.mod", maxConfigBytes); ok {
 			files = append(files, sf)
 		}

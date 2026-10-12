@@ -43,7 +43,7 @@ upgrade, read this section before touching the indexer.
 
 ## The storage backend
 
-The store is Cayley's `bolt` backend: one file, `docs/graph/indexes.bolt`, inside the dev server's process
+The store is Cayley's `bolt` backend: one bolt file in `docs/graph/`, inside the dev server's process
 (bolt allows one process at a time, and `graphdb.Open` gives up after 5 seconds instead of waiting for the
 lock, pinned by `TestOpenGivesUpOnALockedStore`). That backend wraps the archived `github.com/boltdb/bolt`,
 which casts pointers in ways Go's `checkptr` check rejects. `go test -race` turns `checkptr` on, and the
@@ -190,7 +190,7 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `signature` | string, one line, at most 500 characters. A template is `templ Name(params)`. A func is its declaration without body (`func (s *Service) List(ctx context.Context) ([]Order, error)`); a type is `type Name`, plus `struct`, `interface`, or the underlying type (`type Handler func(string) error`, `type Set[T comparable] struct`) | func, type | 1 |
 | `line` | int: for a func or type its declaration; template: the `templ` line; config key: its line in `env.yml`; MCP tool: the `mcp.AddTool` call; spec item: its row in the markdown | func, type, template, config key, MCP tool, spec item | 1, 2 |
 | `exported` | bool: the name starts with an upper-case letter (a method counts by its own name, not its receiver type's) | func, type | 1 |
-| `path` | string: repo-relative file or directory (for a route: the URL path; for a config key: `config/env.yml`; for a tool, template or spec item: the file that defines it) | package, file, route, template, config key, MCP tool, doc, spec, spec item | 1, 2 |
+| `path` | string: repo-relative file or directory (for a route: the URL path; for a config key: the settings file that declares it; for a tool, template or spec item: the file that defines it) | package, file, route, template, config key, MCP tool, doc, spec, spec item | 1, 2 |
 | `import_path` | string | package | 1 |
 | `arch_layer` | string, see [Package classification](#package-classification) | package | 1 |
 | `lines` | int: number of lines (a final line without a newline counts) | file | 1 |
@@ -202,8 +202,8 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `handler` | string: the Go runtime's name for a handler that is **not** application code (`net/http.StripPrefix`, `github.com/modelcontextprotocol/go-sdk/mcp.(*StreamableHTTPHandler).ServeHTTP`); present exactly when `handled_by` is absent, so a route with no code link still says what serves it | route | 2 |
 | `description`, `input_schema` | string, string (JSON). The schema is derived from the handler's input struct: `json` names, `omitempty` makes a property optional, the `jsonschema` tag is its description; `{"type":"object"}` for `struct{}`; absent when the handler does not name a struct of the registering package | MCP tool | 2 |
 | `default`, `sensitive` | string (absent when `sensitive`, and absent when empty), bool | config key, env var | 2 |
-| `declared` | bool: the key is a leaf of `config/env.yml`, or the variable appears as `${NAME}` there. `false` means the code reads it but nothing declares it | config key, env var | 2 (new) |
-| `field` | string: the Go field the key binds to, from the yaml tags of `Config` (`Config.Database.MariaDB.DSN`); absent for keys only reachable through `config.Get` | config key | 2 (new) |
+| `declared` | bool: the key is a leaf of a settings file (`env.yml`, `config/defaults.yml`), or the variable appears as `${NAME}` in one. `false` means the code reads it but nothing declares it | config key, env var | 2 (new) |
+| `field` | string: the Go field the key binds to, from the yaml tags of `Config` (`Config.Database.MariaDB.DSN`); absent for keys only reachable through the dynamic `Get` and `Unmarshal` helpers | config key | 2 (new) |
 | `title`, `status`, `why_skipped`, `note` | string, string, string, string. A doc's `title` is its first `#` heading (the file name if none). A spec's `status` is `complete` (every row implemented or skipped), `planned` (none implemented) or `in_progress`. A spec item's `status` is `implemented`, `partial`, `skipped` or `planned`, read from the Implemented and Skipped cells; `why_skipped` is the Why cell of a skipped row and `note` the Why cell of any other row | doc, spec, spec item | 2 |
 | `data_type` | string: the column type, lower case (`varchar(255)`, `bigint(20) unsigned` from a live database, `bigint unsigned` from a migration) | column | 3 |
 | `nullable` | bool | column | 3 |
@@ -245,10 +245,10 @@ It is not an indexer layer despite the shared word.
 | `business/**` | `business` |
 | `storage/**` | `storage` |
 | `middleware/**` | `middleware` |
-| `routes/**`, the module root `.`, `cmd/**` | `wiring` |
-| `devmcp/**` | `dev` |
+| `routes/**`, the module root `.`, `cmd/**`, `internal/kernel/**` | `wiring` |
+| `devmcp/**`, `internal/devtools/**` | `dev` |
 | `assets/**` | `views` |
-| anything else (`config`, `logger`, …) | `support` |
+| anything else (`config`, `web`, `logger`, `internal/migrate`, …) | `support` |
 
 The layering rule (final since Phase 5, `layering.go`, and the one thing the `layering` findings, the
 architecture overview and the layers report all read): SKILL.md's two constraints written as data, plus what
@@ -259,7 +259,7 @@ they imply.
 | `controllers`, `middleware`, `views`, `support` | `storage` | only business actions and services may call storage |
 | `business` | `controllers`, `middleware`, `views`, `wiring`, `dev` | business logic does not depend on the HTTP layer or on wiring |
 | `storage` | everything but `storage` and `support` | storage is the lowest layer |
-| `wiring`, `dev` | nothing | they assemble the application: this is the allow-list (`routes`, `main`, `cmd`, `devmcp`) |
+| `wiring`, `dev` | nothing | they assemble the application: this is the allow-list (`routes`, `main`, `cmd`, `internal/kernel`, `devmcp`, `internal/devtools`) |
 
 A package a controller (or a middleware) uses to reach storage is therefore a finding, whatever it is used
 for: `controllers/devdb.go` importing `storage/dbexplorer` is the one this repository has.
@@ -272,7 +272,7 @@ for: `controllers/devdb.go` importing `storage/dbexplorer` is the one this repos
 | meta | `layer:meta` | build, layer run | the indexer itself | 1 | **implemented** |
 | routes | `layer:routes` | route, middleware | the live chi router, walked at runtime | 2 | **implemented** |
 | templates | `layer:templates` | template, `.templ` file | `templ/parser/v2` | 2 | **implemented** |
-| config | `layer:config` | config key, env var | `config/env.yml` and the code index | 2 | **implemented** |
+| config | `layer:config` | config key, env var | the settings files (`env.yml`, `config/defaults.yml`) and the code index | 2 | **implemented** |
 | mcp | `layer:mcp` | MCP tool | `mcp.AddTool` calls, from the code index | 2 | **implemented** |
 | docs | `layer:docs` | doc, spec, spec item | goldmark over `docs/public`, `docs/specs`, `README.md`, `SKILL.md` | 2 | **implemented** |
 | db | `layer:db` | table, column, index, migration, annotation | the migrations in `storage/migrations/sql`, merged with the live database's schema when one is configured | 3 | **implemented** |
@@ -293,7 +293,7 @@ levels, 20,000 files (more fails the layer rather than index half the repo).
 ### Dependencies and freshness
 
 The code layer's single parse also records what the other layers resolve against (function spans,
-struct fields, qualified references, `cfg.A.B` chains, `os.Getenv` and `config.Get` calls, `mcp.AddTool`
+struct fields, qualified references, `cfg.A.B` chains, `os.Getenv` calls, calls of the dynamic config helpers (`Get`, `String` and `Unmarshal` with a literal key, as functions or as methods), `mcp.AddTool`
 calls), so nothing is parsed twice. A layer points only at nodes it can resolve from those same indexes.
 
 | Layer | Depends on | Own inputs (what its fingerprint covers) |
@@ -301,7 +301,7 @@ calls), so nothing is parsed twice. A layer points only at nodes it can resolve 
 | code | | every indexed `.go` file, and `go.mod` |
 | routes | code | the route table: method, path, handler and middleware identity of every route |
 | templates | code | every `.templ` file |
-| config | code | `config/env.yml` |
+| config | code | `env.yml`, `config/defaults.yml` |
 | mcp | code | none (it reads the code index) |
 | db | code | every `.sql` under `storage/migrations/sql`, and the live schema (see below) |
 | docs | code, routes, templates, config, mcp, db | `README.md`, `SKILL.md`, every `.md` under `docs/public` and `docs/specs`, and whether each file those documents name is on disk (see below) |
@@ -363,16 +363,18 @@ argument) gets `func --renders--> tmpl`; an unqualified call from Go code in the
 is not detected. `css` and `script` components are not indexed. A file that does not parse is skipped
 with a warning (`partial`).
 
-**config.** Every scalar leaf of `config/env.yml` is a key. `${NAME:default}` is read the way the loader
+**config.** Every scalar leaf of the settings files is a key: `config/defaults.yml` (the framework's defaults), then the `env.yml` inside a `config` directory (a project that predates the split), then `env.yml` in the project root, each declaration replacing an earlier one of the same key, as the loader merges them. `${NAME:default}` is read the way the loader
 reads it (the first colon splits), a scalar without a placeholder is a static `default` with no
 environment variable. The Go side comes from the struct named `Config` in the package named `config`:
 its `yaml` tags give each key its `field`. Usage is found in three ways, each attributed to the enclosing
 function and its package: a selector chain rooted at an identifier named `cfg` or `conf`
 (`cfg.Database.MariaDB.DSN`), which is mapped through the struct (the longest prefix that names a field
 wins, and a chain that stops at a group uses every key below it); `config.Get("a.b")` and
-`config.Unmarshal("a.b", ...)` with a literal key (a group again means every key below it); and
+`config.Unmarshal("a.b", ...)` with a literal key, or the same helpers as methods of a config value
+(`rt.Config.Get("a.b")`, `cfg.Unmarshal("a", &v)`: the receiver is recognised by its name, a variable called
+`cfg` or `conf`, or a field called `Config`), where a group again means every key below it; and
 `os.Getenv("X")` / `os.LookupEnv("X")` with a literal name. A key or variable the code reads that
-`env.yml` does not declare is still a node, with `declared=false`. Reads through a variable name are not
+no settings file declares is still a node, with `declared=false`. Reads through a variable name are not
 seen. A use inside a closure in a package-level `var` has no enclosing function, so only the package
 gets the edge.
 
@@ -393,12 +395,12 @@ backticked spans make its `covers` edges. Resolution, in order (the first rule t
    package, another doc or spec; a `:line` suffix is ignored; a bare `routes.go` counts only if no other
    file has that name;
 4. an environment variable (`` `PORT` ``) the graph holds;
-5. a config key, a group, or `prefix.*` (`` `mail.smtp.*` `` is every key below it); needs a dot;
+5. a config key, a group, or `prefix.*` (`` `queue.broker.*` `` is every key below it); needs a dot;
 6. an MCP tool name (`` `db_query` ``);
 7. a symbol: `pkg.Name` (one package by that name), `Type.Method` (one type by that name),
    `pkg.Type.Method`, or `pkg.Template` for a component. A bare identifier is **never** resolved.
 
-8. `dir.Name`: a function or type of the package in a directory (`storage/migrations.SetDialect`, the way a
+8. `dir.Name`: a function or type of the package in a directory (`storage/migrations.FS`, the way a
    function's ID is written).
 
 Links are resolved the same way, and `/dev/docs/specs/<slug>` and `/dev/docs/app/<slug>` resolve to the
@@ -553,7 +555,7 @@ What the Phase 1 writer (`business/services/codegraph/writer.go`) does, given F7
    `ApplyTransaction` (F8). The two calls are not atomic together; adds go first so that a failure in
    between leaves a superset of the right quads, which the next run trims, never a hole.
 6. Read the layer back and compare it with what was written. A mismatch fails the layer with a message
-   that says how to recover (delete `docs/graph/indexes.bolt`, which is derived data but also holds any
+   that says how to recover (delete the bolt file in `docs/graph/`, which is derived data but also holds any
    hand-added quads) and the next run re-diffs against what is really stored.
 7. If `ApplyDeltas` returns an error, log it, mark the layer `status=error`, and refuse every later
    write in this process (F8). The server keeps running; a restart clears the cache.
@@ -817,7 +819,7 @@ as "clean". When there is no findings layer at all it answers `available: false`
 | `docs.stale_ref` | warning | the doc (detail: `line:text`) | a doc names a file, symbol or page that does not exist |
 | `docs.spec_missing` | warning | the spec row (detail: `line:text`) | a row marked implemented names something that does not exist |
 | `docs.route_undocumented` | info | the route | an application route (not under `/dev`) that no doc or spec mentions |
-| `config.undeclared` | warning | the config key or environment variable | code reads it, `config/env.yml` does not declare it |
+| `config.undeclared` | warning | the config key or environment variable | code reads it, no settings file declares it |
 | `config.unused` | info | the config key | declared, and no code reads it (a read through a variable name is not seen) |
 | `code.unreferenced` | info | the function | an exported package-level function no other indexed code references (tests are not indexed, methods are not checked, a name a `.templ` file uses counts) |
 | `db.no_primary_key` | warning | the table | no primary key |
@@ -840,7 +842,7 @@ g.V().Has(g.IRI('checked'), false).Out(g.IRI('note')).All()
 
 ## Human surface
 
-`/dev/graph` does not load every quad. The page is a shell (`assets/static/graph.js` and `graph.css`) that
+`/dev/graph` does not load every quad. The page is a shell (`internal/devtools/devui/static/graph.js` and `graph.css`, served at `/_govibe/static`) that
 asks the server for **bounded views** and draws them with Cytoscape, so it stays quick however many quads
 the store holds (a view is at most 300 nodes by default, 1,500 at most, and says when it left some out; the
 server builds one in a few milliseconds from 90,000 quads). Data comes from `/dev/graph/data/*`, each call
@@ -935,8 +937,8 @@ the `routes` layer is fed the runtime facts its router would report (`fixtureRou
 | --- | --- |
 | `business/services/codegraph/testdata/fixture/main.go` | root package `pkg:.`, `arch_layer=wiring`, package doc; `cfg.Server.Port` and `cfg.Database.DSN` reads, and an `os.Getenv` of a variable `env.yml` does not declare |
 | `business/services/codegraph/testdata/fixture/routes/routes.go` | wiring; imports every other layer; six routes (`GET /`, `GET /api/hello`, `GET /api/orders`, `GET /api/orders/{id}`, `/dev/mcp`, `/assets/`) and a middleware wrapper |
-| `business/services/codegraph/testdata/fixture/config/env.yml`, `business/services/codegraph/testdata/fixture/config/config.go` | placeholders with defaults, a default containing a colon, sensitive keys whose defaults must not appear, a static value, a key bound to a struct field that nothing reads, keys reachable only through `config.Get` |
-| `business/services/codegraph/testdata/fixture/business/actions/notify.go` | `config.Get` of a whole group (`mail.smtp`) and of an undeclared key |
+| `business/services/codegraph/testdata/fixture/config/env.yml`, `business/services/codegraph/testdata/fixture/config/config.go` | placeholders with defaults, a default containing a colon, sensitive keys whose defaults must not appear, a static value, a key bound to a struct field that nothing reads, keys reachable only through the dynamic `Get` |
+| `business/services/codegraph/testdata/fixture/business/actions/notify.go` | `config.Get("queue.broker")` of a whole group, and of an undeclared key |
 | `business/services/codegraph/testdata/fixture/assets/templates/*.templ` | components, a `children...` layout, `@Layout(...)` and `@Footer()` calls, a doc comment, a component whose Go package has only generated output |
 | `business/services/codegraph/testdata/fixture/controllers/home.go` | a handler that renders a templ component (`func --renders--> tmpl`) |
 | `business/services/codegraph/testdata/fixture/mcp/mcp.go` | a stand-in for the MCP SDK (the fixture is standard-library only) |

@@ -36,6 +36,7 @@ type sourceFile struct {
 // scan is the result of walking the repo for one layer's inputs.
 type scan struct {
 	files    []sourceFile // sorted by rel
+	extra    []sourceFile // sorted by rel: files read for facts only, never indexed (test sources)
 	warnings []string
 }
 
@@ -100,18 +101,21 @@ func skipDir(rel, name string) bool {
 // walkSpec describes one layer's inputs: the files under start whose name
 // accept approves.
 type walkSpec struct {
-	start    string // repo-relative directory to walk, "." for the whole repo
-	accept   func(name string) bool
-	maxBytes int64
-	maxFiles int
+	start      string // repo-relative directory to walk, "." for the whole repo
+	accept     func(name string) bool
+	alsoAccept func(name string) bool // optional: files that go to scan.extra, under the same caps
+	maxBytes   int64
+	maxFiles   int
 }
 
 // scanGo walks root for the .go files the code layer indexes: no tests, no
 // generated templ output, nothing under testdata/, tmp/, vendor/ or a dot
 // directory, nothing inside a nested module (a directory with its own
-// go.mod), and nothing reached through a symlink.
+// go.mod), and nothing reached through a symlink. The test sources found on the
+// way are listed apart (scan.extra): they are not indexed, but what they
+// reference counts as used.
 func scanGo(root string) (*scan, error) {
-	return walkFiles(root, walkSpec{start: ".", accept: isIndexedGoFile, maxBytes: maxGoFileBytes, maxFiles: maxGoFiles})
+	return walkFiles(root, walkSpec{start: ".", accept: isIndexedGoFile, alsoAccept: isGoTestFile, maxBytes: maxGoFileBytes, maxFiles: maxGoFiles})
 }
 
 // walkFiles is the confined walker every layer's input scan uses: it never
@@ -120,6 +124,7 @@ func scanGo(root string) (*scan, error) {
 // files, not an error.
 func walkFiles(root string, ws walkSpec) (*scan, error) {
 	s := &scan{}
+	extraCapped := false
 	start := filepath.Join(root, filepath.FromSlash(ws.start))
 	if st, err := os.Lstat(start); err != nil || !st.IsDir() {
 		return s, nil
@@ -158,7 +163,11 @@ func walkFiles(root string, ws walkSpec) (*scan, error) {
 			}
 			return nil
 		}
-		if !d.Type().IsRegular() || !ws.accept(d.Name()) {
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		primary := ws.accept(d.Name())
+		if !primary && (ws.alsoAccept == nil || !ws.alsoAccept(d.Name())) {
 			return nil
 		}
 		info, err := d.Info()
@@ -170,16 +179,30 @@ func walkFiles(root string, ws walkSpec) (*scan, error) {
 			s.warnings = append(s.warnings, fmt.Sprintf("%s: %d bytes, larger than %d, skipped", rel, info.Size(), ws.maxBytes))
 			return nil
 		}
+		sf := sourceFile{rel: rel, abs: path, size: info.Size(), mtime: info.ModTime().UnixNano()}
+		if !primary {
+			// Read for facts only: past its own cap the rest is left out with a warning
+			// (a reference may be missed), never a failed layer.
+			switch {
+			case len(s.extra) < ws.maxFiles:
+				s.extra = append(s.extra, sf)
+			case !extraCapped:
+				extraCapped = true
+				s.warnings = append(s.warnings, fmt.Sprintf("more than %d test files: the rest were not read for references", ws.maxFiles))
+			}
+			return nil
+		}
 		if len(s.files) >= ws.maxFiles {
 			return fmt.Errorf("more than %d matching files under %s", ws.maxFiles, filepath.Join(root, ws.start))
 		}
-		s.files = append(s.files, sourceFile{rel: rel, abs: path, size: info.Size(), mtime: info.ModTime().UnixNano()})
+		s.files = append(s.files, sf)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	sort.Slice(s.files, func(i, j int) bool { return s.files[i].rel < s.files[j].rel })
+	sort.Slice(s.extra, func(i, j int) bool { return s.extra[i].rel < s.extra[j].rel })
 	return s, nil
 }
 
@@ -196,11 +219,18 @@ func statRegular(root, rel string, max int64) (sourceFile, bool) {
 }
 
 // isIndexedGoFile reports whether a file name is a Go source the code layer
-// reads. Test files are left to a later phase (test -> code edges), and
-// *_templ.go is generated output of the .templ sources.
+// indexes. Test files add no nodes (see isGoTestFile), and *_templ.go is
+// generated output of the .templ sources.
 func isIndexedGoFile(name string) bool {
 	if !strings.HasSuffix(name, ".go") || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
 		return false
 	}
 	return !strings.HasSuffix(name, "_test.go") && !strings.HasSuffix(name, "_templ.go")
+}
+
+// isGoTestFile reports whether a file name is a Go test source. Tests are not
+// indexed (they add no nodes or edges), but a function that only a test calls is
+// referenced, so the code layer reads them for that fact alone.
+func isGoTestFile(name string) bool {
+	return strings.HasSuffix(name, "_test.go") && !strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "_")
 }

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,11 +15,12 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"petars-dev/govibe/business/services/codegraph"
+	"petars-dev/govibe/internal/devtools/devui"
 	"petars-dev/govibe/storage/graphdb"
 )
 
 // dataRouter mounts the graph page's data endpoints over an indexer that has
-// indexed root, the way routes.go mounts them.
+// indexed root, the way devtools.Mount mounts them.
 func dataRouter(t *testing.T, root string, db bool) (http.Handler, *codegraph.Indexer, func(quad.Quad)) {
 	t.Helper()
 	h, err := graphdb.Open(t.TempDir())
@@ -288,13 +290,19 @@ func TestGraphPageShellNamesRealAssets(t *testing.T) {
 	if rec.Code != 200 || !strings.Contains(body, "GoVibe Dev Graph") {
 		t.Fatalf("page: %d", rec.Code)
 	}
-	for _, ref := range []string{"/assets/static/graph.js", "/assets/static/graph.css", "/assets/static/vendor/cytoscape.min.js", "/assets/static/theme.css"} {
+	// The panel's files are the framework's, served under /_govibe/static from the
+	// dev UI's own embed; none of them is read from the application's /assets.
+	const static = "/_govibe/static/"
+	for _, ref := range []string{static + "graph.js", static + "graph.css", static + "cytoscape.min.js", static + "theme.css"} {
 		if !strings.Contains(body, ref) {
 			t.Errorf("the page does not load %s", ref)
 		}
-		if _, err := os.Stat(filepath.Join("..", strings.TrimPrefix(ref, "/"))); err != nil {
+		if _, err := fs.Stat(devui.Static(), strings.TrimPrefix(ref, static)); err != nil {
 			t.Errorf("%s: %v", ref, err)
 		}
+	}
+	if strings.Contains(body, "/assets/") {
+		t.Error("the dev page must not read anything from the application's /assets")
 	}
 	if strings.Contains(body, "http://") || strings.Contains(body, "https://") {
 		t.Error("the dev page must not load anything from the network")
@@ -304,7 +312,7 @@ func TestGraphPageShellNamesRealAssets(t *testing.T) {
 			t.Errorf("the shell lacks #%s, which graph.js needs", id)
 		}
 	}
-	js, err := os.ReadFile("../assets/static/graph.js")
+	js, err := fs.ReadFile(devui.Static(), "graph.js")
 	if err != nil {
 		t.Fatal(err)
 	}

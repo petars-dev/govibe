@@ -422,8 +422,9 @@ reports:digest   @every 6h     UTC       2026-10-10 18:30:00  skip     -        
 - **Engine.** A small runner in `internal/scheduler`, built on the cron-spec parser of `robfig/cron/v3` (stable but
   frozen since 2020, which is acceptable for a settled grammar) and nothing else of it. We own the semantics above,
   `Next(t)` works offline for `schedule list`, and a fake clock makes it testable. The alternative is `gocron` v2,
-  actively maintained (v2.19.0, December 2025), at the cost of its engine owning overlap and next-run semantics.
-  Spike S8 decides; the choice stays behind `internal/scheduler`.
+  actively maintained (v2.22.0, July 2026), at the cost of its engine owning overlap and next-run semantics. Spike S8
+  chose the own runner (gocron parses with robfig anyway, de-duplicates a repeated DST hour on every spec and has no per-job
+  timeout); the choice stays behind `internal/scheduler`.
 - **In the graph.** A `commands` layer (from `inspect --json`, below) gives `command` nodes: name, description,
   spec, timezone, the function that runs it. `graph_context` and `graph_impact` on a table list the scheduled commands
   that reach it; `/dev/graph/reports/commands` is the generated table; `docs.command_undocumented` (info) mirrors
@@ -627,6 +628,12 @@ last tag once there is one. Go version in generated apps is the framework's (`to
 - Verification happens in **scratch copies**: scaffold into `$TMPDIR`, point `--replace` at a scratch copy of the
   framework, run the graph with `--dir` on a scratch store. Never against the working tree's dev server, which
   holds the bolt lock and the real database.
+- A scratch copy does not isolate the **environment**. In Phase 0, four scratch boots (two in S1, two in S9) ran from a shell that exported
+  `MARIADB_DSN`, `CODE_REVIEW_DB_DSN` and `WORKOS_*` and connected to the real local database (migrations were a no-op and the
+  explorer read-only, so nothing is believed to have been written). Boot every scratch app under `env -i` plus only the variables it needs, and give
+  scratch runs that fake a published framework version their own `GOMODCACHE` (one run put a fake
+  `github.com/petars-dev/govibe@v0.1.0` into the real module cache, where it would have shadowed the real tag). The keystone CI
+  job and `govibetest` follow the same rule.
 - A phase that moves files changes no logic in the same commit; the test suite and the golden files are the
   proof of a pure move.
 - The framework never reads or writes outside the app root (the indexer's confinement rules stay).
@@ -682,7 +689,7 @@ Each phase ends with the test suite green, the graph gate green, and a run from 
    - S8 Scheduler: the `robfig/cron/v3` parser against `gocron` v2 for next-run offline, `CRON_TZ`, DST edges, descriptors and
      a fake clock; decide the engine.
    - S9 Scope: apply an origin filter in a scratch `Model` and confirm views, reports and tools need no other change.
-   - Output: a "Spike results" table here.
+   - Output: a "Spike results" table here (done, see "Spike results (Phase 0)"), with the amendments it requires.
 1. **Phase 1 — Invert inside the repo, and clean up** (behavior-preserving, except the removals; everything still at the root)
    - T1.1 `config`: instance-based, layered (framework defaults, app file, environment as today); drop the `cfgRaw`
      global; one load per boot.
@@ -779,6 +786,81 @@ Each phase ends with the test suite green, the graph gate green, and a run from 
      the four public packages on pkg.go.dev, a scan of the history and docs for private references (none found in the current tree).
    - T7.5 Tag `v0.1.0` and publish.
 
+## Spike results (Phase 0)
+All nine spikes ran in scratch copies of this repository (2026-10-11); the working tree, its dev server and its database were
+not used on purpose (one slip, recorded under Guardrails). The notes, the rename script, patches and reference prototypes are
+kept under `docs/spikes/` (its README maps each spike to its files); none of it is built or shipped, and raw outputs and caches
+are not kept. Every spike supports the chosen architecture (Option C); the amendments below change details, not the shape.
+
+| Spike | Result | Verdict |
+| --- | --- | --- |
+| S1 Tag exclusion | Default build `go list -deps .`: **440 to 240 packages**, binary **30.0 MB to 8.9 MB**; none of cayley, MCP SDK, x/tools, goldmark, chroma linked. The tagged build is unchanged (440 packages) and serves `/dev/docs`, `/dev/graph`, `/dev/mcp`. The default binary answers 404 on `/dev/*` under `APP_ENV=dev` and `prod` and serves the Hello routes. Nine files had to be tagged because `controllers/dev*.go` share a package with the Hello controllers. About 490 KB of dev JS and CSS (graph.js, cytoscape) stays embedded and served from `/assets/static` until T1.4 moves it | Holds, better than expected |
+| S2 Cross-module routes | A hostless module path works with `require` plus `replace`. `FuncForPC` resolves handlers in another module in all four variants (replace, replace with `-trimpath`, module cache, module cache with `-trimpath`); after the changes below all four give identical results: 17 routes, 0 unresolved. `Name()` is **wrong when the compiler inlines a factory closure** (`web.Health(...)` reports an app symbol and a framework file), so symbol prefixes cannot decide origin | Holds, with changes (AM7, AM8) |
+| S3 Calls layer across modules | `go/packages` on a 9-package app: **8.5 s cold** by default, **13.0 s cold** with `-tags govibe_dev`, about **0.2 s warm**. Calls into the framework resolve; 32 of 45 call sites leave the app (9 are stdlib). Module info is empty for packages the app does not import directly (needs a `packages.Visit` index); a method on an aliased type reports `internal/kernel` and would leak internals into edges | Holds, with changes (AM6) |
+| S4 `tool` directive | `go get -tool` works with `replace` and from inside the app. Cold build, fresh cache per tool: govibe **41.7 s**, templ 23 s, air 21 s; **about 48 s for all three** on a fully cold machine (13.9 s of it downloads); **0.3 s** steady, 7 s after editing the replaced source. A 2-core CI runner was estimated at 30 to 60 s, not measured. `go.mod` 9 to 98 lines, `go.sum` 4 to 664, **82 indirect modules**; the default build stays at 70 packages. `go get -tool templ@latest` **bumped the app's `go` line from 1.25.0 to 1.26.0**; latest air needs 1.26 too; templ v0.3.1070 fails on go1.25.14. Pinning templ v0.3.1020 and air v1.67.0 keeps 1.25.0. `go.sum` is incomplete until `go mod tidy`. air pulls in Hugo and about 15 other modules. 17 shared dependencies resolve newer than the framework's own `go.mod`; codegraph (goldens included) and controllers tests pass at those versions | Holds; **decision needed** (AM1) |
+| S5 Embed hand-over | Works as drawn: `env.yml` embedded from the root `main.go`, migrations and assets as `fs.FS`, defaults beneath the app's file, one boot path for `Main`, `serve` and tests, `main_test.go` booting `newApp()`. goose runs over the handed-over `fs.FS` through its Provider API with no connection. Found: the dev `./assets` override depends on the working directory (from `/tmp` it silently serves the embedded copy); `${V:1.10}` becomes `1.1` and `00123` becomes `123`, even when quoted | Holds, with changes (AM11) |
+| S6 Offline facts | `env -i ./shop inspect --json`: median **13 ms**, no database connection (a bogus DSN was set), no dev mount, no indexer. Fed to the indexer's `routeSource` it makes `docs.route_undocumented` run in a CLI index. A root-level `env.yml` makes the config layer report `ok` with 0 quads, so `config.*` rules would pass vacuously until the Profile (T3.1) lands | Holds, with changes (AM7, AM8, AM10) |
+| S7 Module rename | **38 files** (37 `.go` plus `go.mod`; 39 with this spec, which the script skips). Build, vet and tests pass, the 9 golden files are byte-identical, only `gofmt` re-sorting and re-alignment appear beyond the substitution (6 files). The script is idempotent and leaves existing `github.com/petars-dev/govibe` references alone. `testdata/fixture` is its own module and does not change | Holds, no spec change (AM13) |
+| S8 Scheduler engine | gocron v2.22.0 parses with `robfig/cron/v3`, so the grammar and its gaps are identical. gocron de-duplicates a repeated wall-clock hour on every spec with no off switch: an hourly `30 * * * *` fired **4 times in 5 real hours** across New York's fall-back (own runner: 5). gocron has no per-job timeout, and `Job.NextRun()` is zero before `Start`. Own runner over the parser: **183 lines plus a 57-line fake clock**, 9 tests pass under `-race` (10 repeats), +0.61 MB and 1 module against +1.06 MB and 4 modules. Parser traps: a bare `CRON_TZ=Zone` panics; `@every 0s`, negative and sub-second values are silently accepted; `0 0 31 2 *` parses but never fires; a job in a spring-forward gap is skipped that day; a fixed-time job in a fall-back repeat fires twice in raw robfig | **D14 holds**, with a validation wrapper (AM12) |
+| S9 Scope | Filtering by origin in the `Model` makes every `/dev/graph/data/*` endpoint, all four reports, 7 of 8 `graph_*` tools and the CLI gate scope-correct with no edits. App scope is **387 of 11,073 quads (3.5%)**, no dangling edges in any scope, filter cost about 0.4 ms on a 44 ms load; "n hidden" comes from the same pass. **Fails for findings:** run on an app-filtered model the real layering error vanished, a false `docs.route_undocumented` appeared, and the framework-filtered run added 5 false `config.unused`. Raw paths bypass the `Model`: `graph_query`, the Cayley HTTP API (accepts writes; not mentioned in this spec) and `ManualView` | **Partly holds**: the one-place claim is true for views, reports and tools, false for findings (AM9) |
+
+### Amendments the spikes require (for sign-off)
+Not yet folded into the design text above; each names the task it changes. Sign-off means accepting these (or flipping them) and
+deciding AM1.
+
+| # | Amendment | Changes |
+| --- | --- | --- |
+| AM1 | **Decision: Go version.** Pin tool versions in the scaffold (`go get -tool` at templ v0.3.1020, air v1.67.0, the tool at the framework's own version) so the app keeps `go 1.25.0`, **or** move the framework to `go 1.26.0` and say so. Not `@latest`: it silently raises the app's `go` line. Always set the `go` line explicitly (`go mod init` writes the local toolchain) | T5.2, D7, D8, Versioning |
+| AM2 | Run `go mod tidy` after every `go get -tool` (go.sum is incomplete otherwise). The keystone job builds the generated app with the versions the app resolves, not the framework's `go.mod` | T5.2, T5.6 |
+| AM3 | D8 is heavier than assumed: air adds Hugo and about 15 modules to every app's `go.mod`. Keep it pinned as a tool for v1, or install air from the Makefile instead; decide at Phase 5 | D8, Risks |
+| AM4 | Acceptance scenario A7 also asserts that no dev asset ships: `/assets/static/graph.js` is 404 and the app's `assets.FS` holds no dev file. Package counting alone passes while 490 KB of dev JS and CSS still ships. The dev UI's embed must be reachable only through the tagged import | A7, T1.4, T2.5 |
+| AM5 | Tag only the kernel's import file (the one that calls `devtools.Mount`), never the dev packages: tagged files inside a shared package broke default `go test ./...` for codegraph and hid code from the calls layer | T2.5, Design: dev tooling |
+| AM6 | T3.7 is required, not optional: the calls layer loads with `-tags govibe_dev` (the tags come from `inspect --json` `build.tags`, default `govibe_dev`) and states them in its layer note. Edge bound: stop at the first package outside the app module; one function-level leaf per public framework package (`govibe`, `config`, `web`, `govibetest`) with module and version; anything in the framework's `internal/` collapses to a single module-level leaf flagged `internal`; third-party packages are one leaf per package; stdlib is not recorded. Build the module index from `packages.Visit` | T3.7 |
+| AM7 | Classify routes by **who registered them** (snapshot the route table before `App.Routes` runs, record `mounted_by`) plus the handler's file mapped through a module table, never by symbol prefix. `/assets/*` is a framework route with a stdlib handler; `/files/*` can be an app route with a stdlib handler. `inspect --json` carries `root_hint`, `build.modules` (from `ReadBuildInfo`, with replace directories), `build.trimpath`, `build.tags`, `mounted_by`, and no symbol-derived origin. The indexer's app root must come from that hint, not from where the indexer was compiled. The snapshot also gives the reserved-prefix check | T1.3, T3.2, T3.6 |
+| AM8 | New light package `internal/routeinfo` (chi walk and `FuncForPC`, chi and reflect only): the app binary needs it for `inspect --json` and must not link cayley. Add it to the module layout; `kernel` and `codegraph` both use it. Export the route-source option with `BuildRoot`, `Modules` and `FrameworkModule` filled from the document | Module layout, T3.6 |
+| AM9 | **Scope.** `Load(ctx, qs, scope)` takes scope as a parameter, never a global. Findings are computed once on `all`; a finding's origin is its `about` target's; the gate and the baseline always use `all`. A cross-origin finding is an app finding whose message and `path:line` carry the evidence, because the framework target is hidden. Layers write `origin` as a quad for leaf kinds so raw queries can filter. The `Model` keeps a hidden index (id to origin, counts by kind) for "n hidden" and "exists in another scope" errors. Replace the four "empty means layer not built" inferences with an explicit layer status; show layer and build counters only for `all`; build `graph_schema` examples from the scoped model; retire the seven `dev_only` sites in favour of origin. `graph_query`, the Cayley HTTP API and `ManualView` are deliberately unscoped and say so; `/dev/docs` needs its own switch (T3.9) | T3.3, T3.5, T3.8 |
+| AM10 | `docs.route_undocumented` skips framework-origin routes (`/_govibe/*`, `/assets/*`), or acceptance scenario A1 ("no finding at any severity") cannot hold. Profile statuses distinguish "not configured or not found" from "empty" | T3.1, T3.5 |
+| AM11 | Config and boot: a quoted `${V:1.10}` stays a string (a test in T1.1; today it becomes `1.1`). `internal/migrate` uses goose's Provider API with the dialect as a required type, not the global `SetBaseFS` and `SetDialect`. The dev assets directory is resolved against the app root, not the working directory, and the resolved path is logged. `govibetest` disables the database by default and says so | T1.1, T1.2, T1.4, T4.6 |
+| AM12 | Scheduler: wrap the parser (recover its panic on a bare `CRON_TZ=Zone`; reject a spec that never fires; set a minimum for `@every`, since 0 s, negative and sub-second values silently become 1 s). `schedule list` prints "6h after start" for `@every`, not a date. DST: a run in a spring-forward gap is skipped and not caught up; in a fall-back repeat a spec with a fixed hour and minute fires once and a wildcard hour follows real hours. Document dom/dow OR (stepped fields included), Sunday as 0, no `L`, and that `CRON_TZ=` beats `scheduler.timezone`. gocron's latest is v2.22.0 (2026-07-09); robfig's last release is 2020-01-04. The runner prototype (`docs/spikes/_prototypes/s8-scheduler-runner`) is a starting point for T4.1 | Scheduler design, T4.1, T4.3 |
+| AM13 | Rename (T2.1): the count is 38 excluding this spec. Do it as its own commit and **before** the `git mv` moves, so the byte-identical proof applies to each step. Delete `docs/graph/*.bolt` first. Fix the two files that were already gofmt-unclean (`cmd/govibe/cmd_generate.go`, `root.go`) in a separate earlier commit so the rename diff stays pure. The script is `docs/spikes/scripts/s7-rename.sh` | T2.1 |
+| AM14 | Nothing warns when a global `govibe` differs from the version pinned in the app's `go.mod`; `doctor` and the T7.1 shim must do it | T6.2, T7.1 |
+
+## Phase 1 results (inside the repo, behavior-preserving)
+Done 2026-10-11. Everything is still at the repository root and one module; the framework's public packages (`govibe`,
+`web`, `govibetest`) are Phase 2, so the `App`, `Runtime` and `Command` types live in `internal/kernel` for now and `main.go`
+calls `kernel.Main`. Verification ran in scratch copies under `env -i`: the full suite (all packages green, goldens as
+described below), the CI gate command with `--calls` (exit 0, one finding, accepted by the baseline), and the old (HEAD) and
+new binaries side by side.
+
+| Task | Result |
+| --- | --- |
+| T1.1 `config` | `config.Load(fs.FS)` returns a `Config` value: `defaults.yml` (embedded in the package, framework keys only) under the app's `env.yml`, resolved from the environment as before; the `cfgRaw` global is gone and `Get`, `String` and `Unmarshal` are methods. Maps merge deeply, lists are replaced, unknown keys pass. A quoted placeholder stays a string (AM11). New key `root` (`GOVIBE_ROOT`). The app's `env.yml` is now `env.yml` in the project root, embedded by `main.go`; it holds no settings (the demo needs none) |
+| T1.2 `internal/kernel` | One boot path (`Build`) for `main`, `serve`, the read-only commands and tests: config once, logging, one database pool with migrations, router, command table, optional dev mount. `Run` handles `serve` (default, graceful shutdown on SIGINT/SIGTERM, then `App.Shutdown`, then the pool), `migrate up\|down\|status`, `inspect --json`, `help` and the app's commands (with `Flags`). `internal/migrate` uses goose's Provider API with the dialect a required, parsed type (AM11). `govibe serve` and `govibe migrate` delegate to `go run .` in the project root, which ends the two-boot-paths divergence (an app command opens the database but does not migrate it; `serve` does) |
+| T1.3 router split | `routes.NewRouter` is gone: `routes.Register(rt, r)` is the demo's three routes; the kernel builds the base stack and the asset mounts; `devtools.Mount(Deps)` (in `internal/devtools`) holds the rest, shares the app's one pool with the explorer, and returns a stop function the kernel calls on shutdown (the indexer stops, the bolt store closes). The route table is snapshotted before `App.Routes` runs (`Built.FrameworkRoutes`, AM7) and the reserved-prefix check uses it. `internal/routeinfo` is the light chi walk, shared with the indexer's routes layer (AM8; a pure extraction: the layer keeps its names as aliases) |
+| T1.4 dev assets | The panel's files (theme, docs and graph styles, graph.js, cytoscape, logo) are embedded in `internal/devtools/devui` and served at `/_govibe/static`; the dev pages read nothing from `/assets` (a test asserts it); the Hello page keeps its own `theme.*`, `home.css` and images and takes htmx from `web.HTMXScript()`; `web.IfDev` wraps its `/dev` links (the kernel marks the request context only when it mounts the tools). `/assets` no longer serves htmx or any dev file, and the dev assets directory is resolved against the application root, with the resolved path logged (AM11) |
+| T1.5 removals | The `mail.smtp` block and the `workos` keys, the dead WorkOS client, the two `SKILL.md` mentions and the `config.go` comment are gone (`go mod tidy` drops workos and two modules it alone needed); the fixture's mail keys became `queue.broker.*` and its goldens were regenerated |
+| T1.6 findings | `code.unreferenced` counts references from `_test.go` files (qualified references from any test package, bare names from in-package tests), and a test edit makes the code layer stale; the docs name `docs/graph/` instead of the git-ignored bolt file |
+| T1.7 tests | `config` (layering, typing, independence), `internal/kernel` (boot, zero app, assets from disk against the root, reserved prefixes, command checks, dev marker and mount, `inspect --json` with a bogus DSN, commands with flags, `migrate` errors, serve and graceful stop, port in use), `internal/migrate`, `web`, the tool's delegation, and the indexer's new behaviour |
+
+**Done-when, checked.** Existing tests pass; the goldens differ from HEAD in exactly the renamed fixture keys (with the
+environment nodes re-sorted) and the two lines that described `code.unreferenced` as "tests are not indexed"; the Hello page's HTML in
+dev is byte-identical to HEAD's except the htmx script line and its comment, and the htmx button works in a browser; the dev
+pages differ only in their static paths; the dev pages read nothing from `/assets/static`; an index with an empty baseline
+reports only the layering finding, on a developer machine (live router: 7 findings before, 1 now) and in a fresh copy with no bolt file.
+
+**Deviations and things to know**
+- **`/dev/docs` is no longer served in production.** `routes.NewRouter` mounted it unconditionally, outside the `!IsProd()` guard that covered the rest; it now goes through `devtools.Mount` like the other dev pages (this is what A7 asks for).
+- **The dev stack is still linked into the default binary** (untagged: `devCompiled` in `internal/kernel/devmount.go` is the one seam Phase 2 turns into the `govibe_dev` build tag; `go list -deps .` is 445 packages, up from 440, from the new packages minus workos).
+- **The indexer learned three things the spec put in Phase 3, because Phase 1 would otherwise have broken its gate:** the config layer reads `config/defaults.yml`, a legacy `config/env.yml` and the root `env.yml` (the Profile replaces this list); `internal/kernel` and `internal/devtools` are classified `wiring` and `dev`, other `internal/*` `support`; and `rt.Config.Get` / `cfg.Unmarshal` count as config reads, recognised by receiver name (`cfg`, `conf`, or a field `Config`).
+- **Finding and report messages still name `config/env.yml`** (they are goldens); the Profile (T3.1) will make them name the configured file.
+- **No `govibe.yml`, no `routes/console.go`, no `web.RequestLogger`/`DevNoCache` yet:** the kernel imports `middleware` as it is; moving it into `web` is Phase 2's `git mv`.
+- **The kernel's dev test cannot run under `-race`:** the bolt backend of the graph store fails Go's `checkptr` (an upstream issue of `github.com/boltdb/bolt`); the rest of the kernel tests pass with `-race`.
+- **Not run here:** `TestUpStatusDownAgainstAServer` (`internal/migrate`) needs `GOVIBE_TEST_MARIADB_DSN`; it creates and drops a schema of its own, like the indexer's database tests. The Provider-API migration path was exercised without a database only (listing, dialect and FS errors).
+- **`make templ` / `templ generate` with no path also regenerates the fixture's `.templ` files under `testdata/`** (it overwrote the committed stand-in output): generate one file at a time (`templ generate -f assets/templates/home.templ`) or restore the fixture afterwards. Not changed here.
+- `assets.FS` still embeds `templates/**`, so `.templ` sources are served under `/assets/templates/` (as before); worth dropping when the scaffold is written.
+- **An independent review of the Phase 1 diff** found nine things; seven were fixed and tested: `govibe serve` now runs `go run .` in its own process group and signals the group (`go run` exits on SIGTERM without telling the server it started, which would have left the server running); the docs pages read `docs/public` and `docs/specs` from the application root (`controllers.DocsRoot`, set by `devtools.Mount`) and no longer from the working directory; a connection that will not finish no longer fails a stop (after the graceful window the server closes it); `govibe graph index` in a project without a root `env.yml` still reads `MARIADB_DSN` from the environment; test files have a cap of their own and cannot fail the code layer; the test-reference scan ignores composite-literal keys and declared field names; `migrate down` with nothing applied says so (it was an error before as well). Two were left as designed: the dev panel keeps its own copies of `theme.css`, `theme.js` and the logo (D20: the demo and the panel must not share a file), and an unquoted placeholder is still typed as YAML would type it ("exactly as today"; quote it to keep a string, which the generated `env.yml` comments say).
+- Phase 0's amendments AM1 to AM14 are still unsigned: Phase 1 used the parts it needed (AM4, AM7, AM8 and AM11 for the kernel, the route snapshot, `routeinfo`, goose's Provider API and the root-resolved assets directory) and nothing that touches Go versions or tool pins (AM1 to AM3 belong to Phase 5).
+
 ## Risks
 | Risk | Mitigation |
 | --- | --- |
@@ -842,17 +924,18 @@ Each phase ends with the test suite green, the graph gate green, and a run from 
 
 | Item | Implemented | Skipped | Why |
 | --- | --- | --- | --- |
-| Phase 0 spikes (S1 to S9) and decision sign-off | No | | Planned: they must pass before the design is final |
-| Phase 1 kernel, layered config, router split, framework-owned dev assets | No | | Planned: behavior-preserving, inside the current repo |
-| Removal of mail settings, dead WorkOS client, `code.unreferenced` false positive | No | | Planned: Phase 1 |
+| Phase 0 spikes (S1 to S9) | Yes | | Run 2026-10-11 in scratch copies; results and amendments AM1 to AM14 are under "Spike results (Phase 0)" |
+| Phase 0 decision sign-off | No | | Pending the owner: accept or flip AM1 to AM14, and decide AM1 (Go version and tool pins) before Phase 5 |
+| Phase 1 kernel, layered config, router split, framework-owned dev assets | Yes | | Done 2026-10-11, see "Phase 1 results"; the kernel's types are in `internal/kernel` until the public `govibe` package (Phase 2) |
+| Removal of mail settings, dead WorkOS client, `code.unreferenced` false positive | Yes | | Phase 1: keys, client, mentions and the `go.mod` entries are gone; the rule counts references from tests |
 | Phase 2 physical split, public API, module rename, `examples/hello` | No | | Planned: mechanical moves only |
 | Production exclusion of dev code (tag plus CI job) | No | | Planned: Phase 2, from spike S1 |
 | The framework's own layering finding resolved, empty baseline | No | | Planned: Phase 2 |
-| `env.yml` in the project root (embedded, environment-resolved as today) | No | | Planned: Phases 1 and 5 |
-| Hello GoVibe demo in every generated app (`web.IfDev`, synced from `examples/hello`) | No | | Planned: Phases 1, 2 and 5 |
+| `env.yml` in the project root (embedded, environment-resolved as today) | Yes | | Phase 1 for this repository (embedded by `main.go`, over `config/defaults.yml`); the scaffold's copy is Phase 5 |
+| Hello GoVibe demo in every generated app (`web.IfDev`, synced from `examples/hello`) | No | | Phase 1 did the demo's side (`web.IfDev` and `web.HTMXScript` in `home.templ`); `examples/hello` is Phase 2 and the generated copy Phase 5 |
 | Phase 3 profile, origin, `framework.import` rule, offline facts, fixture rebuild | No | | Planned |
 | App-only graph view (scope in the `Model`, app map, switch, tools) | No | | Planned: Phase 3 |
-| Findings: reasons in the baseline, rule overrides, test references | No | | Planned: Phases 1 and 3 |
+| Findings: reasons in the baseline, rule overrides, test references | Partly | | Test references: done in Phase 1. Reasons in the baseline and rule overrides: Phase 3 |
 | Docs surface (app first, `GoVibe:` group, no framework specs, contributor mode) | No | | Planned: Phase 3 |
 | Phase 4 commands and the scheduler (`schedule list`, `schedule run`, dev page, graph layer) | No | | Planned |
 | Phase 5 `govibe new`, managed files, app `SKILL.md`, `govibe check`, keystone CI job | No | | Planned |

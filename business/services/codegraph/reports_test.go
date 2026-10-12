@@ -100,7 +100,7 @@ func TestConfigReportOnTheFixtureNeverShowsASecret(t *testing.T) {
 	if !dsn.Sensitive || dsn.HasDefault || dsn.Default != "" || dsn.Env == nil {
 		t.Errorf("database.dsn must be flagged and carry no default: %+v", dsn)
 	}
-	for _, name := range []string{"auth.api_key", "mail.smtp.password"} {
+	for _, name := range []string{"auth.api_key", "queue.broker.password"} {
 		if k := byName[name]; !k.Sensitive || k.HasDefault || k.Default != "" {
 			t.Errorf("%s: %+v", name, k)
 		}

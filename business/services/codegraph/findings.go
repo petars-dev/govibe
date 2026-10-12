@@ -119,7 +119,7 @@ func ruleCatalog() []rule {
 		},
 		{
 			name: "code.unreferenced", title: "Exported function nothing references", severity: sevInfo,
-			description: "An exported package-level function that no other indexed code references. Test files are not indexed; methods are not checked.",
+			description: "An exported package-level function that nothing else in the code or its tests references. Methods are not checked.",
 			needs:       []string{"code"}, check: checkUnreferenced,
 		},
 		{

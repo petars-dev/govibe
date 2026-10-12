@@ -1,0 +1,13 @@
+package main
+
+import (
+	"fmt"
+	"time"
+
+	"example.com/s8/runner"
+)
+
+func main() {
+	_, err := runner.Parse("*/5 * * * *", time.Now())
+	fmt.Println(err)
+}

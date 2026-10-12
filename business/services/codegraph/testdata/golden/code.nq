@@ -96,7 +96,7 @@
 <func:business/actions.Hello> <signature> "func Hello() string" <layer:code> .
 <func:business/actions.Hello> <type> <kind:func> <layer:code> .
 <func:business/actions.Notify> <defined_in> <file:business/actions/notify.go> <layer:code> .
-<func:business/actions.Notify> <doc> "Notify returns the SMTP host messages go through." <layer:code> .
+<func:business/actions.Notify> <doc> "Notify returns the broker host messages go through." <layer:code> .
 <func:business/actions.Notify> <exported> "True"^^<schema:Boolean> <layer:code> .
 <func:business/actions.Notify> <line> "7"^^<schema:Integer> <layer:code> .
 <func:business/actions.Notify> <name> "Notify" <layer:code> .

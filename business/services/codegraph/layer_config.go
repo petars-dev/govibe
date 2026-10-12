@@ -12,9 +12,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// configFile is where a GoVibe app declares its settings (SKILL.md: "Configuration
-// is centralized in config/env.yml").
-const configFile = "config/env.yml"
+// configFiles are the files that declare settings, lowest layer first, as the
+// config loader merges them: the framework's defaults (config/defaults.yml, embedded
+// by the config package), the settings file of a project that predates the split
+// (config/env.yml), and the application's env.yml in the project root. A key
+// declared again by a later file replaces the earlier declaration. A Profile
+// replaces this list.
+var configFiles = []string{"config/defaults.yml", "config/env.yml", "env.yml"}
 
 // sensitiveRe marks a key or environment variable whose value must never reach
 // the graph: no default, no value.
@@ -34,6 +38,7 @@ type configIndex struct {
 	keyByPath map[string]*cfgKey
 	envByName map[string]*envInfo
 	groups    map[string]bool // dotted paths that are not leaves
+	file      string          // the settings file walkYAML is reading
 }
 
 type cfgKey struct {
@@ -44,7 +49,8 @@ type cfgKey struct {
 	hasDef    bool
 	sensitive bool
 	field     string // Config.Server.Port, when bound to a struct field
-	declared  bool   // present in env.yml
+	declared  bool   // present in a settings file
+	file      string // the settings file that declares it
 }
 
 type envInfo struct {
@@ -66,8 +72,15 @@ type envUse struct {
 	name string
 }
 
-func (w *world) configStat() (sourceFile, bool) {
-	return statRegular(w.root, configFile, maxConfigBytes)
+// configStats are the settings files the project has.
+func (w *world) configStats() []sourceFile {
+	var out []sourceFile
+	for _, rel := range configFiles {
+		if sf, ok := statRegular(w.root, rel, maxConfigBytes); ok {
+			out = append(out, sf)
+		}
+	}
+	return out
 }
 
 func (w *world) configIndex() (*configIndex, error) {
@@ -87,16 +100,17 @@ func buildConfigIndex(w *world, ci *codeIndex) (*configIndex, error) {
 		groups:    map[string]bool{},
 	}
 
-	if sf, ok := w.configStat(); ok {
+	for _, sf := range w.configStats() {
 		b, err := os.ReadFile(sf.abs)
 		if err != nil {
 			return nil, err
 		}
 		var doc yaml.Node
 		if err := yaml.Unmarshal(b, &doc); err != nil {
-			return nil, fmt.Errorf("%s: %w", configFile, err)
+			return nil, fmt.Errorf("%s: %w", sf.rel, err)
 		}
 		if doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 {
+			cx.file = sf.rel
 			cx.walkYAML(doc.Content[0], "")
 		}
 	}
@@ -172,7 +186,7 @@ func (cx *configIndex) walkYAML(n *yaml.Node, prefix string) {
 			cx.walkYAML(v, path)
 			continue
 		}
-		key := &cfgKey{key: path, line: k.Line, declared: true}
+		key := &cfgKey{key: path, line: k.Line, declared: true, file: cx.file}
 		sensitive := sensitiveRe.MatchString(path)
 		if v.Kind == yaml.ScalarNode {
 			if name, def, ok := placeholder(v.Value); ok {
@@ -297,8 +311,8 @@ func (configLayer) name() string   { return "config" }
 func (configLayer) deps() []string { return []string{"code"} }
 
 func (configLayer) fingerprint(w *world) (string, error) {
-	if sf, ok := w.configStat(); ok {
-		return fingerprint([]sourceFile{sf}), nil
+	if sfs := w.configStats(); len(sfs) > 0 {
+		return fingerprint(sfs), nil
 	}
 	return "absent", nil
 }
@@ -321,7 +335,7 @@ func (configLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 		set.flag(id, PredSensitive, k.sensitive)
 		set.flag(id, PredDeclared, k.declared)
 		if k.declared {
-			set.str(id, PredPath, configFile)
+			set.str(id, PredPath, k.file)
 			set.num(id, PredLine, k.line)
 		}
 		if k.hasDef && !k.sensitive {

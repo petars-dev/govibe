@@ -51,7 +51,7 @@ func TestReportsOnThisRepo(t *testing.T) {
 			t.Errorf("%s: a sensitive key with a default: %+v", row.Name, row)
 		}
 	}
-	if cfg.Sensitive < 3 || len(cfg.Keys) < 10 || strings.Contains(string(b), "@tcp(") {
+	if cfg.Sensitive < 1 || len(cfg.Keys) < 9 || strings.Contains(string(b), "@tcp(") {
 		t.Errorf("config report: %d keys, %d sensitive", len(cfg.Keys), cfg.Sensitive)
 	}
 

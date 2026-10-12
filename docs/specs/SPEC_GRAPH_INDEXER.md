@@ -521,7 +521,7 @@ All tools return bounded, JSON-structured output (limits and `truncated` flags, 
        graph table the live database does not have, not against a real listed table (the dev database has no
        tables); phone-width layout was not looked at in a browser.
      - **Findings on this repository** the plan did not predict: five `mail.smtp.*` keys declared and never read
-       (the skeleton's example), the plain-text hello route documented nowhere, and `graphcheck.Check`.
+       (the skeleton's example), the plain-text hello route documented nowhere, and `graphcheck.Check`. (SPEC_FRAMEWORK_EXTRACTION, Phase 1, removed the mail keys and made the indexer count references from tests, which clears `graphcheck.Check`.)
 6. **Phase 6: Depth (opt-in), done**
    - `calls` layer (`x/tools/go/packages`), full route→table chains, `git` layer (last commit, churn,
      co-change), `govibe graph index` CLI, CI job running the CLI with `--dir` and failing on new

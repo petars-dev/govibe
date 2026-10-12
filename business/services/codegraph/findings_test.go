@@ -83,7 +83,7 @@ func TestFindingsFixtureFacts(t *testing.T) {
 	}
 	// A config key that only a group read touches is used.
 	for _, id := range got["config.unused"] {
-		if strings.Contains(id, "mail.smtp") {
+		if strings.Contains(id, "queue.broker") {
 			t.Errorf("a key read through its group is reported unused: %s", id)
 		}
 	}

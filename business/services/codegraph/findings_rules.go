@@ -202,13 +202,13 @@ func checkUnreferenced(e *ruleEnv) []finding {
 			continue
 		}
 		dir := pkg.Str("path")
-		if e.refTo[dir+"\x00"+name] || e.ci.usedWithin(dir, name, quad.IRI(fn.ID)) || e.templUses(name) {
+		if e.refTo[dir+"\x00"+name] || e.ci.usedWithin(dir, name, quad.IRI(fn.ID)) || e.ci.referencedByTests(dir, name) || e.templUses(name) {
 			continue
 		}
 		path, line := e.where(fn)
 		out = append(out, finding{
 			subject: quad.IRI(fn.ID), path: path, line: line,
-			message: fmt.Sprintf("%s is exported, but no other indexed code references it (tests are not indexed). Use it, unexport it, or delete it.", e.label(fn)),
+			message: fmt.Sprintf("%s is exported, but nothing else in the code or its tests references it. Use it, unexport it, or delete it.", e.label(fn)),
 		})
 	}
 	return out

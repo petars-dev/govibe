@@ -1,6 +1,6 @@
 <finding:code.unreferenced:func:business/actions.Notify> <about> <func:business/actions.Notify> <layer:findings> .
 <finding:code.unreferenced:func:business/actions.Notify> <line> "7"^^<schema:Integer> <layer:findings> .
-<finding:code.unreferenced:func:business/actions.Notify> <message> "actions.Notify is exported, but no other indexed code references it (tests are not indexed). Use it, unexport it, or delete it." <layer:findings> .
+<finding:code.unreferenced:func:business/actions.Notify> <message> "actions.Notify is exported, but nothing else in the code or its tests references it. Use it, unexport it, or delete it." <layer:findings> .
 <finding:code.unreferenced:func:business/actions.Notify> <name> "Exported function nothing references" <layer:findings> .
 <finding:code.unreferenced:func:business/actions.Notify> <path> "business/actions/notify.go" <layer:findings> .
 <finding:code.unreferenced:func:business/actions.Notify> <rule> "code.unreferenced" <layer:findings> .
@@ -115,7 +115,7 @@
 <finding:layering:pkg:controllers#pkg:storage/orderstore> <severity> "error" <layer:findings> .
 <finding:layering:pkg:controllers#pkg:storage/orderstore> <type> <kind:finding> <layer:findings> .
 <rule:code.unreferenced> <checked> "True"^^<schema:Boolean> <layer:findings> .
-<rule:code.unreferenced> <description> "An exported package-level function that no other indexed code references. Test files are not indexed; methods are not checked." <layer:findings> .
+<rule:code.unreferenced> <description> "An exported package-level function that nothing else in the code or its tests references. Methods are not checked." <layer:findings> .
 <rule:code.unreferenced> <name> "code.unreferenced" <layer:findings> .
 <rule:code.unreferenced> <severity> "info" <layer:findings> .
 <rule:code.unreferenced> <title> "Exported function nothing references" <layer:findings> .

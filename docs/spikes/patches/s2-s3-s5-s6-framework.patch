@@ -1,0 +1,1600 @@
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/business/services/codegraph/findings_rules.go fw/business/services/codegraph/findings_rules.go
+--- base/business/services/codegraph/findings_rules.go	2026-10-06 16:20:14
++++ fw/business/services/codegraph/findings_rules.go	2026-10-11 10:34:21
+@@ -93,7 +93,7 @@
+ func checkRouteUndocumented(e *ruleEnv) []finding {
+ 	var out []finding
+ 	for _, r := range e.m.Kind("route") {
+-		if r.Bool("dev_only") || len(r.In["mentions"])+len(r.In["covers"]) > 0 {
++		if r.Bool("dev_only") || r.Str("origin") == OriginFramework || len(r.In["mentions"])+len(r.In["covers"]) > 0 {
+ 			continue
+ 		}
+ 		f := finding{subject: quad.IRI(r.ID), message: fmt.Sprintf("No doc or spec mentions %s %s. Say what it is for in docs/public/ARCHITECTURE.md or the spec that owns it.", r.Str("method"), r.Str("path"))}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/business/services/codegraph/indexer.go fw/business/services/codegraph/indexer.go
+--- base/business/services/codegraph/indexer.go	2026-10-06 18:24:23
++++ fw/business/services/codegraph/indexer.go	2026-10-11 10:40:07
+@@ -74,6 +74,16 @@
+ 	// liveTTL overrides how long a live schema read is reused (tests).
+ 	liveTTL time.Duration
+ 
++	// RouteSource replaces the router walk with routes read elsewhere (the app's
++	// `inspect --json`, run offline). BuildRoot is where the app's sources were
++	// compiled, as the runtime spells paths (see the inspect document's root hint).
++	RouteSource func() ([]runtimeRoute, error)
++	BuildRoot   string
++	// Modules is the build's dependency table and FrameworkModule the module that is
++	// the framework: together they say whose code a source file is.
++	Modules         []BuildModule
++	FrameworkModule string
++
+ 	// routeSource replaces the router walk. Tests use it to feed the routes
+ 	// layer runtime facts for a project that cannot be run.
+ 	routeSource func() ([]runtimeRoute, error)
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/business/services/codegraph/layer_routes.go fw/business/services/codegraph/layer_routes.go
+--- base/business/services/codegraph/layer_routes.go	2026-10-06 16:15:19
++++ fw/business/services/codegraph/layer_routes.go	2026-10-11 10:48:21
+@@ -5,7 +5,6 @@
+ 	"crypto/sha256"
+ 	"encoding/hex"
+ 	"fmt"
+-	"net/http"
+ 	"path"
+ 	"path/filepath"
+ 	"reflect"
+@@ -16,28 +15,17 @@
+ 
+ 	"github.com/cayleygraph/quad"
+ 	"github.com/go-chi/chi/v5"
++	"petars-dev/govibe/internal/routeinfo"
+ )
+ 
+ // anyMethod is the method token of a route registered for every method
+ // (chi's Handle). chi.Walk reports such a route once per HTTP method; it is one
+ // route, so the layer collapses it.
+-const anyMethod = "ANY"
++const anyMethod = routeinfo.AnyMethod
+ 
+-// runtimeRoute is one route as the running router reports it.
+-type runtimeRoute struct {
+-	Method  string // upper-case HTTP method, or anyMethod
+-	Path    string // chi pattern, e.g. /dev/db/api/tables/{table}
+-	Handler handlerRef
+-	MW      []handlerRef // middleware, outermost first
+-}
++type runtimeRoute = routeinfo.Route
++type handlerRef = routeinfo.Ref
+ 
+-// handlerRef is a function as the Go runtime describes it.
+-type handlerRef struct {
+-	Symbol string // runtime function name; "" when it could not be determined
+-	File   string // source file the runtime reports: absolute, or module-relative under -trimpath
+-	Line   int    // line of the function's declaration or closure literal
+-}
+-
+ // routeTable is the router's routes, or the fact that there is no router.
+ type routeTable struct {
+ 	absent bool
+@@ -48,6 +36,12 @@
+ func (w *world) routeTable() (*routeTable, error) {
+ 	return w.routesV.get(func() (*routeTable, error) {
+ 		switch {
++		case w.x.opts.RouteSource != nil:
++			rs, err := w.x.opts.RouteSource()
++			if err != nil {
++				return nil, err
++			}
++			return &routeTable{routes: sortRoutes(rs)}, nil
+ 		case w.x.opts.routeSource != nil:
+ 			rs, err := w.x.opts.routeSource()
+ 			if err != nil {
+@@ -80,86 +74,9 @@
+ // difference: a catch-all registration is reported once, as anyMethod, instead
+ // of once per method.
+ func collectChiRoutes(r chi.Routes) ([]runtimeRoute, error) {
+-	var out []runtimeRoute
+-	walkChi(r, "", nil, &out)
+-	return sortRoutes(out), nil
++	return routeinfo.Walk(r), nil
+ }
+ 
+-type middlewareFunc = func(http.Handler) http.Handler
+-
+-func walkChi(r chi.Routes, parent string, parentMW []middlewareFunc, out *[]runtimeRoute) {
+-	for _, route := range r.Routes() {
+-		mws := append(append([]middlewareFunc(nil), parentMW...), r.Middlewares()...)
+-		if route.SubRoutes != nil {
+-			walkChi(route.SubRoutes, parent+route.Pattern, mws, out)
+-			continue
+-		}
+-		path := strings.ReplaceAll(parent+route.Pattern, "/*/", "/")
+-
+-		emit := func(method string, h http.Handler) {
+-			chain := mws
+-			if ch, ok := h.(*chi.ChainHandler); ok {
+-				chain = append(append([]middlewareFunc(nil), mws...), ch.Middlewares...)
+-				h = ch.Endpoint
+-			}
+-			rr := runtimeRoute{Method: method, Path: path, Handler: handlerRefOf(h)}
+-			for _, m := range chain {
+-				rr.MW = append(rr.MW, funcRefOf(reflect.ValueOf(m)))
+-			}
+-			*out = append(*out, rr)
+-		}
+-
+-		if all, ok := route.Handlers["*"]; ok {
+-			emit(anyMethod, all)
+-			// A specific method registered over a catch-all keeps its own route.
+-			for m, h := range route.Handlers {
+-				if m != "*" && handlerRefOf(unwrapChain(h)) != handlerRefOf(unwrapChain(all)) {
+-					emit(m, h)
+-				}
+-			}
+-			continue
+-		}
+-		for m, h := range route.Handlers {
+-			emit(m, h)
+-		}
+-	}
+-}
+-
+-func unwrapChain(h http.Handler) http.Handler {
+-	if ch, ok := h.(*chi.ChainHandler); ok {
+-		return ch.Endpoint
+-	}
+-	return h
+-}
+-
+-// handlerRefOf identifies the function that serves h: the function itself for a
+-// http.HandlerFunc, the ServeHTTP method for any other handler type.
+-func handlerRefOf(h http.Handler) handlerRef {
+-	v := reflect.ValueOf(h)
+-	if !v.IsValid() {
+-		return handlerRef{}
+-	}
+-	if v.Kind() == reflect.Func {
+-		return funcRefOf(v)
+-	}
+-	if m, ok := v.Type().MethodByName("ServeHTTP"); ok {
+-		return funcRefOf(m.Func)
+-	}
+-	return handlerRef{}
+-}
+-
+-func funcRefOf(v reflect.Value) handlerRef {
+-	if !v.IsValid() || v.Kind() != reflect.Func || v.IsNil() {
+-		return handlerRef{}
+-	}
+-	fn := runtime.FuncForPC(v.Pointer())
+-	if fn == nil {
+-		return handlerRef{}
+-	}
+-	file, line := fn.FileLine(fn.Entry())
+-	return handlerRef{Symbol: fn.Name(), File: filepath.ToSlash(file), Line: line}
+-}
+-
+ type routesLayer struct{}
+ 
+ func (routesLayer) name() string   { return "routes" }
+@@ -208,12 +125,37 @@
+ 		set.str(id, PredMethod, r.Method)
+ 		set.str(id, PredPath, r.Path)
+ 		set.flag(id, PredDevOnly, r.Path == "/dev" || strings.HasPrefix(r.Path, "/dev/"))
++		origin, module, pkg := w.classify(ci, r.Handler)
++		if r.Mounted != "" {
++			set.str(id, PredOrigin, r.Mounted) // who registered it decides the route's scope
++			set.str(id, PredHandlerOrigin, origin)
++		} else {
++			set.str(id, PredOrigin, origin)
++		}
+ 		if fi := w.resolveFunc(ci, r.Handler); fi != nil {
+ 			set.add(id, PredHandledBy, fi.id)
+ 		} else if sym := externalSymbol(ci, r.Handler); sym != "" {
+ 			// Not application code (a stdlib or library handler, or a wrapper):
+ 			// say what the runtime sees instead of inventing a link.
+ 			set.str(id, PredHandler, sym)
++			if origin != OriginApp && origin != OriginUnknown {
++				// An external node, so the route has something to point at.
++				if pkg == "" {
++					pkg = symbolPackage(sym)
++				}
++				name := sym[strings.LastIndex(sym, ".")+1:] // an inlined closure is named after its caller: the callee is the last element
++				if rest, ok := strings.CutPrefix(sym, pkg+"."); ok {
++					name = rest // the declared symbol: keeps the receiver, Static.ServeHTTP
++				}
++				ext := extFuncID(pkg, name)
++				set.add(ext, PredType, KindExternal)
++				set.str(ext, PredName, pkg+"."+name)
++				set.str(ext, PredOrigin, origin)
++				if module != "" {
++					set.str(ext, PredModule, module)
++				}
++				set.add(id, PredHandledBy, ext)
++			}
+ 		}
+ 		used := map[quad.IRI]bool{}
+ 		for _, m := range r.MW {
+@@ -283,6 +225,9 @@
+ 	if w.x.opts.buildRoot != nil {
+ 		return *w.x.opts.buildRoot
+ 	}
++	if w.x.opts.BuildRoot != "" {
++		return w.x.opts.BuildRoot
++	}
+ 	_, file, _, ok := runtime.Caller(0)
+ 	if !ok {
+ 		return ""
+@@ -368,7 +313,10 @@
+ 		return dir[i+len("/src/"):]
+ 	}
+ 	if !strings.HasPrefix(dir, "/") && dir != "." {
+-		return dir // -trimpath: already an import path
++		if _, _, p := moduleOfFile(file); p != "" {
++			return p // -trimpath: an import path, with `mod@version` reduced to `mod`
++		}
++		return dir
+ 	}
+ 	return ""
+ }
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/business/services/codegraph/origin.go fw/business/services/codegraph/origin.go
+--- base/business/services/codegraph/origin.go	1970-01-01 02:00:00
++++ fw/business/services/codegraph/origin.go	2026-10-11 10:56:54
+@@ -0,0 +1,162 @@
++package codegraph
++
++import (
++	"path"
++	"strings"
++
++	"github.com/cayleygraph/quad"
++)
++
++// S2 spike: whose code is a runtime function? The source file decides, never the
++// symbol: Go names an inlined closure after the function it was inlined into, so
++// `example.com/shop/routes.Register.Health.func3` is framework code (web.Health).
++
++const (
++	OriginApp        = "app"
++	OriginFramework  = "framework"
++	OriginDependency = "dependency"
++	OriginStdlib     = "stdlib"
++	OriginUnknown    = "unknown"
++)
++
++const (
++	KindExternal = quad.IRI("kind:external")
++	PredOrigin   = quad.IRI("origin")
++	PredModule   = quad.IRI("module")
++
++	PredHandlerOrigin = quad.IRI("handler_origin")
++)
++
++// BuildModule is one dependency of the running app: its path and version, and for a
++// local `replace` the directory it points at (as compiled).
++type BuildModule struct {
++	Path, Version, ReplaceDir string
++}
++
++// moduleFor finds the module a source file belongs to, from the build's module
++// table: `<mod>@<ver>/` inside the path (module cache, any GOMODCACHE; or the
++// start of the path under -trimpath) or the replace directory. Longest path wins.
++func moduleFor(mods []BuildModule, file string) (BuildModule, string, bool) {
++	best, rel, found := BuildModule{}, "", false
++	for _, m := range mods {
++		var r string
++		switch {
++		case m.ReplaceDir != "" && strings.HasPrefix(file, strings.TrimSuffix(m.ReplaceDir, "/")+"/"):
++			r = strings.TrimPrefix(file, strings.TrimSuffix(m.ReplaceDir, "/")+"/")
++		case m.Version != "" && strings.HasPrefix(file, m.Path+"@"+m.Version+"/"):
++			r = strings.TrimPrefix(file, m.Path+"@"+m.Version+"/")
++		case m.Version != "" && strings.Contains(file, "/"+m.Path+"@"+m.Version+"/"):
++			r = file[strings.Index(file, "/"+m.Path+"@"+m.Version+"/")+len("/"+m.Path+"@"+m.Version+"/"):]
++		default:
++			continue
++		}
++		if !found || len(m.Path) > len(best.Path) {
++			best, rel, found = m, r, true
++		}
++	}
++	return best, rel, found
++}
++
++// resolvedModules makes a local replace directory absolute. The build info records
++// it as written in go.mod (`../fw`, relative to the app module), so it is resolved
++// against the app's compile-time root, which the inspect document's root hint gives.
++func (w *world) resolvedModules(ci *codeIndex) []BuildModule {
++	root := w.buildRoot(ci)
++	out := make([]BuildModule, len(w.x.opts.Modules))
++	for i, m := range w.x.opts.Modules {
++		if m.ReplaceDir != "" && !path.IsAbs(m.ReplaceDir) && root != "" {
++			m.ReplaceDir = path.Join(root, m.ReplaceDir)
++		}
++		out[i] = m
++	}
++	return out
++}
++
++// classify says whose code ref is and, outside the app, which module and package.
++func (w *world) classify(ci *codeIndex, ref handlerRef) (origin, module, pkg string) {
++	fwMod := w.x.opts.FrameworkModule
++	if ref.File == "" || ref.File == "<autogenerated>" {
++		// A method-value wrapper (x.Method-fm) has no source: its symbol is the
++		// declared method, which is not inlined into anything.
++		p := symbolPackage(cleanSymbol(ref.Symbol))
++		switch {
++		case p == "":
++			return OriginUnknown, "", ""
++		case inModule(ci.module, p):
++			return OriginApp, ci.module, p
++		case fwMod != "" && inModule(fwMod, p):
++			return OriginFramework, fwMod, p
++		case !strings.Contains(strings.SplitN(p, "/", 2)[0], "."):
++			return OriginStdlib, "", p
++		}
++		return OriginDependency, "", p
++	}
++	if _, ok := w.sourceRel(ci, ref.File); ok {
++		return OriginApp, ci.module, ""
++	}
++	if m, rel, ok := moduleFor(w.resolvedModules(ci), ref.File); ok {
++		p := m.Path
++		if d := path.Dir(rel); d != "." {
++			p += "/" + d
++		}
++		if m.Path == fwMod {
++			return OriginFramework, m.Path, p
++		}
++		return OriginDependency, m.Path, p
++	}
++	// Standard library: GOROOT's `.../src/<pkg>/f.go`, or `<pkg>/f.go` under -trimpath
++	// (first element has no dot).
++	dir := path.Dir(ref.File)
++	if i := strings.Index(dir, "/src/"); i >= 0 {
++		return OriginStdlib, "", dir[i+len("/src/"):]
++	}
++	if !strings.HasPrefix(dir, "/") && !strings.Contains(strings.SplitN(dir, "/", 2)[0], ".") {
++		return OriginStdlib, "", dir
++	}
++	return OriginUnknown, "", ""
++}
++
++func inModule(module, p string) bool { return p == module || strings.HasPrefix(p, module+"/") }
++
++// moduleOfFile reads the module and package out of a source path that is not in
++// the app or the framework checkout: `.../pkg/mod/<mod>@<ver>/<dir>/f.go` (module
++// cache), `<mod>@<ver>/<dir>/f.go` (-trimpath), GOROOT's `.../src/<pkg>/f.go` or
++// trimpath's `<pkg>/f.go` (standard library: first element has no dot).
++func moduleOfFile(file string) (module, version, pkg string) {
++	dir := path.Dir(file)
++	rest := dir
++	if i := strings.Index(dir, "/pkg/mod/"); i >= 0 {
++		rest = dir[i+len("/pkg/mod/"):]
++	}
++	if at := strings.Index(rest, "@"); at >= 0 {
++		module = rest[:at]
++		tail := rest[at:]
++		version = tail
++		sub := ""
++		if slash := strings.Index(tail, "/"); slash >= 0 {
++			version, sub = tail[1:slash], tail[slash:]
++		} else {
++			version = tail[1:]
++		}
++		return module, version, module + sub
++	}
++	if i := strings.Index(dir, "/src/"); i >= 0 {
++		return "", "", dir[i+len("/src/"):] // GOROOT, unmodified path
++	}
++	if !strings.HasPrefix(dir, "/") && !strings.Contains(strings.SplitN(dir, "/", 2)[0], ".") {
++		return "", "", dir // -trimpath standard library
++	}
++	return "", "", ""
++}
++
++// symbolPackage is the import path a runtime symbol starts with.
++func symbolPackage(sym string) string {
++	slash := strings.LastIndex(sym, "/")
++	dot := strings.Index(sym[slash+1:], ".")
++	if dot < 0 {
++		return ""
++	}
++	return sym[:slash+1+dot]
++}
++
++func extFuncID(pkg, name string) quad.IRI { return quad.IRI("ext:" + idKey(pkg+"."+name)) }
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/cmd/spikecalls/main.go fw/cmd/spikecalls/main.go
+--- base/cmd/spikecalls/main.go	1970-01-01 02:00:00
++++ fw/cmd/spikecalls/main.go	2026-10-11 10:46:37
+@@ -0,0 +1,150 @@
++// spikecalls type-checks a scratch app the way the codegraph calls layer does
++// (go/packages, "./..."), optionally with build tags, and reports time, package
++// counts and the shape of the calls that leave the app module (spike S3).
++package main
++
++import (
++	"flag"
++	"fmt"
++	"go/ast"
++	"go/types"
++	"os"
++	"sort"
++	"strings"
++	"time"
++
++	"golang.org/x/tools/go/packages"
++)
++
++func main() {
++	dir := flag.String("dir", "", "app dir")
++	tags := flag.String("tags", "", "build tags")
++	module := flag.String("module", "example.com/shop", "app module path")
++	fwMod := flag.String("fw", "petars-dev/govibe", "framework module path")
++	detail := flag.Bool("detail", false, "print every external edge")
++	nodeps := flag.Bool("modules", true, "request package module info")
++	flag.Parse()
++
++	mode := packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports |
++		packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo
++	if *nodeps {
++		mode |= packages.NeedModule
++	}
++	cfg := &packages.Config{Dir: *dir, Mode: mode, Tests: false}
++	if *tags != "" {
++		cfg.BuildFlags = []string{"-tags=" + *tags}
++	}
++	t0 := time.Now()
++	pkgs, err := packages.Load(cfg, "./...")
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "load:", err)
++		os.Exit(1)
++	}
++	loadDur := time.Since(t0)
++
++	all, typed := 0, 0
++	seen := map[string]bool{}
++	modOf := map[string]*packages.Module{} // every package of the closure, not only the app's direct imports
++	packages.Visit(pkgs, nil, func(p *packages.Package) {
++		modOf[p.PkgPath] = p.Module
++		if !seen[p.PkgPath] {
++			seen[p.PkgPath] = true
++			all++
++			if p.Types != nil && p.Types.Complete() && p.Syntax != nil {
++				typed++
++			}
++		}
++	})
++	appPkgs := 0
++	type edge struct{ from, to, pkg, module, kind string }
++	var edges []edge
++	counts := map[string]int{}
++	for _, p := range pkgs {
++		if !strings.HasPrefix(p.PkgPath, *module) || p.TypesInfo == nil {
++			continue
++		}
++		appPkgs++
++		for _, f := range p.Syntax {
++			for _, d := range f.Decls {
++				fd, ok := d.(*ast.FuncDecl)
++				if !ok || fd.Body == nil {
++					continue
++				}
++				caller := p.PkgPath + "." + fd.Name.Name
++				ast.Inspect(fd.Body, func(n ast.Node) bool {
++					call, ok := n.(*ast.CallExpr)
++					if !ok {
++						return true
++					}
++					var fn *types.Func
++					var sel *types.Selection
++					switch x := ast.Unparen(call.Fun).(type) {
++					case *ast.Ident:
++						fn, _ = p.TypesInfo.Uses[x].(*types.Func)
++					case *ast.SelectorExpr:
++						if s := p.TypesInfo.Selections[x]; s != nil {
++							sel = s
++							fn, _ = s.Obj().(*types.Func)
++						} else {
++							fn, _ = p.TypesInfo.Uses[x.Sel].(*types.Func)
++						}
++					}
++					if fn == nil || fn.Pkg() == nil {
++						return true
++					}
++					fn = fn.Origin()
++					pkgPath := fn.Pkg().Path()
++					class := "stdlib"
++					mod := ""
++					if m := modOf[pkgPath]; m != nil {
++						mod = m.Path + "@" + m.Version
++						if m.Replace != nil {
++							mod += " => " + m.Replace.Path
++						}
++					}
++					switch {
++					case strings.HasPrefix(pkgPath, *module):
++						class = "app"
++					case strings.HasPrefix(pkgPath, *fwMod):
++						class = "framework"
++					case strings.Contains(strings.SplitN(pkgPath, "/", 2)[0], "."):
++						class = "dependency"
++					}
++					kind := "func"
++					if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() != nil {
++						kind = "method"
++						if types.IsInterface(sig.Recv().Type()) {
++							kind = "interface-method"
++						}
++					}
++					counts[class]++
++					if class != "app" {
++						edges = append(edges, edge{caller, fn.FullName(), pkgPath, mod, class + "/" + kind})
++					}
++					_ = sel
++					return true
++				})
++			}
++		}
++	}
++	fmt.Printf("tags=%q load=%dms roots=%d packages-in-closure=%d with-types-and-syntax=%d app-packages-checked=%d\n",
++		*tags, loadDur.Milliseconds(), len(pkgs), all, typed, appPkgs)
++	fmt.Printf("call sites by target: %v\n", counts)
++	if *detail {
++		sort.Slice(edges, func(i, j int) bool {
++			if edges[i].kind != edges[j].kind {
++				return edges[i].kind < edges[j].kind
++			}
++			return edges[i].to < edges[j].to
++		})
++		last := ""
++		for _, e := range edges {
++			key := e.kind + e.to
++			if key == last {
++				continue
++			}
++			last = key
++			fmt.Printf("  %-26s %-70s pkg=%s module=%s  (from %s)\n", e.kind, e.to, e.pkg, e.module, e.from)
++		}
++	}
++}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/cmd/spikeindex/main.go fw/cmd/spikeindex/main.go
+--- base/cmd/spikeindex/main.go	1970-01-01 02:00:00
++++ fw/cmd/spikeindex/main.go	2026-10-11 10:40:18
+@@ -0,0 +1,158 @@
++// spikeindex runs the indexer offline over a scratch app, with its routes read
++// from the app's `inspect --json` document (spikes S2 and S6).
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"flag"
++	"fmt"
++	"os"
++	"path"
++	"sort"
++	"strings"
++
++	"github.com/sirupsen/logrus"
++
++	"petars-dev/govibe/business/services/codegraph"
++	"petars-dev/govibe/internal/routeinfo"
++	"petars-dev/govibe/storage/graphdb"
++)
++
++type doc struct {
++	Framework struct {
++		Module string `json:"module"`
++	} `json:"framework"`
++	Build struct {
++		Modules []struct {
++			Path       string `json:"path"`
++			Version    string `json:"version"`
++			ReplaceDir string `json:"replace_dir"`
++		} `json:"modules"`
++	} `json:"build"`
++	App struct {
++		Module   string `json:"module"`
++		RootHint struct {
++			Symbol string `json:"symbol"`
++			File   string `json:"file"`
++		} `json:"root_hint"`
++	} `json:"app"`
++	Routes []struct {
++		Method    string `json:"method"`
++		Path      string `json:"path"`
++		MountedBy string `json:"mounted_by"`
++		Handler   struct {
++			Symbol string `json:"symbol"`
++			File   string `json:"file"`
++			Line   int    `json:"line"`
++		} `json:"handler"`
++		Middleware []struct {
++			Symbol string `json:"symbol"`
++			File   string `json:"file"`
++			Line   int    `json:"line"`
++		} `json:"middleware"`
++	} `json:"routes"`
++}
++
++func main() {
++	root := flag.String("root", "", "app root")
++	in := flag.String("inspect", "", "inspect --json file")
++	store := flag.String("store", "", "scratch graph dir")
++	noHint := flag.Bool("no-build-root", false, "do not pass the build root (what the old code does)")
++	layers := flag.String("layers", "code,routes,docs,findings", "layers to run")
++	flag.Parse()
++	logrus.SetLevel(logrus.WarnLevel)
++
++	raw, err := os.ReadFile(*in)
++	must(err)
++	var d doc
++	must(json.Unmarshal(raw, &d))
++
++	// Build root from the hint: the routes function's file minus its package dir.
++	buildRoot := ""
++	if !*noHint {
++		pkgPath := d.App.RootHint.Symbol[:strings.Index(d.App.RootHint.Symbol[strings.LastIndex(d.App.RootHint.Symbol, "/")+1:], ".")+strings.LastIndex(d.App.RootHint.Symbol, "/")+1]
++		rel := strings.TrimPrefix(pkgPath, d.App.Module)
++		rel = strings.TrimPrefix(rel, "/")
++		dir := path.Dir(d.App.RootHint.File)
++		buildRoot, _ = strings.CutSuffix(dir, rel)
++		if rel == "" || pkgPath == "main" {
++			buildRoot = dir + "/"
++		}
++		if !strings.HasSuffix(buildRoot, "/") {
++			buildRoot += "/"
++		}
++	}
++	src := func() ([]routeinfo.Route, error) {
++		var out []routeinfo.Route
++		for _, r := range d.Routes {
++			rr := routeinfo.Route{Mounted: r.MountedBy, Method: r.Method, Path: r.Path, Handler: routeinfo.Ref{Symbol: r.Handler.Symbol, File: r.Handler.File, Line: r.Handler.Line}}
++			for _, m := range r.Middleware {
++				rr.MW = append(rr.MW, routeinfo.Ref{Symbol: m.Symbol, File: m.File, Line: m.Line})
++			}
++			out = append(out, rr)
++		}
++		return out, nil
++	}
++
++	h, err := graphdb.Open(*store)
++	must(err)
++	defer h.Close()
++	var mods []codegraph.BuildModule
++	for _, m := range d.Build.Modules {
++		mods = append(mods, codegraph.BuildModule{Path: m.Path, Version: m.Version, ReplaceDir: m.ReplaceDir})
++	}
++	ix := codegraph.New(h.QuadStore, codegraph.Options{Root: *root, RouteSource: src, BuildRoot: buildRoot, Modules: mods, FrameworkModule: d.Framework.Module})
++	rep, err := ix.RunLayers(context.Background(), strings.Split(*layers, ","))
++	must(err)
++	fmt.Println("buildRoot:", buildRoot)
++	for _, l := range rep.Layers {
++		if l.Ran || l.Status != "ok" {
++			fmt.Printf("layer %-9s %-8s quads=%d %v\n", l.Name, l.Status, l.Quads, l.Warnings)
++		}
++	}
++	m, err := ix.Model(context.Background())
++	must(err)
++	var lines []string
++	for _, n := range m.Kind("route") {
++		str := func(p string) string {
++			if v := n.Attrs[p]; len(v) > 0 {
++				return fmt.Sprint(v[0])
++			}
++			return ""
++		}
++		to := ""
++		for _, id := range n.Out["handled_by"] {
++			t := m.Node(id)
++			to += id
++			if t != nil {
++				if o := t.Attrs["origin"]; len(o) > 0 {
++					to += " (origin " + fmt.Sprint(o[0]) + ")"
++				}
++			}
++		}
++		lines = append(lines, fmt.Sprintf("%-22s route=%-9s handler=%-10s -> %s | attr=%s", str("name"), str("origin"), orDash(str("handler_origin")), orDash(to), orDash(str("handler"))))
++	}
++	sort.Strings(lines)
++	for _, l := range lines {
++		fmt.Println(l)
++	}
++	fmt.Println("-- findings")
++	for _, f := range m.AllFindings() {
++		fmt.Printf("%s %s: %s\n", f.Severity, f.Rule, f.Message)
++	}
++}
++
++func orDash(s string) string {
++	if s == "" {
++		return "-"
++	}
++	return s
++}
++
++func must(err error) {
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/config/defaults.yml fw/config/defaults.yml
+--- base/config/defaults.yml	1970-01-01 02:00:00
++++ fw/config/defaults.yml	2026-10-11 10:28:22
+@@ -0,0 +1,11 @@
++env: ${APP_ENV:local}
++server:
++  port: ${PORT:8080}
++  log_level: ${LOG_LEVEL:info}
++database:
++  type: ${DATABASE_TYPE:mysql}
++  mariadb:
++    dsn: ${MARIADB_DSN:}
++scheduler:
++  enabled: true
++  timezone: UTC
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/config/layered.go fw/config/layered.go
+--- base/config/layered.go	1970-01-01 02:00:00
++++ fw/config/layered.go	2026-10-11 10:28:21
+@@ -0,0 +1,84 @@
++package config
++
++import (
++	_ "embed"
++	"fmt"
++	"io/fs"
++	"strings"
++
++	"gopkg.in/yaml.v3"
++)
++
++//go:embed defaults.yml
++var defaultsYAML []byte
++
++// Layered is the instance-based configuration of the spike: framework defaults,
++// then the app's env.yml, resolved from the process environment.
++type Layered struct{ raw map[string]any }
++
++// LoadLayered merges defaults.yml (embedded here) with env.yml read from app.
++// app may be nil.
++func LoadLayered(app fs.FS) (*Layered, error) {
++	var base map[string]any
++	if err := yaml.Unmarshal(defaultsYAML, &base); err != nil {
++		return nil, fmt.Errorf("parse defaults.yml: %w", err)
++	}
++	if app != nil {
++		b, err := fs.ReadFile(app, "env.yml")
++		if err != nil {
++			return nil, fmt.Errorf("read app env.yml: %w", err)
++		}
++		var over map[string]any
++		if err := yaml.Unmarshal(b, &over); err != nil {
++			return nil, fmt.Errorf("parse app env.yml: %w", err)
++		}
++		base = merge(base, over)
++	}
++	res, _ := resolveNode(base).(map[string]any)
++	return &Layered{raw: res}, nil
++}
++
++// merge deep-merges over into base: maps merge, everything else is replaced.
++func merge(base, over map[string]any) map[string]any {
++	for k, v := range over {
++		if bm, ok := base[k].(map[string]any); ok {
++			if om, ok := v.(map[string]any); ok {
++				base[k] = merge(bm, om)
++				continue
++			}
++		}
++		base[k] = v
++	}
++	return base
++}
++
++func (c *Layered) Get(path string) (any, bool) {
++	var cur any = c.raw
++	for _, p := range strings.Split(path, ".") {
++		m, ok := cur.(map[string]any)
++		if !ok {
++			return nil, false
++		}
++		if cur, ok = m[p]; !ok {
++			return nil, false
++		}
++	}
++	return cur, true
++}
++
++func (c *Layered) String(path string) string {
++	v, _ := c.Get(path)
++	if v == nil {
++		return ""
++	}
++	return fmt.Sprint(v)
++}
++
++func (c *Layered) Unmarshal(path string, out any) error {
++	v, ok := c.Get(path)
++	if !ok {
++		return fmt.Errorf("config path not found: %s", path)
++	}
++	b, _ := yaml.Marshal(v)
++	return yaml.Unmarshal(b, out)
++}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/govibe.go fw/govibe.go
+--- base/govibe.go	1970-01-01 02:00:00
++++ fw/govibe.go	2026-10-11 10:42:52
+@@ -0,0 +1,237 @@
++// Package govibe is the prototype of the framework's public entry point.
++package govibe
++
++import (
++	"context"
++	"encoding/json"
++	"flag"
++	"fmt"
++	"io"
++	"net/http"
++	"os"
++	"os/signal"
++	"reflect"
++	"runtime"
++	"runtime/debug"
++	"strings"
++	"syscall"
++	"time"
++
++	"petars-dev/govibe/config"
++	"petars-dev/govibe/internal/kernel"
++	"petars-dev/govibe/internal/routeinfo"
++)
++
++type (
++	App     = kernel.App
++	Runtime = kernel.Runtime
++	Command = kernel.Command
++	RunFunc = kernel.RunFunc
++)
++
++func Main(app App) {
++	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
++	defer stop()
++	if err := Run(ctx, app, os.Args[1:], os.Stdout, os.Stderr); err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++}
++
++func Run(ctx context.Context, app App, args []string, out, errOut io.Writer) error {
++	name := "serve"
++	if len(args) > 0 {
++		name, args = args[0], args[1:]
++	}
++	switch name {
++	case "serve":
++		b, err := kernel.Build(app, kernel.BuildOptions{OpenDB: true, DevMount: true})
++		if err != nil {
++			return err
++		}
++		return serve(ctx, b, out)
++	case "routes":
++		b, err := kernel.Build(app, kernel.BuildOptions{})
++		if err != nil {
++			return err
++		}
++		for _, r := range routeinfo.Walk(b.Router) {
++			fmt.Fprintf(out, "%-4s %-28s %s\n", r.Method, r.Path, r.Handler.Symbol)
++		}
++		return nil
++	case "inspect":
++		fs := flag.NewFlagSet("inspect", flag.ContinueOnError)
++		asJSON := fs.Bool("json", false, "print the inspect document")
++		if err := fs.Parse(args); err != nil {
++			return err
++		}
++		if !*asJSON {
++			return fmt.Errorf("inspect: only --json is supported")
++		}
++		b, err := kernel.Build(app, kernel.BuildOptions{}) // no DB, no dev mount, no scheduler
++		if err != nil {
++			return err
++		}
++		enc := json.NewEncoder(out)
++		enc.SetIndent("", "  ")
++		return enc.Encode(Inspect(b))
++	}
++	b, err := kernel.Build(app, kernel.BuildOptions{OpenDB: true})
++	if err != nil {
++		return err
++	}
++	for _, c := range b.Commands {
++		if c.Use == name {
++			return c.Run(ctx, b.Rt, args)
++		}
++	}
++	return fmt.Errorf("unknown command %q", name)
++}
++
++func serve(ctx context.Context, b *kernel.Built, out io.Writer) error {
++	port := b.Rt.Config.String("server.port")
++	srv := &http.Server{Addr: ":" + port, Handler: b.Router, ReadTimeout: 10 * time.Second}
++	for _, n := range b.Notes {
++		fmt.Fprintln(out, "boot:", n)
++	}
++	fmt.Fprintf(out, "listening on http://localhost:%s\n", port)
++	go func() { <-ctx.Done(); _ = srv.Shutdown(context.Background()) }()
++	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
++		return err
++	}
++	if b.App.Shutdown != nil {
++		return b.App.Shutdown(context.Background())
++	}
++	return nil
++}
++
++// ---- inspect ----------------------------------------------------------------
++
++const InspectSchema = "govibe.inspect/1"
++
++type InspectDoc struct {
++	Schema    string         `json:"schema"`
++	App       InspectApp     `json:"app"`
++	Framework InspectModule  `json:"framework"`
++	Go        string         `json:"go"`
++	Build     InspectBuild   `json:"build"`
++	Routes    []InspectRoute `json:"routes"`
++	Commands  []InspectCmd   `json:"commands"`
++}
++type InspectApp struct {
++	Name   string `json:"name"`
++	Module string `json:"module"`
++	// RootHint is where the app's routes function was compiled: with its import
++	// path it recovers the compile-time root of the module (see S2).
++	RootHint InspectRef `json:"root_hint"`
++}
++type InspectModule struct {
++	Module  string `json:"module"`
++	Version string `json:"version"`
++}
++type InspectBuild struct {
++	Trimpath bool   `json:"trimpath"`
++	Tags     string `json:"tags,omitempty"`
++	// Modules is the build's dependency table (debug.ReadBuildInfo): with it a
++	// source path maps to a module exactly, whatever GOMODCACHE, -trimpath or
++	// `replace` made of it.
++	Modules []BuildModule `json:"modules"`
++}
++
++// BuildModule is one dependency of the app binary.
++type BuildModule struct {
++	Path       string `json:"path"`
++	Version    string `json:"version"`
++	ReplaceDir string `json:"replace_dir,omitempty"` // the directory a local `replace` points at, as compiled
++}
++type InspectRef struct {
++	Symbol string `json:"symbol"`
++	File   string `json:"file"`
++	Line   int    `json:"line"`
++}
++type InspectRoute struct {
++	Method     string       `json:"method"`
++	Path       string       `json:"path"`
++	Handler    InspectRef   `json:"handler"`
++	MountedBy  string       `json:"mounted_by"` // framework | app: who registered the route
++	Middleware []InspectRef `json:"middleware,omitempty"`
++}
++type InspectCmd struct {
++	Name    string     `json:"name"`
++	Short   string     `json:"short"`
++	Handler InspectRef `json:"handler"`
++}
++
++// frameworkModule is derived, not hard-coded: the module that holds this package.
++func frameworkModule() string {
++	return strings.TrimSuffix(reflect.TypeOf(config.Layered{}).PkgPath(), "/config")
++}
++
++func Inspect(b *kernel.Built) InspectDoc {
++	bi, _ := debug.ReadBuildInfo()
++	doc := InspectDoc{Schema: InspectSchema, Go: runtime.Version()}
++	doc.App.Name = b.App.Name
++	if bi != nil {
++		doc.App.Module = bi.Main.Path
++		doc.Build.Modules = []BuildModule{}
++		for _, d := range bi.Deps {
++			m := BuildModule{Path: d.Path, Version: d.Version}
++			// A local replace is recorded as `=> ../fw (devel)`: its Version is
++			// "(devel)", not empty, and its path is as written in go.mod.
++			if d.Replace != nil && (strings.HasPrefix(d.Replace.Path, ".") || strings.HasPrefix(d.Replace.Path, "/")) {
++				m.ReplaceDir = d.Replace.Path
++			}
++			doc.Build.Modules = append(doc.Build.Modules, m)
++		}
++		for _, s := range bi.Settings {
++			switch s.Key {
++			case "-trimpath":
++				doc.Build.Trimpath = s.Value == "true"
++			case "-tags":
++				doc.Build.Tags = s.Value
++			}
++		}
++	}
++	doc.Framework.Module = frameworkModule()
++	doc.Framework.Version = "(devel)"
++	if bi != nil {
++		for _, d := range bi.Deps {
++			if d.Path == doc.Framework.Module {
++				doc.Framework.Version = d.Version
++			}
++		}
++	}
++	if b.App.Routes != nil {
++		doc.App.RootHint = refOf(routeinfo.FuncRef(reflect.ValueOf(b.App.Routes)))
++	}
++	for _, r := range routeinfo.Walk(b.Router) {
++		ir := InspectRoute{Method: r.Method, Path: r.Path, Handler: refOf(r.Handler), MountedBy: "app"}
++		if b.FrameworkRoutes[r.Method+" "+r.Path] {
++			ir.MountedBy = "framework"
++		}
++		for _, m := range r.MW {
++			ir.Middleware = append(ir.Middleware, refOf(m))
++		}
++		doc.Routes = append(doc.Routes, ir)
++	}
++	doc.Commands = []InspectCmd{}
++	for _, c := range b.Commands {
++		doc.Commands = append(doc.Commands, InspectCmd{Name: c.Use, Short: c.Short,
++			Handler: refOf(routeinfo.FuncRef(reflect.ValueOf(c.Run)))})
++	}
++	return doc
++}
++
++func refOf(r routeinfo.Ref) InspectRef {
++	return InspectRef{Symbol: r.Symbol, File: r.File, Line: r.Line}
++}
++
++// pkgOf returns the import path of the package of a runtime symbol.
++func pkgOf(sym string) string {
++	slash := strings.LastIndex(sym, "/")
++	dot := strings.Index(sym[slash+1:], ".")
++	if dot < 0 {
++		return ""
++	}
++	return sym[:slash+1+dot]
++}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/govibetest/govibetest.go fw/govibetest/govibetest.go
+--- base/govibetest/govibetest.go	1970-01-01 02:00:00
++++ fw/govibetest/govibetest.go	2026-10-11 10:28:48
+@@ -0,0 +1,22 @@
++// Package govibetest boots an App in a test.
++package govibetest
++
++import (
++	"net/http"
++	"testing"
++
++	"petars-dev/govibe/internal/kernel"
++)
++
++// Boot builds the app's handler with the given environment (t.Setenv per entry).
++func Boot(t testing.TB, app kernel.App, env map[string]string) (http.Handler, *kernel.Built) {
++	t.Helper()
++	for k, v := range env {
++		t.Setenv(k, v)
++	}
++	b, err := kernel.Build(app, kernel.BuildOptions{})
++	if err != nil {
++		t.Fatalf("boot: %v", err)
++	}
++	return b.Router, b
++}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/internal/kernel/dev_mount.go fw/internal/kernel/dev_mount.go
+--- base/internal/kernel/dev_mount.go	1970-01-01 02:00:00
++++ fw/internal/kernel/dev_mount.go	2026-10-11 10:28:22
+@@ -0,0 +1,20 @@
++//go:build govibe_dev
++
++package kernel
++
++import (
++	"net/http"
++
++	"github.com/go-chi/chi/v5"
++
++	// Stand-in for the dev tooling (cayley, x/tools, MCP, goldmark, chroma): the
++	// real mount lands behind this tag in Phase 2.
++	_ "petars-dev/govibe/business/services/codegraph"
++	"petars-dev/govibe/web"
++)
++
++func init() {
++	devMount = func(b *Built, r chi.Router) {
++		r.Get("/dev", func(w http.ResponseWriter, r *http.Request) { web.JSON(w, 200, "dev panel") })
++	}
++}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/internal/kernel/kernel.go fw/internal/kernel/kernel.go
+--- base/internal/kernel/kernel.go	1970-01-01 02:00:00
++++ fw/internal/kernel/kernel.go	2026-10-11 10:46:27
+@@ -0,0 +1,127 @@
++// Package kernel is the prototype boot path shared by Main, serve, inspect and tests.
++package kernel
++
++import (
++	"context"
++	"fmt"
++	"io/fs"
++	"net/http"
++	"os"
++	"strings"
++
++	"github.com/go-chi/chi/v5"
++	"github.com/go-chi/chi/v5/middleware"
++	"github.com/jmoiron/sqlx"
++	"github.com/sirupsen/logrus"
++
++	"petars-dev/govibe/config"
++	"petars-dev/govibe/internal/routeinfo"
++	"petars-dev/govibe/web"
++)
++
++type App struct {
++	Name       string
++	Config     fs.FS
++	Migrations fs.FS
++	Assets     fs.FS
++	Routes     func(rt *Runtime, r chi.Router) error
++	Commands   func(rt *Runtime) []Command
++	Shutdown   func(ctx context.Context) error
++}
++
++type Runtime struct {
++	Config *config.Layered
++	Log    logrus.FieldLogger
++	DB     *sqlx.DB
++}
++
++type RunFunc func(ctx context.Context, rt *Runtime, args []string) error
++
++type Command struct {
++	Use, Short string
++	Run        RunFunc
++}
++
++// BuildOptions say which parts of the boot sequence run.
++type BuildOptions struct {
++	OpenDB   bool // open the database pool when a DSN is set
++	DevMount bool // mount the dev tooling (needs the govibe_dev build tag too)
++	AssetDir string
++}
++
++type Built struct {
++	App      App
++	Rt       *Runtime
++	Router   chi.Router
++	Commands []Command
++	Notes    []string // what the boot did, for the spike's assertions
++	// FrameworkRoutes are "METHOD path" of every route registered before App.Routes ran.
++	FrameworkRoutes map[string]bool
++}
++
++var devMount func(b *Built, r chi.Router) // set by dev_mount.go under the govibe_dev tag
++
++func Build(app App, opt BuildOptions) (*Built, error) {
++	cfg, err := config.LoadLayered(app.Config)
++	if err != nil {
++		return nil, err
++	}
++	rt := &Runtime{Config: cfg, Log: logrus.WithField("app", app.Name)}
++	b := &Built{App: app, Rt: rt}
++	if opt.OpenDB && cfg.String("database.mariadb.dsn") != "" {
++		return nil, fmt.Errorf("spike: database open not implemented")
++	}
++	r := chi.NewRouter()
++	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, web.RequestTag)
++
++	// Assets: disk when ./assets exists and env is local/dev, else embedded App.Assets.
++	env := cfg.String("env")
++	dir := opt.AssetDir
++	if dir == "" {
++		dir = "assets"
++	}
++	if st, err := os.Stat(dir); (env == "local" || env == "dev") && err == nil && st.IsDir() {
++		b.Notes = append(b.Notes, "assets: disk "+dir)
++		r.Handle("/assets/*", http.StripPrefix("/assets", http.FileServer(http.Dir(dir))))
++	} else if app.Assets != nil {
++		b.Notes = append(b.Notes, "assets: embedded")
++		r.Handle("/assets/*", http.StripPrefix("/assets", http.FileServerFS(app.Assets)))
++	}
++
++	// Framework runtime namespace: one handler of every shape.
++	v := &web.Version{V: "0.0.0-spike"}
++	r.Get("/_govibe/ping", web.Ping)
++	r.Get("/_govibe/health", web.Health("shop"))
++	r.Get("/_govibe/version", v.Handle)
++	r.Handle("/_govibe/static/*", web.Static{Msg: "static"})
++	r.Get("/_govibe/inline", func(w http.ResponseWriter, r *http.Request) { web.JSON(w, 200, "inline") })
++
++	b.FrameworkRoutes = map[string]bool{}
++	for _, fr := range routeinfo.Walk(r) {
++		b.FrameworkRoutes[fr.Method+" "+fr.Path] = true
++	}
++	if app.Routes != nil {
++		if err := app.Routes(rt, r); err != nil {
++			return nil, fmt.Errorf("routes: %w", err)
++		}
++	}
++	for _, p := range reservedClash(r) {
++		return nil, fmt.Errorf("app registered %s under a reserved prefix", p)
++	}
++	b.Router = r
++	if app.Commands != nil {
++		b.Commands = app.Commands(rt)
++	}
++	if opt.DevMount && devMount != nil && !strings.EqualFold(env, "prod") {
++		devMount(b, r)
++		b.Notes = append(b.Notes, "dev: mounted")
++	} else if opt.DevMount {
++		b.Notes = append(b.Notes, "dev: not compiled in")
++	}
++	return b, nil
++}
++
++func reservedClash(r chi.Router) []string { return nil }
++
++// Env is a method on the alias target: a call from the app lands in internal/kernel.
++func (rt *Runtime) Env() string { return rt.Config.String("env") }
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/internal/migrate/migrate.go fw/internal/migrate/migrate.go
+--- base/internal/migrate/migrate.go	1970-01-01 02:00:00
++++ fw/internal/migrate/migrate.go	2026-10-11 10:44:25
+@@ -0,0 +1,46 @@
++// Package migrate is the prototype of the goose runner: instance-based (the
++// goose Provider API), dialect always explicit, reads the app's handed-over fs.FS.
++package migrate
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"io/fs"
++
++	"github.com/pressly/goose/v3"
++)
++
++// Dir is the directory the app's embed holds: `//go:embed sql/*.sql`.
++const Dir = "sql"
++
++func provider(db *sql.DB, dialect goose.Dialect, migrations fs.FS) (*goose.Provider, error) {
++	sub, err := fs.Sub(migrations, Dir)
++	if err != nil {
++		return nil, err
++	}
++	return goose.NewProvider(dialect, db, sub)
++}
++
++// Up applies every pending migration.
++func Up(ctx context.Context, db *sql.DB, dialect goose.Dialect, migrations fs.FS) error {
++	p, err := provider(db, dialect, migrations)
++	if err != nil {
++		return fmt.Errorf("migrations: %w", err)
++	}
++	_, err = p.Up(ctx)
++	return err
++}
++
++// List names the migrations the handed-over FS holds; it touches no database.
++func List(db *sql.DB, dialect goose.Dialect, migrations fs.FS) ([]string, error) {
++	p, err := provider(db, dialect, migrations)
++	if err != nil {
++		return nil, err
++	}
++	var out []string
++	for _, s := range p.ListSources() {
++		out = append(out, fmt.Sprintf("%d:%s", s.Version, s.Path))
++	}
++	return out, nil
++}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/internal/migrate/migrate_test.go fw/internal/migrate/migrate_test.go
+--- base/internal/migrate/migrate_test.go	1970-01-01 02:00:00
++++ fw/internal/migrate/migrate_test.go	2026-10-11 10:44:25
+@@ -0,0 +1,58 @@
++package migrate
++
++import (
++	"database/sql"
++	"testing"
++	"testing/fstest"
++
++	_ "github.com/go-sql-driver/mysql"
++	"github.com/pressly/goose/v3"
++)
++
++// What an app's `//go:embed sql/*.sql` embed.FS looks like from the outside.
++var appFS = fstest.MapFS{
++	"sql/0001_init.sql": {Data: []byte("-- +goose Up\nCREATE TABLE t (id INT);\n-- +goose Down\nDROP TABLE t;\n")},
++	"sql/0002_more.sql": {Data: []byte("-- +goose Up\nALTER TABLE t ADD c INT;\n-- +goose Down\nALTER TABLE t DROP c;\n")},
++}
++
++// sql.Open does not dial: the provider only needs the handle to exist.
++func unopened(t *testing.T) *sql.DB {
++	db, err := sql.Open("mysql", "nobody:nothing@tcp(127.0.0.1:1)/none")
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { db.Close() })
++	return db
++}
++
++func TestListFromHandedOverFS(t *testing.T) {
++	got, err := List(unopened(t), goose.DialectMySQL, appFS)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(got) != 2 || got[0] != "1:0001_init.sql" {
++		t.Fatalf("got %v", got)
++	}
++}
++
++func TestDialectCannotBeOmitted(t *testing.T) {
++	if _, err := List(unopened(t), "", appFS); err == nil {
++		t.Fatal("an empty dialect must be an error (the global goose API silently picks postgres)")
++	}
++}
++
++func TestMissingSqlDirIsAnError(t *testing.T) {
++	if got, err := List(unopened(t), goose.DialectMySQL, fstest.MapFS{"other/x.sql": {}}); err == nil {
++		t.Fatalf("want an error for an FS without sql/, got %v", got)
++	}
++}
++
++// The global API the repo uses today, for comparison: process-wide state.
++func TestGlobalAPIStillCollects(t *testing.T) {
++	goose.SetBaseFS(appFS)
++	t.Cleanup(func() { goose.SetBaseFS(nil) })
++	ms, err := goose.CollectMigrations("sql", 0, goose.MaxVersion)
++	if err != nil || len(ms) != 2 {
++		t.Fatalf("%v %v", ms, err)
++	}
++}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/internal/routeinfo/routeinfo.go fw/internal/routeinfo/routeinfo.go
+--- base/internal/routeinfo/routeinfo.go	1970-01-01 02:00:00
++++ fw/internal/routeinfo/routeinfo.go	2026-10-11 10:32:41
+@@ -0,0 +1,126 @@
++// Package routeinfo reads a live chi router into plain data: method, path and
++// the runtime's description of each handler and middleware. It depends on chi,
++// reflect and runtime only, so the app binary can use it (inspect --json) while
++// the heavy graph code stays out of a default build.
++package routeinfo
++
++import (
++	"net/http"
++	"path/filepath"
++	"reflect"
++	"runtime"
++	"sort"
++	"strings"
++
++	"github.com/go-chi/chi/v5"
++)
++
++// AnyMethod is the method token of a route registered for every method.
++const AnyMethod = "ANY"
++
++// Route is one route as the running router reports it.
++type Route struct {
++	Method  string // upper-case HTTP method, or AnyMethod
++	Path    string
++	Handler Ref
++	MW      []Ref // middleware, outermost first
++	// Mounted says who registered the route: "framework" (before App.Routes ran),
++	// "app", or "" when unknown. The handler's own origin can differ (an app
++	// mounting web.Ping, the framework mounting http.FileServer).
++	Mounted string
++}
++
++// Ref is a function as the Go runtime describes it.
++type Ref struct {
++	Symbol string
++	File   string
++	Line   int
++}
++
++type middlewareFunc = func(http.Handler) http.Handler
++
++func Sort(rs []Route) []Route {
++	sort.SliceStable(rs, func(i, j int) bool {
++		if rs[i].Path != rs[j].Path {
++			return rs[i].Path < rs[j].Path
++		}
++		return rs[i].Method < rs[j].Method
++	})
++	return rs
++}
++
++// Walk walks a chi router (sub-routers, groups, per-level middleware).
++func Walk(r chi.Routes) []Route {
++	var out []Route
++	walk(r, "", nil, &out)
++	return Sort(out)
++}
++
++func walk(r chi.Routes, parent string, parentMW []middlewareFunc, out *[]Route) {
++	for _, route := range r.Routes() {
++		mws := append(append([]middlewareFunc(nil), parentMW...), r.Middlewares()...)
++		if route.SubRoutes != nil {
++			walk(route.SubRoutes, parent+route.Pattern, mws, out)
++			continue
++		}
++		path := strings.ReplaceAll(parent+route.Pattern, "/*/", "/")
++		emit := func(method string, h http.Handler) {
++			chain := mws
++			if ch, ok := h.(*chi.ChainHandler); ok {
++				chain = append(append([]middlewareFunc(nil), mws...), ch.Middlewares...)
++				h = ch.Endpoint
++			}
++			rr := Route{Method: method, Path: path, Handler: HandlerRef(h)}
++			for _, m := range chain {
++				rr.MW = append(rr.MW, FuncRef(reflect.ValueOf(m)))
++			}
++			*out = append(*out, rr)
++		}
++		if all, ok := route.Handlers["*"]; ok {
++			emit(AnyMethod, all)
++			for m, h := range route.Handlers {
++				if m != "*" && HandlerRef(unwrap(h)) != HandlerRef(unwrap(all)) {
++					emit(m, h)
++				}
++			}
++			continue
++		}
++		for m, h := range route.Handlers {
++			emit(m, h)
++		}
++	}
++}
++
++func unwrap(h http.Handler) http.Handler {
++	if ch, ok := h.(*chi.ChainHandler); ok {
++		return ch.Endpoint
++	}
++	return h
++}
++
++// HandlerRef identifies the function that serves h.
++func HandlerRef(h http.Handler) Ref {
++	v := reflect.ValueOf(h)
++	if !v.IsValid() {
++		return Ref{}
++	}
++	if v.Kind() == reflect.Func {
++		return FuncRef(v)
++	}
++	if m, ok := v.Type().MethodByName("ServeHTTP"); ok {
++		return FuncRef(m.Func)
++	}
++	return Ref{}
++}
++
++func FuncRef(v reflect.Value) Ref {
++	if !v.IsValid() || v.Kind() != reflect.Func || v.IsNil() {
++		return Ref{}
++	}
++	fn := runtime.FuncForPC(v.Pointer())
++	if fn == nil {
++		return Ref{}
++	}
++	file, line := fn.FileLine(fn.Entry())
++	return Ref{Symbol: fn.Name(), File: filepath.ToSlash(file), Line: line}
++}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/main.go fw/main.go
+--- base/main.go	2026-09-28 10:52:00
++++ fw/main.go	1970-01-01 02:00:00
+@@ -1,60 +0,0 @@
+-package main
+-
+-import (
+-	"context"
+-	"net/http"
+-	"time"
+-
+-	"github.com/sirupsen/logrus"
+-	"github.com/workos/workos-go/v10"
+-
+-	"petars-dev/govibe/config"
+-	"petars-dev/govibe/logger"
+-	"petars-dev/govibe/routes"
+-	"petars-dev/govibe/storage/mariadb"
+-	storagemig "petars-dev/govibe/storage/migrations"
+-)
+-
+-func main() {
+-	// Load configuration from embedded env.yml resolved via environment variables.
+-	cfg, err := config.Load()
+-	if err != nil {
+-		logrus.Fatalf("config: %v", err)
+-	}
+-
+-	// Initialize logrus.
+-	logger.Setup(cfg.Server.LogLevel)
+-	logrus.WithField("port", cfg.Server.Port).Info("booting server")
+-
+-	// Initialize optional WorkOS client from config.
+-	if cfg.WorkOS.APIKey != "" {
+-		_ = workos.NewClient(cfg.WorkOS.APIKey, workos.WithClientID(cfg.WorkOS.ClientID))
+-		logrus.Info("workos client initialized")
+-	}
+-
+-	// Optional database + migrations (MariaDB/MySQL). If no DSN is provided, we skip DB init.
+-	if dbx, err := mariadb.Open(cfg.Database.MariaDB.DSN); err != nil {
+-		logrus.Fatalf("db open: %v", err)
+-	} else if dbx != nil {
+-		defer dbx.Close()
+-		if err := storagemig.Up(context.Background(), dbx.DB, cfg.Database.Type); err != nil {
+-			logrus.Fatalf("db migrate: %v", err)
+-		}
+-		logrus.Info("database connected and migrated")
+-	}
+-
+-	r := routes.NewRouter()
+-
+-	srv := &http.Server{
+-		Addr:         ":" + cfg.Server.Port,
+-		Handler:      r,
+-		ReadTimeout:  10 * time.Second,
+-		WriteTimeout: 15 * time.Second,
+-		IdleTimeout:  60 * time.Second,
+-	}
+-
+-	logrus.Infof("listening on http://localhost:%s", cfg.Server.Port)
+-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+-		logrus.Fatalf("server: %v", err)
+-	}
+-}
+diff -ruN -x *.bolt -x cmd_generate.go -x root.go base/web/web.go fw/web/web.go
+--- base/web/web.go	1970-01-01 02:00:00
++++ fw/web/web.go	2026-10-11 10:42:52
+@@ -0,0 +1,46 @@
++// Package web is the prototype of the framework's public web helpers.
++package web
++
++import (
++	"encoding/json"
++	"net/http"
++)
++
++func JSON(w http.ResponseWriter, status int, v any) {
++	w.Header().Set("Content-Type", "application/json")
++	w.WriteHeader(status)
++	_ = json.NewEncoder(w).Encode(v)
++}
++
++// Ping is a plain named framework handler.
++func Ping(w http.ResponseWriter, r *http.Request) {
++	JSON(w, 200, map[string]string{"pong": "framework"})
++}
++
++// Health returns a closure: a framework handler built by a factory.
++func Health(name string) http.HandlerFunc {
++	return func(w http.ResponseWriter, r *http.Request) { JSON(w, 200, map[string]string{"ok": name}) }
++}
++
++// Version is a framework type whose method value is mounted.
++type Version struct{ V string }
++
++func (v *Version) Handle(w http.ResponseWriter, r *http.Request) {
++	JSON(w, 200, map[string]string{"version": v.V})
++}
++
++// Static is a framework http.Handler type (ServeHTTP).
++type Static struct{ Msg string }
++
++func (s Static) ServeHTTP(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(s.Msg)) }
++
++// RequestTag is framework middleware.
++func RequestTag(next http.Handler) http.Handler {
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("X-Govibe", "1")
++		next.ServeHTTP(w, r)
++	})
++}
++
++// IfDev-style helper stand-in used by the app's view code.
++func IsDev(r *http.Request) bool { return false }

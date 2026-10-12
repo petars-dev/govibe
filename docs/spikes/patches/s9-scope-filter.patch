@@ -1,0 +1,550 @@
+diff -ruN -x *.bolt base/business/services/codegraph/layer_findings.go s9/business/services/codegraph/layer_findings.go
+--- base/business/services/codegraph/layer_findings.go	2026-10-06 16:15:19
++++ s9/business/services/codegraph/layer_findings.go	2026-10-11 10:30:09
+@@ -35,6 +35,9 @@
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	if sc := os.Getenv("S9_FINDINGS_SCOPE"); sc != "" { // S9 experiment: rules on a filtered model
++		m.applyScope(Scope(sc))
++	}
+ 	env := &ruleEnv{
+ 		m:     m,
+ 		templ: w.templText(),
+diff -ruN -x *.bolt base/business/services/codegraph/model.go s9/business/services/codegraph/model.go
+--- base/business/services/codegraph/model.go	2026-10-06 18:26:56
++++ s9/business/services/codegraph/model.go	2026-10-11 10:30:09
+@@ -26,6 +26,8 @@
+ 	Attrs map[string][]any
+ 	Out   map[string][]string
+ 	In    map[string][]string
++
++	Origin string // S9: "app", "framework" or "" (bookkeeping); set by classify
+ }
+ 
+ // Str returns the first string attribute named pred, or "".
+@@ -99,6 +101,9 @@
+ 	byKind map[string][]*Node
+ 	quads  int
+ 
++	scope  Scope   // S9
++	hidden *Hidden // S9
++
+ 	// lazily built lookup tables
+ 	pathIdx   map[string][]*Node
+ 	symIdx    map[string][]*Node
+@@ -110,9 +115,19 @@
+ 
+ // Load reads the indexed graph from qs.
+ func Load(ctx context.Context, qs graph.QuadStore) (*Model, error) {
+-	return loadModel(ctx, qs, "")
++	return LoadScoped(ctx, qs, DefaultScope())
+ }
+ 
++// LoadScoped is Load with the origin filter applied once, here (S9).
++func LoadScoped(ctx context.Context, qs graph.QuadStore, s Scope) (*Model, error) {
++	m, err := loadModel(ctx, qs, "")
++	if err != nil {
++		return nil, err
++	}
++	m.applyScope(s)
++	return m, nil
++}
++
+ // loadModel reads every quad under a `layer:*` label, except those of the layer
+ // named skip (the findings layer reads the graph without its own last output).
+ func loadModel(ctx context.Context, qs graph.QuadStore, skip string) (*Model, error) {
+@@ -286,18 +301,19 @@
+ 
+ // NodeRef is the compact description of a node used in every tool's output.
+ type NodeRef struct {
+-	ID   string `json:"id"`
+-	Kind string `json:"kind"`
+-	Name string `json:"name,omitempty"`
+-	Path string `json:"path,omitempty"`
+-	Line int    `json:"line,omitempty"`
++	ID     string `json:"id"`
++	Origin string `json:"origin,omitempty"`
++	Kind   string `json:"kind"`
++	Name   string `json:"name,omitempty"`
++	Path   string `json:"path,omitempty"`
++	Line   int    `json:"line,omitempty"`
+ }
+ 
+ // Ref describes a node. A function or type has no path of its own; it takes the
+ // one of the file that defines it. A route's `path` attribute is its URL, which
+ // its name already carries.
+ func (m *Model) Ref(n *Node) NodeRef {
+-	r := NodeRef{ID: n.ID, Kind: n.Kind, Name: n.Str("name"), Line: n.Int("line")}
++	r := NodeRef{ID: n.ID, Origin: n.Origin, Kind: n.Kind, Name: n.Str("name"), Line: n.Int("line")}
+ 	switch n.Kind {
+ 	case "route", "build", "layer", "annotation":
+ 	case "func", "type":
+diff -ruN -x *.bolt base/business/services/codegraph/origin.go s9/business/services/codegraph/origin.go
+--- base/business/services/codegraph/origin.go	1970-01-01 02:00:00
++++ s9/business/services/codegraph/origin.go	2026-10-11 10:39:22
+@@ -0,0 +1,294 @@
++package codegraph
++
++// S9 SPIKE: origin classification and scope filter applied once, in the Model.
++// Prototype only: the classification is a stand-in rule table for this repo's own
++// graph (framework and the Hello demo live side by side here), not the design.
++
++import (
++	"sort"
++	"strings"
++	"sync/atomic"
++)
++
++// Scope is which origin a read shows.
++type Scope string
++
++const (
++	ScopeApp       Scope = "app"
++	ScopeFramework Scope = "framework"
++	ScopeAll       Scope = "all"
++)
++
++const (
++	originApp       = "app"
++	originFramework = "framework"
++	originMeta      = "" // build, layer and rule nodes: bookkeeping, in every scope
++)
++
++// defaultScope is what Load applies. A prototype hack so the live server can be
++// flipped between scopes without restarting; the design passes Scope per call.
++var defaultScope atomic.Value
++
++func init() { defaultScope.Store(ScopeAll) }
++
++// SetDefaultScope sets the scope Load applies.
++func SetDefaultScope(s Scope) { defaultScope.Store(s) }
++
++// DefaultScope is the scope Load applies.
++func DefaultScope() Scope { return defaultScope.Load().(Scope) }
++
++// Hidden says what a scope removed from the model: the banner's "n hidden".
++type Hidden struct {
++	Scope  Scope          `json:"scope"`
++	Nodes  int            `json:"nodes"`
++	Edges  int            `json:"edges"`
++	Quads  int            `json:"quads"`
++	ByKind map[string]int `json:"by_kind"`
++}
++
++// originOfPath is the stand-in rule for a repo-relative file path.
++func originOfPath(p string) string {
++	fw := []string{
++		"controllers/dev", "devmcp/", "business/services/codegraph", "storage/dbexplorer", "storage/graphdb",
++		"storage/mariadb", "storage/migrations/embed", "storage/migrations/migrate", "cmd/", "logger/", "config/", "middleware/",
++		"assets/static/graph", "assets/static/docs", "assets/static/cytoscape", "assets/htmx",
++	}
++	for _, f := range fw {
++		if strings.HasPrefix(p, f) {
++			return originFramework
++		}
++	}
++	switch p {
++	case "docs/public/GRAPH_SCHEMA.md", "docs/public/DEV_DB_EXPLORER.md":
++		return originFramework
++	}
++	if strings.HasPrefix(p, "docs/specs/") && p != "docs/specs/SPEC_SAMPLE.md" {
++		return originFramework
++	}
++	return originApp
++}
++
++// classify sets Node.Origin on every node. Order matters: files first, then what
++// derives from files.
++func (m *Model) classify() {
++	// files, by path
++	for _, f := range m.byKind["file"] {
++		f.Origin = originOfPath(f.Str("path"))
++	}
++	// packages: app when any file in it is app (controllers and routes are mixed here)
++	for _, p := range m.byKind["package"] {
++		p.Origin = originFramework
++		files := p.In[string(PredInPackage)]
++		if len(files) == 0 {
++			p.Origin = originOfPath(strings.TrimPrefix(p.ID, "pkg:") + "/")
++			if p.ID == "pkg:." {
++				p.Origin = originApp
++			}
++		}
++		for _, id := range files {
++			if f := m.nodes[id]; f != nil && f.Origin == originApp {
++				p.Origin = originApp
++			}
++		}
++	}
++	for _, n := range m.nodes {
++		switch n.Kind {
++		case "func", "type":
++			n.Origin = originApp
++			if f := m.nodes[n.first(string(PredDefinedIn))]; f != nil {
++				n.Origin = f.Origin
++			}
++		case "template":
++			n.Origin = originOfPath(strings.TrimPrefix(n.ID, "tmpl:") + "/")
++			if f := m.nodes[n.first(string(PredDefinedIn))]; f != nil {
++				n.Origin = f.Origin
++			}
++		case "middleware", "config_key", "env_var", "mcp_tool":
++			n.Origin = originFramework
++		case "table", "column", "index", "migration":
++			n.Origin = originApp
++		case "doc", "spec":
++			n.Origin = originOfPath(n.Str("path"))
++		}
++	}
++	for _, n := range m.byKind["route"] {
++		p := n.Str("path")
++		switch {
++		case strings.HasPrefix(p, "/dev/") || p == "/dev" || strings.HasPrefix(p, "/_govibe/") || strings.HasPrefix(p, "/assets/"):
++			n.Origin = originFramework
++		default:
++			n.Origin = originApp
++			if h := m.nodes[n.first(string(PredHandledBy))]; h != nil {
++				n.Origin = h.Origin
++			}
++		}
++	}
++	for _, n := range m.byKind["spec_item"] {
++		n.Origin = originFramework
++		for _, id := range n.In[string(PredHasItem)] {
++			if s := m.nodes[id]; s != nil {
++				n.Origin = s.Origin
++			}
++		}
++	}
++	// findings take the origin of what they are about
++	for _, n := range m.byKind["finding"] {
++		n.Origin = originApp
++		if t := m.nodes[n.first(string(PredAbout))]; t != nil {
++			n.Origin = t.Origin
++		}
++	}
++	// annotations: neutral, dropped when either end is gone (handled in applyScope)
++}
++
++// applyScope drops every node whose origin is not in scope and every edge that
++// touches one, then rebuilds the lookup tables. It is the whole filter.
++func (m *Model) applyScope(s Scope) *Hidden {
++	h := &Hidden{Scope: s, ByKind: map[string]int{}}
++	m.scope = s
++	m.classify()
++	if s == ScopeAll || s == "" {
++		return h
++	}
++	want := originApp
++	if s == ScopeFramework {
++		want = originFramework
++	}
++	keep := func(n *Node) bool {
++		if n.Kind == "annotation" {
++			return true // decided below, from its ends
++		}
++		return n.Origin == originMeta && (n.Kind == "build" || n.Kind == "layer" || n.Kind == "rule") || n.Origin == want
++	}
++	dropped := map[string]bool{}
++	for id, n := range m.nodes {
++		if !keep(n) {
++			dropped[id] = true
++		}
++	}
++	// annotations follow their ends
++	for _, a := range m.byKind["annotation"] {
++		for _, pred := range []string{string(PredSubject), string(PredObject)} {
++			for _, t := range a.Out[pred] {
++				if dropped[t] {
++					dropped[a.ID] = true
++				}
++			}
++		}
++	}
++	// findings and annotations whose subject is gone are gone too (already by origin for findings)
++	for id := range dropped {
++		n := m.nodes[id]
++		h.Nodes++
++		h.ByKind[n.Kind]++
++	}
++	for id, n := range m.nodes {
++		if dropped[id] {
++			continue
++		}
++		for _, lists := range []map[string][]string{n.Out, n.In} {
++			for pred, l := range lists {
++				kept := l[:0:0]
++				for _, t := range l {
++					if !dropped[t] {
++						kept = append(kept, t)
++					} else {
++						h.Edges++
++					}
++				}
++				if len(kept) == 0 {
++					delete(lists, pred)
++				} else {
++					lists[pred] = kept
++				}
++			}
++		}
++	}
++	for id := range dropped {
++		delete(m.nodes, id)
++	}
++	// recount quads and rebuild the indexes
++	before := m.quads
++	m.quads = 0
++	for _, n := range m.nodes {
++		if n.Kind != "" {
++			m.quads++
++		}
++		for _, v := range n.Attrs {
++			m.quads += len(v)
++		}
++		for _, v := range n.Out {
++			m.quads += len(v)
++		}
++	}
++	h.Quads = before - m.quads
++	m.byKind = map[string][]*Node{}
++	m.ids = m.ids[:0]
++	for id := range m.nodes {
++		m.ids = append(m.ids, id)
++	}
++	sort.Strings(m.ids)
++	for _, id := range m.ids {
++		n := m.nodes[id]
++		m.byKind[n.Kind] = append(m.byKind[n.Kind], n)
++	}
++	m.hidden = h
++	return h
++}
++
++// Hidden reports what the scope removed (nil for scope all).
++func (m *Model) Hidden() *Hidden { return m.hidden }
++
++// Scope is the scope the model was loaded with.
++func (m *Model) Scope() Scope { return m.scope }
++
++// KindCounts is the number of nodes per kind.
++func (m *Model) KindCounts() map[string]int {
++	out := map[string]int{}
++	for k, ns := range m.byKind {
++		out[k] = len(ns)
++	}
++	return out
++}
++
++// EdgeCount is the number of edges (IRI-object quads, minus type quads).
++func (m *Model) EdgeCount() int {
++	n := 0
++	for _, nd := range m.nodes {
++		for _, l := range nd.Out {
++			n += len(l)
++		}
++	}
++	return n
++}
++
++// OriginOf is the origin a node was classified with.
++func (m *Model) OriginOf(id string) string {
++	if n := m.nodes[id]; n != nil {
++		return n.Origin
++	}
++	return "?"
++}
++
++// CheckClosed reports edges that point at, or come from, a node the model does not
++// hold (dangling after a filter), and findings whose `about` node is gone.
++func (m *Model) CheckClosed() (dangling, orphanFindings int) {
++	for id, n := range m.nodes {
++		for _, lists := range []map[string][]string{n.Out, n.In} {
++			for _, l := range lists {
++				for _, t := range l {
++					if m.nodes[t] == nil {
++						dangling++
++					}
++				}
++			}
++		}
++		if n.Kind == "finding" {
++			if len(n.Out[string(PredAbout)]) == 0 {
++				orphanFindings++
++			}
++		}
++		_ = id
++	}
++	return
++}
+diff -ruN -x *.bolt base/cmd/s9dump/main.go s9/cmd/s9dump/main.go
+--- base/cmd/s9dump/main.go	1970-01-01 02:00:00
++++ s9/cmd/s9dump/main.go	2026-10-11 10:39:22
+@@ -0,0 +1,90 @@
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"os"
++	"sort"
++	"strings"
++	"time"
++
++	"petars-dev/govibe/business/services/codegraph"
++	"petars-dev/govibe/storage/graphdb"
++)
++
++func main() {
++	h, err := graphdb.Open("docs/graph")
++	if err != nil {
++		panic(err)
++	}
++	defer h.Close()
++	ctx := context.Background()
++	kinds := []string{"package", "file", "func", "type", "route", "middleware", "template", "mcp_tool", "config_key", "env_var", "doc", "spec", "spec_item", "table", "column", "index", "migration", "annotation", "finding", "rule", "layer", "build", ""}
++	scopes := []codegraph.Scope{codegraph.ScopeAll, codegraph.ScopeApp, codegraph.ScopeFramework}
++	models := map[codegraph.Scope]*codegraph.Model{}
++	for _, s := range scopes {
++		m, err := codegraph.LoadScoped(ctx, h.QuadStore, s)
++		if err != nil {
++			panic(err)
++		}
++		models[s] = m
++	}
++	fmt.Printf("%-12s %6s %6s %6s %8s\n", "kind", "all", "app", "fw", "app+fw")
++	for _, k := range kinds {
++		a, p, f := models[codegraph.ScopeAll].KindCounts()[k], models[codegraph.ScopeApp].KindCounts()[k], models[codegraph.ScopeFramework].KindCounts()[k]
++		name := k
++		if name == "" {
++			name = "(untyped)"
++		}
++		fmt.Printf("%-12s %6d %6d %6d %8d\n", name, a, p, f, p+f)
++	}
++	for _, s := range scopes {
++		m := models[s]
++		fmt.Printf("scope=%-9s quads=%d edges=%d hidden=", s, m.Quads(), m.EdgeCount())
++		b, _ := json.Marshal(m.Hidden())
++		fmt.Println(string(b))
++	}
++	for _, s := range scopes {
++		m := models[s]
++		d, o := m.CheckClosed()
++		start := time.Now()
++		const reps = 20
++		for i := 0; i < reps; i++ {
++			if _, err := codegraph.LoadScoped(ctx, h.QuadStore, s); err != nil {
++				panic(err)
++			}
++		}
++		fmt.Printf("scope=%-9s dangling_edges=%d findings_without_about=%d load_ms=%.1f\n", s, d, o, float64(time.Since(start).Microseconds())/1000/reps)
++	}
++	if len(os.Args) > 1 && os.Args[1] == "origins" {
++		m := models[codegraph.ScopeAll]
++		// origin of each kind sample
++		per := map[string]map[string]int{}
++		for _, k := range kinds {
++			for _, n := range m.Kind(k) {
++				if per[k] == nil {
++					per[k] = map[string]int{}
++				}
++				per[k][m.OriginOf(n.ID)]++
++			}
++		}
++		for _, k := range kinds {
++			fmt.Printf("origin[%s]=%v\n", k, per[k])
++		}
++		for _, k := range []string{"package", "route", "finding", "spec", "doc", "template", "middleware"} {
++			for _, n := range m.Kind(k) {
++				fmt.Printf("  %-10s %-70s %s\n", k, trim(n.ID, 70), m.OriginOf(n.ID))
++			}
++		}
++	}
++	_ = sort.Strings
++	_ = strings.Join
++}
++
++func trim(s string, n int) string {
++	if len(s) > n {
++		return s[:n-1] + "…"
++	}
++	return s
++}
+diff -ruN -x *.bolt base/cmd/s9probe/main.go s9/cmd/s9probe/main.go
+--- base/cmd/s9probe/main.go	1970-01-01 02:00:00
++++ s9/cmd/s9probe/main.go	2026-10-11 10:31:02
+@@ -0,0 +1,43 @@
++// Command s9probe calls one graph tool on the scratch server and prints the text result.
++// usage: s9probe <tool> '<json args>'
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"os"
++	"time"
++
++	"github.com/modelcontextprotocol/go-sdk/mcp"
++)
++
++func main() {
++	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
++	defer cancel()
++	c := mcp.NewClient(&mcp.Implementation{Name: "s9probe", Version: "0"}, nil)
++	sess, err := c.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: "http://localhost:18094/dev/mcp", DisableStandaloneSSE: true}, nil)
++	if err != nil {
++		panic(err)
++	}
++	defer sess.Close()
++	var args map[string]any
++	if len(os.Args) > 2 {
++		if err := json.Unmarshal([]byte(os.Args[2]), &args); err != nil {
++			panic(err)
++		}
++	}
++	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: os.Args[1], Arguments: args})
++	if err != nil {
++		fmt.Println("ERROR:", err)
++		return
++	}
++	for _, ct := range res.Content {
++		if t, ok := ct.(*mcp.TextContent); ok {
++			fmt.Println(t.Text)
++		}
++	}
++	if res.IsError {
++		fmt.Println("(isError)")
++	}
++}
+diff -ruN -x *.bolt base/main.go s9/main.go
+--- base/main.go	2026-09-28 10:52:00
++++ s9/main.go	2026-10-11 10:30:09
+@@ -8,6 +8,7 @@
+ 	"github.com/sirupsen/logrus"
+ 	"github.com/workos/workos-go/v10"
+ 
++	"petars-dev/govibe/business/services/codegraph"
+ 	"petars-dev/govibe/config"
+ 	"petars-dev/govibe/logger"
+ 	"petars-dev/govibe/routes"
+@@ -43,7 +44,16 @@
+ 		logrus.Info("database connected and migrated")
+ 	}
+ 
+-	r := routes.NewRouter()
++	app := routes.NewRouter()
++	mux := http.NewServeMux()
++	mux.HandleFunc("/s9/scope", func(w http.ResponseWriter, req *http.Request) { // S9 prototype hack
++		if v := req.URL.Query().Get("v"); v != "" {
++			codegraph.SetDefaultScope(codegraph.Scope(v))
++		}
++		w.Write([]byte(codegraph.DefaultScope()))
++	})
++	mux.Handle("/", app)
++	var r http.Handler = mux
+ 
+ 	srv := &http.Server{
+ 		Addr:         ":" + cfg.Server.Port,

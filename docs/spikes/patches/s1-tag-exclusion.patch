@@ -1,0 +1,385 @@
+diff -ruN -x out -x *.bolt base/controllers/devdb.go s1/controllers/devdb.go
+--- base/controllers/devdb.go	2026-09-28 10:51:59
++++ s1/controllers/devdb.go	2026-10-11 10:26:33
+@@ -1,3 +1,5 @@
++//go:build govibe_dev
++
+ package controllers
+ 
+ import (
+diff -ruN -x out -x *.bolt base/controllers/devdb_page.go s1/controllers/devdb_page.go
+--- base/controllers/devdb_page.go	2026-10-06 16:39:18
++++ s1/controllers/devdb_page.go	2026-10-11 10:26:33
+@@ -1,3 +1,5 @@
++//go:build govibe_dev
++
+ package controllers
+ 
+ // devDBPage is the embedded, Faucet-like database explorer UI served at
+diff -ruN -x out -x *.bolt base/controllers/devdocs.go s1/controllers/devdocs.go
+--- base/controllers/devdocs.go	2026-10-01 22:25:36
++++ s1/controllers/devdocs.go	2026-10-11 10:26:33
+@@ -1,3 +1,5 @@
++//go:build govibe_dev
++
+ package controllers
+ 
+ import (
+diff -ruN -x out -x *.bolt base/controllers/devgraph.go s1/controllers/devgraph.go
+--- base/controllers/devgraph.go	2026-10-06 16:32:09
++++ s1/controllers/devgraph.go	2026-10-11 10:26:33
+@@ -1,3 +1,5 @@
++//go:build govibe_dev
++
+ package controllers
+ 
+ import (
+diff -ruN -x out -x *.bolt base/controllers/devgraph_data.go s1/controllers/devgraph_data.go
+--- base/controllers/devgraph_data.go	2026-10-06 16:31:17
++++ s1/controllers/devgraph_data.go	2026-10-11 10:26:33
+@@ -1,3 +1,5 @@
++//go:build govibe_dev
++
+ package controllers
+ 
+ import (
+diff -ruN -x out -x *.bolt base/controllers/devgraph_data_test.go s1/controllers/devgraph_data_test.go
+--- base/controllers/devgraph_data_test.go	2026-10-06 18:30:38
++++ s1/controllers/devgraph_data_test.go	2026-10-11 10:26:33
+@@ -1,3 +1,5 @@
++//go:build govibe_dev
++
+ package controllers
+ 
+ import (
+diff -ruN -x out -x *.bolt base/controllers/devgraph_reports.go s1/controllers/devgraph_reports.go
+--- base/controllers/devgraph_reports.go	2026-10-06 19:15:04
++++ s1/controllers/devgraph_reports.go	2026-10-11 10:26:33
+@@ -1,3 +1,5 @@
++//go:build govibe_dev
++
+ package controllers
+ 
+ import (
+diff -ruN -x out -x *.bolt base/controllers/devgraph_reports_test.go s1/controllers/devgraph_reports_test.go
+--- base/controllers/devgraph_reports_test.go	2026-10-06 19:15:35
++++ s1/controllers/devgraph_reports_test.go	2026-10-11 10:26:33
+@@ -1,3 +1,5 @@
++//go:build govibe_dev
++
+ package controllers
+ 
+ import (
+diff -ruN -x out -x *.bolt base/controllers/devgraph_test.go s1/controllers/devgraph_test.go
+--- base/controllers/devgraph_test.go	2026-10-05 11:13:12
++++ s1/controllers/devgraph_test.go	2026-10-11 10:26:33
+@@ -1,3 +1,5 @@
++//go:build govibe_dev
++
+ package controllers
+ 
+ import (
+diff -ruN -x out -x *.bolt base/routes/devmount_dev.go s1/routes/devmount_dev.go
+--- base/routes/devmount_dev.go	1970-01-01 02:00:00
++++ s1/routes/devmount_dev.go	2026-10-11 10:26:33
+@@ -0,0 +1,134 @@
++//go:build govibe_dev
++
++package routes
++
++import (
++	"context"
++	"net/http"
++
++	"github.com/cayleygraph/cayley/graph"
++	cayleyhttp "github.com/cayleygraph/cayley/server/http"
++	"github.com/go-chi/chi/v5"
++	"github.com/sirupsen/logrus"
++
++	"petars-dev/govibe/business/services/codegraph"
++	"petars-dev/govibe/config"
++	"petars-dev/govibe/controllers"
++	"petars-dev/govibe/devmcp"
++	"petars-dev/govibe/storage/dbexplorer"
++	"petars-dev/govibe/storage/graphdb"
++	"petars-dev/govibe/storage/mariadb"
++)
++
++// mountDev mounts the dev tooling (docs, graph, db explorer, MCP) and starts the indexer.
++func mountDev(r chi.Router) {
++	var indexer *codegraph.Indexer
++	// Dev docs routes (renders Markdown docs to HTML)
++	r.Route("/dev/docs", func(d chi.Router) {
++		d.Get("/app", controllers.DevDocsAppIndex)
++		d.Get("/app/{slug}", controllers.DevDocsAppFile)
++		d.Get("/specs", controllers.DevDocsSpecs)
++		d.Get("/specs/{slug}", controllers.DevDocsSpecFile)
++	})
++
++	// Dev-only tooling: embedded graph store, database explorer, and the MCP
++	// server that fronts both. None of this is mounted in production.
++	if cfg, err := config.Load(); err == nil && !cfg.IsProd() {
++		var quadStore graph.QuadStore
++
++		// Embedded Cayley graph store + query console. Backed by a bolt file
++		// under docs/graph.
++		if handle, err := graphdb.Open(graphdb.DefaultDir); err != nil {
++			logrus.WithError(err).Error("graph store: failed to open, /dev/graph disabled")
++		} else {
++			quadStore = handle.QuadStore
++			api := cayleyhttp.NewAPIv2(&graph.Handle{QuadStore: handle.QuadStore, QuadWriter: handle.QuadWriter})
++			r.Handle("/dev/graph/api/*", http.StripPrefix("/dev/graph", api))
++			logrus.WithField("dir", graphdb.DefaultDir).Info("embedded graph store enabled at /dev/graph")
++		}
++
++		// Embedded database explorer (schema introspection, browsing,
++		// filtered queries, sampling, explain plans, and gated test-data
++		// mutations), backed by the same MariaDB/MySQL connection as the app.
++		var explorer *dbexplorer.Explorer
++		if dbx, err := mariadb.Open(cfg.Database.MariaDB.DSN); err != nil {
++			logrus.WithError(err).Error("db explorer: failed to open database, /dev/db disabled")
++		} else if dbx != nil {
++			explorer = dbexplorer.New(dbx, dbexplorer.Options{AllowMutations: cfg.Dev.DB.AllowMutations})
++			r.Get("/dev/db", controllers.DevDBConsole)
++			r.Route("/dev/db/api", func(api chi.Router) {
++				api.Get("/meta", controllers.DevDBMeta(explorer))
++				api.Get("/tables", controllers.DevDBListTables(explorer))
++				api.Get("/tables/{table}", controllers.DevDBDescribeTable(explorer))
++				api.Get("/tables/{table}/rows", controllers.DevDBBrowseRows(explorer))
++				api.Get("/tables/{table}/sample", controllers.DevDBSampleRows(explorer))
++				api.Post("/tables/{table}/rows", controllers.DevDBInsertRow(explorer))
++				api.Delete("/tables/{table}/rows", controllers.DevDBResetTable(explorer))
++				api.Post("/query", controllers.DevDBQuery(explorer))
++				api.Post("/explain", controllers.DevDBExplain(explorer))
++			})
++			logrus.WithField("mutations", explorer.AllowMutations()).Info("embedded database explorer enabled at /dev/db")
++		} else {
++			logrus.Info("db explorer: no MARIADB_DSN configured, /dev/db disabled")
++		}
++
++		// The graph indexer fills the graph store with a model of the project. It
++		// is created here, after the explorer, because it reads the live database
++		// schema through it, and it is handed this very router for the routes
++		// layer (read only once the router is fully wired).
++		if quadStore != nil {
++			// The opt-in layers (the call graph, git history) cost more than parsing, so
++			// they are on only when config asks; graph_reindex can switch one on later.
++			opts := codegraph.Options{Root: ".", Router: r, Calls: cfg.Dev.Graph.Calls, Git: cfg.Dev.Graph.Git}
++			if explorer != nil {
++				opts.Schema = explorer.Snapshot
++			}
++			indexer = codegraph.New(quadStore, opts)
++			// The explorer page draws bounded views of the graph; its data comes from
++			// /dev/graph/data/*. Links into /dev/db exist only when that is mounted.
++			ui := &controllers.GraphUI{Indexer: indexer, Store: quadStore, DB: explorer != nil}
++			r.Get("/dev/graph", controllers.DevGraphPage(indexer))
++			r.Post("/dev/graph/reindex", controllers.DevGraphReindex(indexer))
++			r.Route("/dev/graph/data", func(d chi.Router) {
++				d.Get("/status", ui.Status())
++				d.Get("/view", ui.View())
++				d.Get("/node", ui.Node())
++				d.Get("/search", ui.Search())
++				d.Get("/findings", ui.Findings())
++				d.Get("/table", ui.TableRefs())
++			})
++			// Generated reference pages: routes, config, schema and layers, always read
++			// from the graph as it is now.
++			reports := controllers.DevGraphReports(indexer, explorer != nil)
++			r.Get("/dev/graph/reports", reports)
++			r.Get("/dev/graph/reports/{name}", reports)
++		}
++
++		// MCP server (streamable HTTP) exposing the db_* and graph_* tools to local
++		// agents, mounted only once at least one backing store exists.
++		if explorer != nil || quadStore != nil {
++			// With an indexer, every graph tool first brings stale layers up to date,
++			// and graph_reindex can rebuild them. (A typed nil must not become a
++			// non-nil interface, hence the explicit variable.)
++			var graphIndexer devmcp.GraphIndexer
++			if indexer != nil {
++				graphIndexer = indexer
++			}
++			r.Handle("/dev/mcp", devmcp.NewHandler(explorer, quadStore, graphIndexer))
++			logrus.Info("embedded MCP server enabled at /dev/mcp")
++		}
++	}
++
++	// Fill the graph store with the project's own structure. Async, so startup
++	// is never delayed, and never fatal: a failed layer is logged and the server
++	// stays up. With Air every rebuild restarts the server, so this runs on every
++	// build. The indexer runs in this process because it owns the bolt lock.
++	if indexer != nil {
++		go func() {
++			if _, err := indexer.Run(context.Background()); err != nil {
++				logrus.WithError(err).Warn("graph index: boot run failed; POST /dev/graph/reindex to retry")
++			}
++		}()
++	}
++
++}
+diff -ruN -x out -x *.bolt base/routes/devmount_nodev.go s1/routes/devmount_nodev.go
+--- base/routes/devmount_nodev.go	1970-01-01 02:00:00
++++ s1/routes/devmount_nodev.go	2026-10-11 10:26:33
+@@ -0,0 +1,8 @@
++//go:build !govibe_dev
++
++package routes
++
++import "github.com/go-chi/chi/v5"
++
++// mountDev is a no-op in the default build: no dev package is linked.
++func mountDev(r chi.Router) {}
+diff -ruN -x out -x *.bolt base/routes/routes.go s1/routes/routes.go
+--- base/routes/routes.go	2026-10-06 19:16:29
++++ s1/routes/routes.go	2026-10-11 10:26:39
+@@ -1,24 +1,16 @@
+ package routes
+ 
+ import (
+-	"context"
+ 	"net/http"
+ 
+-	"github.com/cayleygraph/cayley/graph"
+-	cayleyhttp "github.com/cayleygraph/cayley/server/http"
+ 	"github.com/go-chi/chi/v5"
+ 	"github.com/go-chi/chi/v5/middleware"
+ 
+ 	"os"
+ 	"petars-dev/govibe/assets"
+-	"petars-dev/govibe/business/services/codegraph"
+ 	"petars-dev/govibe/config"
+ 	"petars-dev/govibe/controllers"
+-	"petars-dev/govibe/devmcp"
+ 	appmw "petars-dev/govibe/middleware"
+-	"petars-dev/govibe/storage/dbexplorer"
+-	"petars-dev/govibe/storage/graphdb"
+-	"petars-dev/govibe/storage/mariadb"
+ 
+ 	"github.com/sirupsen/logrus"
+ )
+@@ -27,10 +19,6 @@
+ func NewRouter() http.Handler {
+ 	r := chi.NewRouter()
+ 
+-	// Set when the dev graph store opens; indexes the project into it once the
+-	// router is fully wired (see the end of this function).
+-	var indexer *codegraph.Indexer
+-
+ 	// Chi default middleware + our logger.
+ 	r.Use(middleware.RequestID)
+ 	r.Use(middleware.RealIP)
+@@ -68,113 +56,7 @@
+ 	// htmx-friendly plain text endpoint (also used by UI button if desired)
+ 	r.Get("/hello", controllers.Hello)
+ 
+-	// Dev docs routes (renders Markdown docs to HTML)
+-	r.Route("/dev/docs", func(d chi.Router) {
+-		d.Get("/app", controllers.DevDocsAppIndex)
+-		d.Get("/app/{slug}", controllers.DevDocsAppFile)
+-		d.Get("/specs", controllers.DevDocsSpecs)
+-		d.Get("/specs/{slug}", controllers.DevDocsSpecFile)
+-	})
+-
+-	// Dev-only tooling: embedded graph store, database explorer, and the MCP
+-	// server that fronts both. None of this is mounted in production.
+-	if cfg, err := config.Load(); err == nil && !cfg.IsProd() {
+-		var quadStore graph.QuadStore
+-
+-		// Embedded Cayley graph store + query console. Backed by a bolt file
+-		// under docs/graph.
+-		if handle, err := graphdb.Open(graphdb.DefaultDir); err != nil {
+-			logrus.WithError(err).Error("graph store: failed to open, /dev/graph disabled")
+-		} else {
+-			quadStore = handle.QuadStore
+-			api := cayleyhttp.NewAPIv2(&graph.Handle{QuadStore: handle.QuadStore, QuadWriter: handle.QuadWriter})
+-			r.Handle("/dev/graph/api/*", http.StripPrefix("/dev/graph", api))
+-			logrus.WithField("dir", graphdb.DefaultDir).Info("embedded graph store enabled at /dev/graph")
+-		}
+-
+-		// Embedded database explorer (schema introspection, browsing,
+-		// filtered queries, sampling, explain plans, and gated test-data
+-		// mutations), backed by the same MariaDB/MySQL connection as the app.
+-		var explorer *dbexplorer.Explorer
+-		if dbx, err := mariadb.Open(cfg.Database.MariaDB.DSN); err != nil {
+-			logrus.WithError(err).Error("db explorer: failed to open database, /dev/db disabled")
+-		} else if dbx != nil {
+-			explorer = dbexplorer.New(dbx, dbexplorer.Options{AllowMutations: cfg.Dev.DB.AllowMutations})
+-			r.Get("/dev/db", controllers.DevDBConsole)
+-			r.Route("/dev/db/api", func(api chi.Router) {
+-				api.Get("/meta", controllers.DevDBMeta(explorer))
+-				api.Get("/tables", controllers.DevDBListTables(explorer))
+-				api.Get("/tables/{table}", controllers.DevDBDescribeTable(explorer))
+-				api.Get("/tables/{table}/rows", controllers.DevDBBrowseRows(explorer))
+-				api.Get("/tables/{table}/sample", controllers.DevDBSampleRows(explorer))
+-				api.Post("/tables/{table}/rows", controllers.DevDBInsertRow(explorer))
+-				api.Delete("/tables/{table}/rows", controllers.DevDBResetTable(explorer))
+-				api.Post("/query", controllers.DevDBQuery(explorer))
+-				api.Post("/explain", controllers.DevDBExplain(explorer))
+-			})
+-			logrus.WithField("mutations", explorer.AllowMutations()).Info("embedded database explorer enabled at /dev/db")
+-		} else {
+-			logrus.Info("db explorer: no MARIADB_DSN configured, /dev/db disabled")
+-		}
+-
+-		// The graph indexer fills the graph store with a model of the project. It
+-		// is created here, after the explorer, because it reads the live database
+-		// schema through it, and it is handed this very router for the routes
+-		// layer (read only once the router is fully wired).
+-		if quadStore != nil {
+-			// The opt-in layers (the call graph, git history) cost more than parsing, so
+-			// they are on only when config asks; graph_reindex can switch one on later.
+-			opts := codegraph.Options{Root: ".", Router: r, Calls: cfg.Dev.Graph.Calls, Git: cfg.Dev.Graph.Git}
+-			if explorer != nil {
+-				opts.Schema = explorer.Snapshot
+-			}
+-			indexer = codegraph.New(quadStore, opts)
+-			// The explorer page draws bounded views of the graph; its data comes from
+-			// /dev/graph/data/*. Links into /dev/db exist only when that is mounted.
+-			ui := &controllers.GraphUI{Indexer: indexer, Store: quadStore, DB: explorer != nil}
+-			r.Get("/dev/graph", controllers.DevGraphPage(indexer))
+-			r.Post("/dev/graph/reindex", controllers.DevGraphReindex(indexer))
+-			r.Route("/dev/graph/data", func(d chi.Router) {
+-				d.Get("/status", ui.Status())
+-				d.Get("/view", ui.View())
+-				d.Get("/node", ui.Node())
+-				d.Get("/search", ui.Search())
+-				d.Get("/findings", ui.Findings())
+-				d.Get("/table", ui.TableRefs())
+-			})
+-			// Generated reference pages: routes, config, schema and layers, always read
+-			// from the graph as it is now.
+-			reports := controllers.DevGraphReports(indexer, explorer != nil)
+-			r.Get("/dev/graph/reports", reports)
+-			r.Get("/dev/graph/reports/{name}", reports)
+-		}
+-
+-		// MCP server (streamable HTTP) exposing the db_* and graph_* tools to local
+-		// agents, mounted only once at least one backing store exists.
+-		if explorer != nil || quadStore != nil {
+-			// With an indexer, every graph tool first brings stale layers up to date,
+-			// and graph_reindex can rebuild them. (A typed nil must not become a
+-			// non-nil interface, hence the explicit variable.)
+-			var graphIndexer devmcp.GraphIndexer
+-			if indexer != nil {
+-				graphIndexer = indexer
+-			}
+-			r.Handle("/dev/mcp", devmcp.NewHandler(explorer, quadStore, graphIndexer))
+-			logrus.Info("embedded MCP server enabled at /dev/mcp")
+-		}
+-	}
+-
+-	// Fill the graph store with the project's own structure. Async, so startup
+-	// is never delayed, and never fatal: a failed layer is logged and the server
+-	// stays up. With Air every rebuild restarts the server, so this runs on every
+-	// build. The indexer runs in this process because it owns the bolt lock.
+-	if indexer != nil {
+-		go func() {
+-			if _, err := indexer.Run(context.Background()); err != nil {
+-				logrus.WithError(err).Warn("graph index: boot run failed; POST /dev/graph/reindex to retry")
+-			}
+-		}()
+-	}
++	mountDev(r)
+ 
+ 	return r
+ }

@@ -1,0 +1,51 @@
+=== RUN   TestOfflineNextWithoutEngine
+    gc_test.go:69: NewDefaultCron.Next(now) offline = 2026-10-12T02:00:00Z
+    gc_test.go:78: job.NextRun() before Start() = 0001-01-01T00:00:00Z err=<nil>
+    gc_test.go:81: CronJob("@every 6h") err=<nil>
+    gc_test.go:84:   NextRun before Start = 0001-01-01T00:00:00Z
+--- PASS: TestOfflineNextWithoutEngine (0.00s)
+=== RUN   TestInvalidSpecMessages
+    gc_test.go:99: "* * *"                            -> err=gocron: CronJob: crontab parse failure
+        expected exactly 5 fields, found 3: [* * *]
+    gc_test.go:99: "61 * * * *"                       -> err=gocron: CronJob: crontab parse failure
+        end of range (61) above maximum (59): 61
+    gc_test.go:99: "@every"                           -> err=gocron: CronJob: crontab parse failure
+        unrecognized descriptor: @every
+    gc_test.go:99: "@weekly2"                         -> err=gocron: CronJob: crontab parse failure
+        unrecognized descriptor: @weekly2
+    gc_test.go:99: "CRON_TZ=Nowhere/Land * * * * *"   -> err=gocron: CronJob: crontab parse failure
+        provided bad location Nowhere/Land: unknown time zone Nowhere/Land
+    gc_test.go:99: "0 0 9 * * *"                      -> err=gocron: CronJob: crontab parse failure
+        expected exactly 5 fields, found 6: [0 0 9 * * *]
+    gc_test.go:95: "CRON_TZ=Europe/Sofia"             -> PANIC runtime error: slice bounds out of range [:-1]
+    gc_test.go:99: "@every 0s"                        -> err=<nil>
+    gc_test.go:99: "@every 30s"                       -> err=<nil>
+    gc_test.go:99: "0 0 31 2 *"                       -> err=gocron: CronJob: invalid crontab
+    gc_test.go:99: "@every -5m"                       -> err=<nil>
+--- PASS: TestInvalidSpecMessages (0.00s)
+=== RUN   TestFiresAtExactTimes
+    gc_test.go:112: */5 fires=12 first=10-11 12:05 UTC last=10-11 13:00 UTC
+    gc_test.go:120: DurationJob(10m) from start 12:02:30 fires=[10-11 12:12 UTC 10-11 12:22 UTC 10-11 12:32 UTC]
+--- PASS: TestFiresAtExactTimes (0.34s)
+=== RUN   TestOverlapSingleton
+    gc_test.go:50: drive: did not converge
+--- FAIL: TestOverlapSingleton (100.58s)
+=== RUN   TestPanicRecovered
+    gc_test.go:150: panic job: runs=0 panicListener=0 (scheduler survived)
+--- PASS: TestPanicRecovered (7.53s)
+=== RUN   TestTimeoutViaContext
+    gc_test.go:167: task ctx has a deadline: false (ran=1): timeouts are the task's own job to implement
+--- PASS: TestTimeoutViaContext (0.60s)
+=== RUN   TestShutdownWaitsForRunning
+    gc_test.go:184: Shutdown returned after stop timeout elapsed on the fake clock: err=gocron: timed out waiting for jobs to finish
+--- PASS: TestShutdownWaitsForRunning (0.31s)
+=== RUN   TestDST
+    gc_test.go:224: default Cron: gap day 03:30 (03-27..03-31)     [03-28 03:30 EET 03-30 03:30 EEST 03-31 03:30 EEST]
+    gc_test.go:224: default Cron: repeat day 03:30 (10-24..10-27)  [10-25 03:30 EEST 10-26 03:30 EET 10-27 03:30 EET]
+    gc_test.go:224: custom Cron (dedupe): repeat day 03:30         [10-25 03:30 EEST 10-26 03:30 EET 10-27 03:30 EET]
+    gc_test.go:224: CRON_TZ=Europe/Sofia inside a UTC scheduler    [10-25 03:30 EEST 10-26 03:30 EET 10-27 03:30 EET]
+    gc_test.go:231: counts: gap=3 (want 3) repeat-default=3 (raw robfig: 4) repeat-custom=3 (want 3) cron_tz=3
+--- PASS: TestDST (1.49s)
+FAIL
+FAIL	example.com/s8/gc	112.784s
+FAIL

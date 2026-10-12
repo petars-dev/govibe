@@ -32,16 +32,16 @@ Quick Start
 CLI (govibe)
 - Build the CLI: `go build -o govibe ./cmd/govibe`
 - Usage: `./govibe`
-  - Serve: `./govibe serve` (reads config/env.yml for port and env)
+  - Serve: `./govibe serve` (runs the application with `go run . serve`; port and env come from `env.yml` and the environment)
   - Generate templ code: `./govibe generate`
   - Migrations: `./govibe migrate up`, `./govibe migrate down`, `./govibe migrate status`
   - Extending CLI: add `cmd_*.go` under `cmd/govibe/`, define a `cobra.Command`, and register it in `init()`.
 
 Configuration
-- Centralized in `config/env.yml`, values resolved from environment at runtime (e.g. `${PORT:8080}`).
+- Centralized in `env.yml` (project root, embedded by `main.go`) over the framework defaults in `config/defaults.yml`; values are resolved from the environment at runtime (e.g. `${PORT:8080}`).
 - APP_ENV controls behavior: local, dev, staging, prod/production.
-- In local/dev, static assets are served from `local/assets` if present (fallback to embedded assets) and are returned with no-cache headers for fast iteration.
-- Add new settings by editing `config/env.yml`. Access via typed `config.Config` or dynamic `config.Unmarshal("path", &v)` / `config.Get("path.key")`.
+- In local/dev, static assets are served from `local/assets` or `assets` under the application root if present (fallback to embedded assets) and are returned with no-cache headers for fast iteration.
+- Add new settings by editing `env.yml`. Access via typed `config.Config` or dynamic `rt.Config.Unmarshal("path", &v)` / `rt.Config.Get("path.key")`.
 - `DATABASE_TYPE` (default `mysql`) selects the goose migration dialect. Goose defaults to postgres if never told otherwise, which silently breaks migrations against any other database, so this is always set explicitly — see `github.com/pressly/goose/v3` for other supported values.
 - `DEV_DB_ALLOW_MUTATIONS` (default `false`) enables the `/dev/db` and MCP test-data mutation tools (`db_insert_test_row`, `db_reset_test_data`). Never takes effect in production.
 

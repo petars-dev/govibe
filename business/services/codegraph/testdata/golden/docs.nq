@@ -4,9 +4,9 @@
 <doc:README.md> <path> "README.md" <layer:docs> .
 <doc:README.md> <title> "Fixture" <layer:docs> .
 <doc:README.md> <type> <kind:doc> <layer:docs> .
-<doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:mail.smtp.host> <layer:docs> .
-<doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:mail.smtp.password> <layer:docs> .
-<doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:mail.smtp.port> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:queue.broker.host> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:queue.broker.password> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:queue.broker.port> <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:server.port> <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <mentions> <col:orders.user_id> <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <mentions> <doc:README.md> <layer:docs> .

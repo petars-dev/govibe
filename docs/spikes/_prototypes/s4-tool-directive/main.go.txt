@@ -1,0 +1,12 @@
+package main
+
+import (
+	"fmt"
+
+	"github.com/petars-dev/govibe/config"
+)
+
+func main() {
+	cfg, err := config.Load()
+	fmt.Println(cfg.Server.Port, err)
+}

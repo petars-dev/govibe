@@ -5,38 +5,29 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"net/http"
 	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
-	"sort"
 	"strings"
 
 	"github.com/cayleygraph/quad"
-	"github.com/go-chi/chi/v5"
+
+	"petars-dev/govibe/internal/routeinfo"
 )
 
-// anyMethod is the method token of a route registered for every method
-// (chi's Handle). chi.Walk reports such a route once per HTTP method; it is one
-// route, so the layer collapses it.
-const anyMethod = "ANY"
+// The route table is read through internal/routeinfo, the light package the app
+// binary shares for `inspect --json`; these names keep the layer's own vocabulary.
+type (
+	// runtimeRoute is one route as the running router reports it.
+	runtimeRoute = routeinfo.Route
+	// handlerRef is a function as the Go runtime describes it.
+	handlerRef = routeinfo.Ref
+)
 
-// runtimeRoute is one route as the running router reports it.
-type runtimeRoute struct {
-	Method  string // upper-case HTTP method, or anyMethod
-	Path    string // chi pattern, e.g. /dev/db/api/tables/{table}
-	Handler handlerRef
-	MW      []handlerRef // middleware, outermost first
-}
-
-// handlerRef is a function as the Go runtime describes it.
-type handlerRef struct {
-	Symbol string // runtime function name; "" when it could not be determined
-	File   string // source file the runtime reports: absolute, or module-relative under -trimpath
-	Line   int    // line of the function's declaration or closure literal
-}
+// anyMethod is the method token of a route registered for every method.
+const anyMethod = routeinfo.AnyMethod
 
 // routeTable is the router's routes, or the fact that there is no router.
 type routeTable struct {
@@ -55,110 +46,13 @@ func (w *world) routeTable() (*routeTable, error) {
 			}
 			return &routeTable{routes: sortRoutes(rs)}, nil
 		case w.x.opts.Router != nil:
-			rs, err := collectChiRoutes(w.x.opts.Router)
-			if err != nil {
-				return nil, err
-			}
-			return &routeTable{routes: rs}, nil
+			return &routeTable{routes: routeinfo.Walk(w.x.opts.Router)}, nil
 		}
 		return &routeTable{absent: true}, nil
 	})
 }
 
-func sortRoutes(rs []runtimeRoute) []runtimeRoute {
-	sort.SliceStable(rs, func(i, j int) bool {
-		if rs[i].Path != rs[j].Path {
-			return rs[i].Path < rs[j].Path
-		}
-		return rs[i].Method < rs[j].Method
-	})
-	return rs
-}
-
-// collectChiRoutes walks a chi router the way chi.Walk does (sub-routers,
-// inline middleware groups, the middleware stack of every level) with one
-// difference: a catch-all registration is reported once, as anyMethod, instead
-// of once per method.
-func collectChiRoutes(r chi.Routes) ([]runtimeRoute, error) {
-	var out []runtimeRoute
-	walkChi(r, "", nil, &out)
-	return sortRoutes(out), nil
-}
-
-type middlewareFunc = func(http.Handler) http.Handler
-
-func walkChi(r chi.Routes, parent string, parentMW []middlewareFunc, out *[]runtimeRoute) {
-	for _, route := range r.Routes() {
-		mws := append(append([]middlewareFunc(nil), parentMW...), r.Middlewares()...)
-		if route.SubRoutes != nil {
-			walkChi(route.SubRoutes, parent+route.Pattern, mws, out)
-			continue
-		}
-		path := strings.ReplaceAll(parent+route.Pattern, "/*/", "/")
-
-		emit := func(method string, h http.Handler) {
-			chain := mws
-			if ch, ok := h.(*chi.ChainHandler); ok {
-				chain = append(append([]middlewareFunc(nil), mws...), ch.Middlewares...)
-				h = ch.Endpoint
-			}
-			rr := runtimeRoute{Method: method, Path: path, Handler: handlerRefOf(h)}
-			for _, m := range chain {
-				rr.MW = append(rr.MW, funcRefOf(reflect.ValueOf(m)))
-			}
-			*out = append(*out, rr)
-		}
-
-		if all, ok := route.Handlers["*"]; ok {
-			emit(anyMethod, all)
-			// A specific method registered over a catch-all keeps its own route.
-			for m, h := range route.Handlers {
-				if m != "*" && handlerRefOf(unwrapChain(h)) != handlerRefOf(unwrapChain(all)) {
-					emit(m, h)
-				}
-			}
-			continue
-		}
-		for m, h := range route.Handlers {
-			emit(m, h)
-		}
-	}
-}
-
-func unwrapChain(h http.Handler) http.Handler {
-	if ch, ok := h.(*chi.ChainHandler); ok {
-		return ch.Endpoint
-	}
-	return h
-}
-
-// handlerRefOf identifies the function that serves h: the function itself for a
-// http.HandlerFunc, the ServeHTTP method for any other handler type.
-func handlerRefOf(h http.Handler) handlerRef {
-	v := reflect.ValueOf(h)
-	if !v.IsValid() {
-		return handlerRef{}
-	}
-	if v.Kind() == reflect.Func {
-		return funcRefOf(v)
-	}
-	if m, ok := v.Type().MethodByName("ServeHTTP"); ok {
-		return funcRefOf(m.Func)
-	}
-	return handlerRef{}
-}
-
-func funcRefOf(v reflect.Value) handlerRef {
-	if !v.IsValid() || v.Kind() != reflect.Func || v.IsNil() {
-		return handlerRef{}
-	}
-	fn := runtime.FuncForPC(v.Pointer())
-	if fn == nil {
-		return handlerRef{}
-	}
-	file, line := fn.FileLine(fn.Entry())
-	return handlerRef{Symbol: fn.Name(), File: filepath.ToSlash(file), Line: line}
-}
+func sortRoutes(rs []runtimeRoute) []runtimeRoute { return routeinfo.Sort(rs) }
 
 type routesLayer struct{}
 

@@ -1,60 +1,28 @@
 package main
 
 import (
-	"context"
-	"net/http"
-	"time"
+	"embed"
 
-	"github.com/sirupsen/logrus"
-	"github.com/workos/workos-go/v10"
-
-	"petars-dev/govibe/config"
-	"petars-dev/govibe/logger"
+	"petars-dev/govibe/assets"
+	"petars-dev/govibe/internal/kernel"
 	"petars-dev/govibe/routes"
-	"petars-dev/govibe/storage/mariadb"
-	storagemig "petars-dev/govibe/storage/migrations"
+	migrations "petars-dev/govibe/storage/migrations"
 )
 
-func main() {
-	// Load configuration from embedded env.yml resolved via environment variables.
-	cfg, err := config.Load()
-	if err != nil {
-		logrus.Fatalf("config: %v", err)
-	}
+// env.yml sits next to this file and is embedded, so the binary stays one file.
+//
+//go:embed env.yml
+var configFS embed.FS
 
-	// Initialize logrus.
-	logger.Setup(cfg.Server.LogLevel)
-	logrus.WithField("port", cfg.Server.Port).Info("booting server")
-
-	// Initialize optional WorkOS client from config.
-	if cfg.WorkOS.APIKey != "" {
-		_ = workos.NewClient(cfg.WorkOS.APIKey, workos.WithClientID(cfg.WorkOS.ClientID))
-		logrus.Info("workos client initialized")
-	}
-
-	// Optional database + migrations (MariaDB/MySQL). If no DSN is provided, we skip DB init.
-	if dbx, err := mariadb.Open(cfg.Database.MariaDB.DSN); err != nil {
-		logrus.Fatalf("db open: %v", err)
-	} else if dbx != nil {
-		defer dbx.Close()
-		if err := storagemig.Up(context.Background(), dbx.DB, cfg.Database.Type); err != nil {
-			logrus.Fatalf("db migrate: %v", err)
-		}
-		logrus.Info("database connected and migrated")
-	}
-
-	r := routes.NewRouter()
-
-	srv := &http.Server{
-		Addr:         ":" + cfg.Server.Port,
-		Handler:      r,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	logrus.Infof("listening on http://localhost:%s", cfg.Server.Port)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		logrus.Fatalf("server: %v", err)
+// newApp declares what this application contributes; the framework boots it.
+func newApp() kernel.App {
+	return kernel.App{
+		Name:       "govibe",
+		Config:     configFS,
+		Migrations: migrations.FS,
+		Assets:     assets.FS,
+		Routes:     routes.Register,
 	}
 }
+
+func main() { kernel.Main(newApp()) }

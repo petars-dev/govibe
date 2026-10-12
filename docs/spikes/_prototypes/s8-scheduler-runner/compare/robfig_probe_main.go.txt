@@ -1,0 +1,146 @@
+// Spike S8: parser behavior of robfig/cron/v3 (which is also gocron v2's parser).
+package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/robfig/cron/v3"
+)
+
+// Our grammar: five fields plus descriptors; no seconds.
+var parser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+
+func main() {
+	switch os.Args[1] {
+	case "invalid":
+		invalid()
+	case "valid":
+		valid()
+	case "dst":
+		dst()
+	case "dow":
+		dow()
+	}
+}
+
+func invalid() {
+	for _, s := range []string{
+		"* * *", "61 * * * *", "@every", "@weekly2", "CRON_TZ=Nowhere/Land * * * * *",
+		"0 0 9 * * *", "", "   ", "*/0 * * * *", "5-1 * * * *", "* * * * 8", "@every banana", "@every 0s", "@every -5m",
+		"0 0 31 2 *", "@every 500ms", "TZ= * * * * *", "CRON_TZ=Europe/Sofia", "0 9 * * MON-FRI", "0 9 * * 1,3,5", "0 9 L * *", "? ? ? ? ?", "0 0 * * 7",
+	} {
+		sc, err := safeParse(s)
+		if err != nil {
+			fmt.Printf("%-34q -> ERROR: %v\n", s, err)
+			continue
+		}
+		next := sc.Next(time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC))
+		fmt.Printf("%-34q -> ok  %T next(from 2026-10-11 12:00Z)=%s\n", s, sc, fmtT(next))
+	}
+}
+
+// safeParse converts the parser's panic (robfig/cron v3.0.1 panics on a bare "CRON_TZ=Zone") into an error.
+func safeParse(s string) (sc cron.Schedule, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("PANIC in cron.Parser.Parse: %v", r)
+		}
+	}()
+	return parser.Parse(s)
+}
+
+func fmtT(t time.Time) string {
+	if t.IsZero() {
+		return "ZERO (never fires)"
+	}
+	return t.Format("2006-01-02 15:04:05 MST (Z07:00)")
+}
+
+func valid() {
+	from := time.Date(2026, 10, 11, 18, 17, 43, 123456789, time.UTC)
+	fmt.Println("from:", fmtT(from), "(fractional seconds 123456789ns)")
+	for _, s := range []string{"@hourly", "@daily", "@midnight", "@weekly", "@monthly", "@yearly", "@annually", "@every 6h", "@every 90s", "@every 1h30m", "*/5 * * * *", "0 2 * * *", "CRON_TZ=Europe/Sofia 0 9 * * *", "TZ=Europe/Sofia 0 9 * * *"} {
+		sc, err := parser.Parse(s)
+		if err != nil {
+			fmt.Printf("%-34s ERROR %v\n", s, err)
+			continue
+		}
+		n1 := sc.Next(from)
+		n2 := sc.Next(n1)
+		fmt.Printf("%-34s next=%s then=%s\n", s, fmtT(n1), fmtT(n2))
+	}
+	fmt.Println("\n-- default timezone: no prefix means 'the location of the time passed to Next'")
+	sc, _ := parser.Parse("0 9 * * *")
+	sof, _ := time.LoadLocation("Europe/Sofia")
+	ny, _ := time.LoadLocation("America/New_York")
+	now := time.Date(2026, 10, 11, 5, 0, 0, 0, time.UTC)
+	fmt.Println("0 9 * * *  Next(now in UTC)   =", fmtT(sc.Next(now)))
+	fmt.Println("0 9 * * *  Next(now in Sofia) =", fmtT(sc.Next(now.In(sof))))
+	fmt.Println("0 9 * * *  Next(now in NY)    =", fmtT(sc.Next(now.In(ny))))
+	sc2, _ := parser.Parse("CRON_TZ=America/New_York 0 9 * * *")
+	fmt.Println("CRON_TZ=NY 0 9 * * * Next(now in Sofia) =", fmtT(sc2.Next(now.In(sof))), " <- prefix beats the caller's location; result is returned in the caller's location")
+	fmt.Println("\n-- @every counts from the time passed (process start in a runner), and rounds off sub-second part:")
+	ev, _ := parser.Parse("@every 6h")
+	fmt.Println("@every 6h Next(18:17:43.123456789) =", ev.Next(from).Format("15:04:05.000000000"), "; Next(18:17:44.9)=", ev.Next(from.Add(1777*time.Millisecond)).Format("15:04:05.000000000"))
+	_ = strings.Repeat
+}
+
+func at(loc *time.Location, y int, mo time.Month, d, h, mi int) time.Time {
+	return time.Date(y, mo, d, h, mi, 0, 0, loc)
+}
+
+func seq(label, spec string, loc *time.Location, from time.Time, n int, filter func(time.Time) bool) {
+	sc, err := parser.Parse(spec)
+	if err != nil {
+		fmt.Println(label, "ERROR", err)
+		return
+	}
+	fmt.Printf("%s  spec=%q\n", label, spec)
+	t := from.In(loc)
+	for i := 0; i < n; i++ {
+		t = sc.Next(t)
+		if t.IsZero() {
+			fmt.Println("   ZERO")
+			return
+		}
+		fmt.Printf("   %s   = %s UTC\n", t.In(loc).Format("Mon 2006-01-02 15:04:05 MST -07:00"), t.UTC().Format("01-02 15:04"))
+	}
+}
+
+func dst() {
+	sof, _ := time.LoadLocation("Europe/Sofia")
+	ny, _ := time.LoadLocation("America/New_York")
+	lh, _ := time.LoadLocation("Australia/Lord_Howe")
+	kol, _ := time.LoadLocation("Asia/Kolkata")
+	// Sofia: spring forward 2026-03-29 03:00 -> 04:00 (gap 03:00-04:00); fall back 2026-10-25 04:00 -> 03:00 (03:00-04:00 repeats)
+	seq("SOFIA spring-forward, daily 03:30 (in the gap on 03-29)", "30 3 * * *", sof, at(sof, 2026, 3, 27, 12, 0), 4, nil)
+	seq("SOFIA spring-forward, daily 02:30 (just before the gap)", "30 2 * * *", sof, at(sof, 2026, 3, 27, 12, 0), 4, nil)
+	seq("SOFIA spring-forward, hourly :00", "0 * * * *", sof, at(sof, 2026, 3, 29, 0, 30), 6, nil)
+	seq("SOFIA fall-back, daily 03:30 (repeats on 10-25)", "30 3 * * *", sof, at(sof, 2026, 10, 23, 12, 0), 4, nil)
+	seq("SOFIA fall-back, hourly :00 across the repeat", "0 * * * *", sof, time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC).In(sof), 5, nil)
+	seq("SOFIA fall-back, daily 02:30 (unaffected)", "30 2 * * *", sof, at(sof, 2026, 10, 23, 12, 0), 4, nil)
+	seq("NY spring-forward 2026-03-08, daily 02:30 (in the gap)", "30 2 * * *", ny, at(ny, 2026, 3, 6, 12, 0), 4, nil)
+	seq("NY spring-forward, hourly :30 across the gap", "30 * * * *", ny, at(ny, 2026, 3, 8, 0, 45), 5, nil)
+	seq("NY fall-back 2026-11-01, daily 01:30 (repeats)", "30 1 * * *", ny, at(ny, 2026, 10, 30, 12, 0), 4, nil)
+	seq("NY fall-back, hourly :30 across the repeat", "30 * * * *", ny, time.Date(2026, 11, 1, 4, 45, 0, 0, time.UTC).In(ny), 6, nil)
+	seq("NY, @daily across spring-forward", "@daily", ny, at(ny, 2026, 3, 6, 12, 0), 4, nil)
+	seq("KOLKATA (+05:30, no DST), daily 09:00", "0 9 * * *", kol, at(kol, 2026, 10, 10, 12, 0), 3, nil)
+	seq("KOLKATA, hourly :00 (every hour is :30 UTC)", "0 * * * *", kol, at(kol, 2026, 10, 10, 12, 0), 3, nil)
+	// Lord Howe: DST +10:30 -> +11:00 (30-minute shift). Starts 2026-10-04 02:00 -> 02:30 (gap 02:00-02:30), ends 2026-04-05 02:00 -> 01:30 (01:30-02:00 repeats)
+	seq("LORD_HOWE spring-forward 2026-10-04, daily 02:15 (in the 30-minute gap)", "15 2 * * *", lh, at(lh, 2026, 10, 2, 12, 0), 4, nil)
+	seq("LORD_HOWE spring-forward, hourly :00 across", "0 * * * *", lh, at(lh, 2026, 10, 4, 0, 30), 5, nil)
+	seq("LORD_HOWE fall-back 2026-04-05, daily 01:45 (repeats)", "45 1 * * *", lh, at(lh, 2026, 4, 3, 12, 0), 4, nil)
+	seq("LORD_HOWE fall-back, hourly :00 across", "0 * * * *", lh, time.Date(2026, 4, 4, 14, 15, 0, 0, time.UTC).In(lh), 6, nil)
+	seq("CRON_TZ in spec: Sofia 03:30 from a UTC caller", "CRON_TZ=Europe/Sofia 30 3 * * *", time.UTC, at(time.UTC, 2026, 3, 27, 12, 0), 4, nil)
+}
+
+func dow() {
+	sof, _ := time.LoadLocation("Europe/Sofia")
+	seq("dom+dow both restricted: 13th OR Friday", "0 0 13 * 5", sof, at(sof, 2026, 11, 1, 0, 0), 7, nil)
+	seq("dom restricted only (13th)", "0 0 13 * *", sof, at(sof, 2026, 11, 1, 0, 0), 3, nil)
+	seq("dow restricted only (Fri)", "0 0 * * 5", sof, at(sof, 2026, 11, 1, 0, 0), 3, nil)
+	seq("dom '*' + dow: */2 treated as star?", "0 0 */2 * 5", sof, at(sof, 2026, 11, 1, 0, 0), 5, nil)
+}

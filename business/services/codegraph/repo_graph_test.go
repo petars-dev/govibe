@@ -47,7 +47,7 @@ func TestWholeGraphInvariants(t *testing.T) {
 	})
 	t.Logf("%d quads in total", len(res.Quads))
 
-	for _, id := range []string{"cfg:database.mariadb.dsn", "cfg:workos.api_key", "env:MARIADB_DSN", "env:WORKOS_API_KEY"} {
+	for _, id := range []string{"cfg:database.mariadb.dsn", "env:MARIADB_DSN"} {
 		found := false
 		for _, qd := range res.Quads {
 			if iriOf(qd.Subject) == id && iriOf(qd.Predicate) == "sensitive" && qd.Object == quad.Value(quad.Bool(true)) {
@@ -64,10 +64,13 @@ func TestWholeGraphInvariants(t *testing.T) {
 	equal(t, "tool -> registering function", q(`g.V(g.IRI('tool:graph_query')).In(g.IRI('registers')).All()`), "<func:devmcp.registerGraphTools>")
 	// (Prose and wiring change, so these assert inclusion, not exact sets.)
 	includes(t, "functions that use a config key", q(`g.V(g.IRI('cfg:server.port')).In(g.IRI('uses_config')).Has(g.IRI('type'), g.IRI('kind:func')).All()`),
-		"<func:..main>", "<func:config.Load>")
+		"<func:internal/kernel.serve>", "<func:config.fromTree>")
 	// A closure inside a package-level var has no enclosing function, so its use is the package's.
 	includes(t, "packages that use a config key", q(`g.V(g.IRI('cfg:server.port')).In(g.IRI('uses_config')).Has(g.IRI('type'), g.IRI('kind:package')).All()`),
-		"<pkg:.>", "<pkg:cmd/govibe>", "<pkg:config>")
+		"<pkg:internal/kernel>", "<pkg:config>")
+	// The tool reads the project's database setting from its env.yml for the offline graph.
+	includes(t, "packages that use the database key", q(`g.V(g.IRI('cfg:database.mariadb.dsn')).In(g.IRI('uses_config')).Has(g.IRI('type'), g.IRI('kind:package')).All()`),
+		"<pkg:cmd/govibe>", "<pkg:internal/kernel>")
 	includes(t, "docs that mention a route", q(`g.V(g.IRI('route:GET:/api/hello')).In(g.IRI('mentions')).All()`), "<doc:SKILL.md>")
 	// complete: every row of its status table is implemented or deliberately skipped (it read in_progress until Phase 6).
 	equal(t, "this spec's status", q(`g.V(g.IRI('spec:graph-indexer')).Out(g.IRI('status')).All()`), "complete")

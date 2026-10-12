@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,7 +81,9 @@ itself failed (a layer failed, the store is locked, a bad flag).`,
 		} else {
 			logrus.SetLevel(logrus.ErrorLevel) // the report below says what the log would
 		}
-		o.openSchema = schemaFromConfig
+		o.openSchema = func() (func(context.Context) (*dbexplorer.Snapshot, error), func(), string) {
+			return schemaFromConfig(o.root)
+		}
 		err := runGraphIndex(cmd.Context(), o, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		var ee *exitError
 		if err != nil && !errors.As(err, &ee) {
@@ -114,11 +117,17 @@ type graphIndexOptions struct {
 }
 
 // schemaFromConfig reads the live schema when MARIADB_DSN is set, as the dev
-// server does, so a local run sees drift and unapplied migrations too. A database
-// that cannot be reached is a note, not a failure: the layer falls back to the
-// migrations, as it does in the server.
-func schemaFromConfig() (func(context.Context) (*dbexplorer.Snapshot, error), func(), string) {
-	cfg, err := config.Load()
+// server does, so a local run sees drift and unapplied migrations too. The
+// configuration is the project's own env.yml, read from root: the tool is not the
+// app, so it has no embedded copy. A database that cannot be reached is a note, not
+// a failure: the layer falls back to the migrations, as it does in the server.
+func schemaFromConfig(root string) (func(context.Context) (*dbexplorer.Snapshot, error), func(), string) {
+	cfg, err := config.Load(os.DirFS(root))
+	if errors.Is(err, fs.ErrNotExist) {
+		// A project without a root env.yml (it predates the split, or relies on the
+		// framework defaults) still has MARIADB_DSN from the environment.
+		cfg, err = config.Load(nil)
+	}
 	if err != nil || cfg.Database.MariaDB.DSN == "" {
 		return nil, nil, ""
 	}

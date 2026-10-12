@@ -195,7 +195,7 @@ func TestConfigLayerFixtureFacts(t *testing.T) {
 	f := facts{out.quads}
 
 	// Sensitive settings carry no default and no value, ever.
-	for _, key := range []string{"database.dsn", "auth.api_key", "mail.smtp.password"} {
+	for _, key := range []string{"database.dsn", "auth.api_key", "queue.broker.password"} {
 		id := "cfg:" + key
 		if got := f.one(t, id, "sensitive"); got != quad.Value(quad.Bool(true)) {
 			t.Errorf("%s sensitive = %v", key, got)
@@ -204,7 +204,7 @@ func TestConfigLayerFixtureFacts(t *testing.T) {
 			t.Errorf("%s leaked a default: %v", key, got)
 		}
 	}
-	for _, env := range []string{"env:FIXTURE_DSN", "env:FIXTURE_API_KEY", "env:SMTP_PASSWORD"} {
+	for _, env := range []string{"env:FIXTURE_DSN", "env:FIXTURE_API_KEY", "env:BROKER_PASSWORD"} {
 		if got := f.out(env, "default"); len(got) != 0 {
 			t.Errorf("%s leaked a default: %v", env, got)
 		}
@@ -249,7 +249,7 @@ func TestConfigLayerFixtureFacts(t *testing.T) {
 		t.Errorf("a static value has no env var: %v", got)
 	}
 	// An empty default is no default.
-	if got := f.out("cfg:mail.smtp.host", "default"); len(got) != 0 {
+	if got := f.out("cfg:queue.broker.host", "default"); len(got) != 0 {
 		t.Errorf("an empty default should be absent: %v", got)
 	}
 
@@ -259,10 +259,10 @@ func TestConfigLayerFixtureFacts(t *testing.T) {
 		{"func:..main", "cfg:server.port"},
 		{"func:..main", "cfg:database.dsn"},
 		{"pkg:.", "cfg:server.port"},
-		{"func:business/actions.Notify", "cfg:mail.smtp.host"},
-		{"func:business/actions.Notify", "cfg:mail.smtp.port"},
-		{"func:business/actions.Notify", "cfg:mail.smtp.password"},
-		{"pkg:business/actions", "cfg:mail.smtp.host"},
+		{"func:business/actions.Notify", "cfg:queue.broker.host"},
+		{"func:business/actions.Notify", "cfg:queue.broker.port"},
+		{"func:business/actions.Notify", "cfg:queue.broker.password"},
+		{"pkg:business/actions", "cfg:queue.broker.host"},
 		{"func:business/actions.Notify", "cfg:feature.beta"},
 	} {
 		if !f.has(u[0], "uses_config", iri(u[1])) {
@@ -364,7 +364,7 @@ func TestDocsLayerFixtureFacts(t *testing.T) {
 		"typ:storage/orderstore.Store", // orderstore.Store
 		"spec:hello",                   // a /dev/docs/specs/ link
 		"cfg:server.port", "env:PORT", "env:FIXTURE_DSN",
-		"cfg:mail.smtp.host", "cfg:mail.smtp.port", "cfg:mail.smtp.password", // mail.smtp.*
+		"cfg:queue.broker.host", "cfg:queue.broker.port", "cfg:queue.broker.password", // queue.broker.*
 		"env:FIXTURE_DEBUG",
 		"file:main.go",
 		"tmpl:assets/templates.Home", // templates.Home

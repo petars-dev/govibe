@@ -193,14 +193,14 @@ func docsPage(title string, section string, nav []DocItem, activeSlug string, co
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		_, _ = io.WriteString(w, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
 		_, _ = io.WriteString(w, "<title>"+templ.EscapeString(title)+"</title>")
-		_, _ = io.WriteString(w, "<link rel=\"icon\" href=\"/assets/static/govibe-logo.png\">")
-		_, _ = io.WriteString(w, "<link rel=\"stylesheet\" href=\"/assets/static/theme.css\">")
-		_, _ = io.WriteString(w, "<link rel=\"stylesheet\" href=\"/assets/static/docs.css\">")
+		_, _ = io.WriteString(w, "<link rel=\"icon\" href=\"/_govibe/static/govibe-logo.png\">")
+		_, _ = io.WriteString(w, "<link rel=\"stylesheet\" href=\"/_govibe/static/theme.css\">")
+		_, _ = io.WriteString(w, "<link rel=\"stylesheet\" href=\"/_govibe/static/docs.css\">")
 		// Per-theme syntax highlighting palettes (dark: dracula, light: github),
 		// scoped so they follow the same html.theme-* toggle as the rest of the page.
 		_, _ = io.WriteString(w, "<style>"+highlightCSSOnce()+"</style>")
 		// Theme toggle bootstraps before first paint. Default to dark, persisted in localStorage.
-		_, _ = io.WriteString(w, "<script src=\"/assets/static/theme.js\"></script>")
+		_, _ = io.WriteString(w, "<script src=\"/_govibe/static/theme.js\"></script>")
 		_, _ = io.WriteString(w, "</head><body class=\"docs-body\">")
 		// Top header with brand, tabs, and theme toggle with icons
 		secLabel := "Docs"
@@ -208,7 +208,7 @@ func docsPage(title string, section string, nav []DocItem, activeSlug string, co
 			secLabel = "Specs"
 		}
 		_, _ = io.WriteString(w, "<header class=\"site-header\">")
-		_, _ = io.WriteString(w, "<div class=\"brand\"><a class=\"brand-link\" href=\"/\"><img class=\"brand-logo\" src=\"/assets/static/govibe-logo.png\" alt=\"GoVibe\"></a><span class=\"brand-name\">GoVibe Dev Docs</span></div>")
+		_, _ = io.WriteString(w, "<div class=\"brand\"><a class=\"brand-link\" href=\"/\"><img class=\"brand-logo\" src=\"/_govibe/static/govibe-logo.png\" alt=\"GoVibe\"></a><span class=\"brand-name\">GoVibe Dev Docs</span></div>")
 		_, _ = io.WriteString(w, "<nav class=\"top-tabs\"><a class=\"tab"+boolClass(section == "app", " active")+"\" href=\"/dev/docs/app\">Docs</a><a class=\"tab"+boolClass(section == "specs", " active")+"\" href=\"/dev/docs/specs\">Specs</a><a class=\"tab\" href=\"/dev/graph\">Graph</a><a class=\"tab\" href=\"/dev/db\">DB</a></nav>")
 		_, _ = io.WriteString(w, "<div class=\"header-actions\"><a class=\"btn btn-ghost\" href=\"/\">← App</a><button class=\"theme-toggle\" onclick=\"toggleTheme()\" aria-label=\"Toggle theme\"><svg class=\"icon-sun\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zm10.48 0l1.79-1.79 1.41 1.41-1.79 1.8-1.41-1.42zM12 4V1h-1v3h1zm0 19v-3h-1v3h1zm7-11h3v-1h-3v1zm-19 0h3v-1H0v1zm3.55 8.45l1.41 1.41 1.79-1.79-1.41-1.41-1.79 1.79zM18.24 18.24l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM12 7a5 5 0 100 10 5 5 0 000-10z\"/></svg><svg class=\"icon-moon\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z\"/></svg></button></div>")
 		_, _ = io.WriteString(w, "</header>")
@@ -254,7 +254,7 @@ func boolClass(ok bool, suffix string) string {
 
 // /dev/docs/app index
 func DevDocsAppIndex(w http.ResponseWriter, r *http.Request) {
-	items, _ := listDocs("docs/public", "*.md", "")
+	items, _ := listDocs(docsDir(r, "docs/public"), "*.md", "")
 	var b strings.Builder
 	b.WriteString("<h1>Application Docs</h1><input id=\"indexSearch\" class=\"search-input\" type=\"search\" placeholder=\"Search titles...\" aria-label=\"Search titles\"><ul id=\"indexList\" class=\"index-list\">")
 	for _, it := range items {
@@ -272,7 +272,7 @@ func DevDocsAppFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	items, _ := listDocs("docs/public", "*.md", "")
+	items, _ := listDocs(docsDir(r, "docs/public"), "*.md", "")
 	var fp, title string
 	for _, it := range items {
 		if it.Slug == slug {
@@ -295,7 +295,7 @@ func DevDocsAppFile(w http.ResponseWriter, r *http.Request) {
 
 // /dev/docs/specs index (SPEC_*.md, slugs drop SPEC_ and are lowercase hyphenated)
 func DevDocsSpecs(w http.ResponseWriter, r *http.Request) {
-	items, _ := listDocs("docs/specs", "SPEC_*.md", "SPEC_")
+	items, _ := listDocs(docsDir(r, "docs/specs"), "SPEC_*.md", "SPEC_")
 	var b strings.Builder
 	b.WriteString("<h1>Specifications</h1><input id=\"indexSearch\" class=\"search-input\" type=\"search\" placeholder=\"Search titles...\" aria-label=\"Search titles\"><ul id=\"indexList\" class=\"index-list\">")
 	for _, it := range items {
@@ -313,7 +313,7 @@ func DevDocsSpecFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	items, _ := listDocs("docs/specs", "SPEC_*.md", "SPEC_")
+	items, _ := listDocs(docsDir(r, "docs/specs"), "SPEC_*.md", "SPEC_")
 	var fp, title string
 	for _, it := range items {
 		if it.Slug == slug {
