@@ -29,6 +29,7 @@ type PresetInfo struct {
 // ViewPresets are the views the graph page offers, in the order it lists them.
 // "manual" (quads added by hand) is not drawn from the model: see ManualView.
 var ViewPresets = []PresetInfo{
+	{"app_map", "App map", "The app's own connections: each route, the handler that serves it, the actions, services and stores it reaches, the tables at the end, and the templates, config keys and docs on the way. Estimated from package imports where the calls layer is off (dashed). In scope Framework or All it maps the framework's routes too, each labelled."},
 	{"architecture", "Architecture", "Packages in their architecture layers, and who imports whom. A red edge is an import that breaks the layering rule."},
 	{"request_flow", "Request flow", "Each route, the middleware it runs, the function that handles it, and what that renders. With the calls layer, also the calls down to the tables it reads and writes (dashed: a call through an interface)."},
 	{"db_er", "Database ER", "Tables and the relations between them: declared foreign keys (solid), and relations the schema implies (dashed)."},
@@ -64,9 +65,10 @@ type ViewNode struct {
 	Dist     int    `json:"dist,omitempty"`  // focus view: hops from the focus node
 	Degree   int    `json:"degree"`          // edges to other nodes of the view
 	Findings int    `json:"findings,omitempty"`
-	Worst    string `json:"worst,omitempty"` // severity of the worst finding about it
-	Flag     string `json:"flag,omitempty"`  // uncovered, sensitive, undeclared, dev
-	More     int    `json:"more,omitempty"`  // focus view: edges at this node that the view leaves out
+	Worst    string `json:"worst,omitempty"`  // severity of the worst finding about it
+	Flag     string `json:"flag,omitempty"`   // uncovered, sensitive, undeclared, dev
+	More     int    `json:"more,omitempty"`   // focus view: edges at this node that the view leaves out
+	Origin   string `json:"origin,omitempty"` // app or framework: whose node it is, so a view of both can label the framework's
 }
 
 // ViewEdge is one stored edge between two nodes of a view.
@@ -102,12 +104,16 @@ type ViewResult struct {
 	Presets     []PresetInfo `json:"presets"`
 	AsOf        string       `json:"as_of"`
 	Quads       int          `json:"quads"` // size of the whole graph
+	// Scope is whose nodes the view is drawn from, and Hidden what that leaves out:
+	// the page's banner always says both.
+	Scope  Scope  `json:"scope"`
+	Hidden Hidden `json:"hidden"`
 }
 
 // View builds a preset view, or the neighbourhood of a node.
 func (m *Model) View(q ViewQuery) (*ViewResult, error) {
 	b := &viewBuilder{m: m, limit: clampLimit(q.Limit, defaultViewLimit, maxViewLimit), idx: map[string]*ViewNode{}, seenEdge: map[string]bool{}}
-	res := &ViewResult{Presets: ViewPresets, AsOf: m.AsOf(), Quads: m.quads, Limit: b.limit}
+	res := &ViewResult{Presets: ViewPresets, AsOf: m.AsOf(), Quads: m.quads, Limit: b.limit, Scope: m.Scope(), Hidden: m.Hidden()}
 	if m.Empty() {
 		res.Preset, res.Title = q.Preset, "Nothing indexed yet"
 		res.Notes = []string{"The graph has not been indexed yet: reindex, or retry in a few seconds after a boot."}
@@ -139,7 +145,7 @@ func (m *Model) View(q ViewQuery) (*ViewResult, error) {
 	} else {
 		id := q.Preset
 		if id == "" {
-			id = "architecture"
+			id = "app_map" // the app's own connections come first
 		}
 		var info *PresetInfo
 		for i := range ViewPresets {
@@ -158,6 +164,8 @@ func (m *Model) View(q ViewQuery) (*ViewResult, error) {
 		}
 		res.Preset, res.Title, res.Description = info.ID, info.Title, info.Description
 		switch id {
+		case "app_map":
+			b.appMap()
 		case "architecture":
 			b.architecture()
 		case "request_flow":
@@ -194,7 +202,7 @@ func (b *viewBuilder) add(n *Node, col int) *ViewNode {
 	if vn := b.idx[n.ID]; vn != nil {
 		return vn
 	}
-	vn := &ViewNode{ID: n.ID, Kind: n.Kind, Label: viewLabel(b.m, n), Col: col}
+	vn := &ViewNode{ID: n.ID, Kind: n.Kind, Label: viewLabel(b.m, n), Col: col, Origin: b.m.originOf(n)}
 	switch n.Kind {
 	case "package":
 		vn.Group = n.Str("arch_layer")
@@ -368,7 +376,7 @@ func worstSeverity(fs []*Node) string {
 // archOrder is the order of the architecture layers, left to right, in the
 // architecture view: from the entry points down to the storage they must go
 // through business to reach.
-var archOrder = []string{"wiring", "dev", "controllers", "middleware", "views", "business", "storage", "support"}
+var archOrder = []string{"wiring", "dev", "controllers", "commands", "middleware", "views", "business", "storage", "support"}
 
 func (b *viewBuilder) architecture() {
 	m := b.m
@@ -407,6 +415,148 @@ func (b *viewBuilder) architecture() {
 			v := layerVerdict(from, imp.Str("arch_layer")) != ""
 			b.link(p, imp, "imports", func(e *ViewEdge) { e.Violation = v })
 		}
+	}
+}
+
+// appMap draws the project's own connections: a route, the handler that serves it, what
+// the handler reaches on the way to the data (functions through the calls layer, else the
+// business and storage packages its package imports, dashed), the tables at the end, and
+// the templates it renders, the settings it reads and the docs that mention the route.
+func (b *viewBuilder) appMap() {
+	m := b.m
+	routes := append([]*Node(nil), m.byKind["route"]...)
+	if len(routes) == 0 {
+		b.notes = append(b.notes, "No routes: the routes layer is not built (an offline run of a project that is not an application has no router), or the scope shows none.")
+		return
+	}
+	sort.SliceStable(routes, func(i, j int) bool {
+		a, c := routes[i], routes[j]
+		if (m.originOf(a) == OriginFramework) != (m.originOf(c) == OriginFramework) {
+			return m.originOf(c) == OriginFramework // the project's own first
+		}
+		if a.Str("path") != c.Str("path") {
+			return a.Str("path") < c.Str("path")
+		}
+		return a.ID < c.ID
+	})
+	calls := m.hasCalls()
+	b.cols = []string{"route", "handler", "actions, services, stores", "tables", "templates, settings, docs"}
+	const (
+		colRoute, colHandler, colReach, colTables, colAside = 0, 1, 2, 3, 4
+	)
+	for _, r := range routes {
+		b.add(r, colRoute)
+		for _, d := range append(m.in(r, "mentions"), m.in(r, "covers")...) {
+			if d.Kind == "doc" || d.Kind == "spec" || d.Kind == "spec_item" {
+				b.add(d, colAside)
+				b.link(d, r, "mentions")
+			}
+		}
+		h := m.nodes[r.first("handled_by")]
+		if h == nil {
+			continue
+		}
+		b.add(h, colHandler)
+		b.link(r, h, "handled_by")
+		for _, t := range m.out(h, "renders") {
+			b.add(t, colAside)
+			b.link(h, t, "renders")
+		}
+		for _, k := range m.out(h, "uses_config") {
+			b.add(k, colAside)
+			b.link(h, k, "uses_config")
+		}
+		if calls {
+			b.reachByCalls(h, colReach, colTables)
+		} else if p := m.pkgOf(h); p != nil {
+			b.reachByImports(p, h, colReach, colTables)
+		}
+	}
+}
+
+// reachByCalls adds the functions in the business and storage layers a handler calls, and
+// the tables they read or write, following stored calls only down to a bounded depth.
+func (b *viewBuilder) reachByCalls(h *Node, colReach, colTables int) {
+	m := b.m
+	walk := m.callWalk(h.ID, true, 4)
+	ids := make([]string, 0, len(walk))
+	for id := range walk {
+		if id != h.ID {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if walk[ids[i]].depth != walk[ids[j]].depth {
+			return walk[ids[i]].depth < walk[ids[j]].depth
+		}
+		return ids[i] < ids[j]
+	})
+	inData := func(n *Node) bool {
+		p := m.pkgOf(n)
+		return p != nil && (p.Str("arch_layer") == "business" || p.Str("arch_layer") == "storage")
+	}
+	for _, id := range ids {
+		f := m.nodes[id]
+		if !inData(f) {
+			continue
+		}
+		path := chain(walk, id)
+		for i := 1; i < len(path); i++ {
+			from, to := m.nodes[path[i-1]], m.nodes[path[i]]
+			if inData(to) {
+				b.add(to, colReach)
+				b.link(from, to, "calls", b.edgeFlags(from, to, "calls"))
+			}
+		}
+		for _, t := range m.out(f, "reads_table") {
+			b.add(t, colTables)
+			b.link(f, t, "reads_table")
+		}
+		for _, t := range m.out(f, "writes_table") {
+			b.add(t, colTables)
+			b.link(f, t, "writes_table")
+		}
+	}
+}
+
+// reachByImports is reachByCalls without call edges: the business and storage packages
+// the handler's package imports, directly or through each other, and the tables the
+// functions of those packages touch. Every link is an estimate, drawn dashed.
+func (b *viewBuilder) reachByImports(from, handler *Node, colReach, colTables int) {
+	m := b.m
+	seen := map[string]bool{from.ID: true}
+	frontier := []*Node{from}
+	for depth := 0; depth < 3 && len(frontier) > 0; depth++ {
+		var next []*Node
+		for _, p := range frontier {
+			for _, imp := range m.out(p, "imports") {
+				layer := imp.Str("arch_layer")
+				if seen[imp.ID] || (layer != "business" && layer != "storage") {
+					continue
+				}
+				seen[imp.ID] = true
+				b.add(imp, colReach)
+				if p == from {
+					b.link(handler, imp, "imports", inferred(50))
+				} else {
+					b.link(p, imp, "imports", inferred(50))
+				}
+				next = append(next, imp)
+				if layer == "storage" {
+					for _, f := range m.codeIn(imp) {
+						for _, t := range m.out(f, "reads_table") {
+							b.add(t, colTables)
+							b.link(imp, t, "reads_table", inferred(50))
+						}
+						for _, t := range m.out(f, "writes_table") {
+							b.add(t, colTables)
+							b.link(imp, t, "writes_table", inferred(50))
+						}
+					}
+				}
+			}
+		}
+		frontier = next
 	}
 }
 

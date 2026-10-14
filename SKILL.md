@@ -11,7 +11,8 @@ Directory Layout
 - config, web, govibetest: the other public packages. Together with govibe they are the whole public API; everything else is internal/
 - internal/kernel: the one boot path, the runtime commands, `inspect --json`; devmount.go and devmount_dev.go are the only seam to the dev tools
 - internal/devtools, internal/devtools/devui: the dev panel (docs, graph, db pages and their embedded files); internal/codegraph, internal/dbexplorer, internal/graphdb, internal/devmcp: the indexer, the database explorer, the Cayley store, the MCP server
-- internal/migrate, internal/routeinfo: the goose runner, and the chi router read into plain data
+- internal/migrate, internal/routeinfo: the goose runner, and the chi router read into plain data (and the `inspect --json` document the app binary and the tool share)
+- internal/profile, internal/rules, internal/frameworkdocs: the project profile (`govibe.yml`), the rules of the app-facing SKILL.md as data, and the framework docs an app serves under /dev/docs/govibe
 - cmd/govibe: the tool (`graph index`, `generate`, `serve`, `migrate`)
 - examples/hello: the reference app, its own module (go.work joins it to the framework); it is also the demo every new app starts with
 - docs: framework docs (public) and specs; the specs are process artifacts and are never shipped or embedded
@@ -36,6 +37,13 @@ Working on it
 - `templ generate` inside examples/hello only: with no path it also rewrites the fixture's .templ stand-ins under internal/codegraph/testdata.
 - The framework's gate is `make graph-check` (and `make graph-check-app` for the example): an empty baseline, so a finding is fixed, or accepted
   with a written reason. The three docs of the framework are indexed too: a doc that names a file that is gone is a finding.
+- The graph is about the project it indexes (scope `app` by default, the framework labelled): new node kinds say their `origin`, and a node's quads belong to one layer (an `external` node is
+  written by the `externals` layer; the layers that point at it write only the edge). Where a project keeps things comes from internal/profile, never from a constant in the indexer.
+- Text that is for the framework's contributors only (the test fixtures, the writer contract of the store) goes between `<!-- framework-only:start -->` and `<!-- framework-only:end -->` in a doc of docs/public: it
+  stays in the repository's docs and is stripped from the copy an app serves. Examples in anything an app reads (docs, tool descriptions, graph_schema) use neutral names, never the fixtures' domain; a test fails if a served doc names a fixture.
+- The framework docs an app sees are copies of docs/public made for go:embed (`make docs-embed`; a test fails when one is stale), chosen by the allowlist in internal/frameworkdocs. A spec is never on it.
+  Set `GOVIBE_FRAMEWORK_SRC=<this checkout>` to read them from disk and list the specs under /dev/docs/govibe-specs.
+- The indexer's tests run against testdata/fixture (an app built on the stub framework testdata/stubfw) and testdata/fixture_layout (a non-default layout); `go.work` lists the stub and the fixture.
 - Add a runtime command: a case in `kernel.Run`, its name in `builtinCommands`, a line in `usage`, and a test in govibe_test.go. Add a dev page:
   a handler in internal/devtools/devui, its route in `devtools.Mount`, and a test that runs under the govibe_dev tag if it needs the mount.
 - Anything an application sees is public API and costs a note in docs/public/ARCHITECTURE.md and, before 1.0, in the spec.

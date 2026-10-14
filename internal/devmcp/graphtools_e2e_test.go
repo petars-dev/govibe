@@ -64,8 +64,21 @@ type toolResult struct {
 
 // call runs a tool and returns its result; a protocol error fails the test (a
 // tool that merely fails comes back as isError).
+// call runs a tool. The tests index this repository, the framework itself, whose
+// `/_govibe/*` routes are the framework's by their path: a tool that is not told its
+// scope would answer about "the app" and hide them, so the helper asks for everything
+// unless the test says otherwise (TestGraphToolsDefaultToTheAppsOwnScope covers the default).
 func call(t *testing.T, h http.Handler, name string, args map[string]any) toolResult {
 	t.Helper()
+	if strings.HasPrefix(name, "graph_") && name != "graph_query" && name != "graph_reindex" {
+		if _, set := args["scope"]; !set {
+			withScope := map[string]any{"scope": "all"}
+			for k, v := range args {
+				withScope[k] = v
+			}
+			args = withScope
+		}
+	}
 	res, perr := rpc(t, h, "tools/call", map[string]any{"name": name, "arguments": args})
 	if perr != nil {
 		t.Fatalf("%s %v: protocol error %d: %s", name, args, perr.Code, perr.Message)
@@ -240,13 +253,13 @@ func TestGraphToolsAnswerOverMCP(t *testing.T) {
 	}
 
 	// graph_context on a file: the routes it serves
-	c := call(t, h, "graph_context", map[string]any{"path": "web/web.go"}).ok(t, "graph_context").StructuredContent
+	c := call(t, h, "graph_context", map[string]any{"path": "web/web.go", "scope": "all"}).ok(t, "graph_context").StructuredContent
 	routes := list(c["routes"])
 	if len(routes) != 1 || routes[0].(map[string]any)["id"] != "route:GET:/_govibe/static/htmx.min.js" {
 		t.Errorf("routes of web/web.go: %v", routes)
 	}
 	// ... and on the route: handler, and an explicit statement that no table is reached
-	c = call(t, h, "graph_context", map[string]any{"route": "GET /_govibe/static/htmx.min.js"}).ok(t, "graph_context route").StructuredContent
+	c = call(t, h, "graph_context", map[string]any{"route": "GET /_govibe/static/htmx.min.js", "scope": "all"}).ok(t, "graph_context route").StructuredContent
 	if h := c["handler"].(map[string]any); h["id"] != "func:web.ServeHTMX" || h["path"] != "web/web.go" {
 		t.Errorf("handler: %v", h)
 	}
@@ -256,7 +269,7 @@ func TestGraphToolsAnswerOverMCP(t *testing.T) {
 	}
 
 	// graph_impact: what breaks if I change a file (one call)
-	imp := call(t, h, "graph_impact", map[string]any{"node": "web/web.go"}).ok(t, "graph_impact").StructuredContent
+	imp := call(t, h, "graph_impact", map[string]any{"node": "web/web.go", "scope": "all"}).ok(t, "graph_impact").StructuredContent
 	var routeHit bool
 	for _, a := range list(imp["affected"]) {
 		am := a.(map[string]any)
@@ -400,7 +413,7 @@ func TestGraphToolErrorsAreReportedToTheAgent(t *testing.T) {
 func TestGraphReindexRebuildsLayers(t *testing.T) {
 	h, _ := indexedHandler(t)
 	r := call(t, h, "graph_reindex", map[string]any{"layers": []string{"docs"}}).ok(t, "graph_reindex").StructuredContent
-	if r["failed"] != false || len(strs(r["known_layers"])) != 10 {
+	if r["failed"] != false || len(strs(r["known_layers"])) != 11 {
 		t.Errorf("reindex: %v", r)
 	}
 	var ran []string
@@ -424,7 +437,7 @@ func TestGraphReindexRebuildsLayers(t *testing.T) {
 			n++
 		}
 	}
-	if n != 8 || r["quads"].(float64) < 1000 {
+	if n != 9 || r["quads"].(float64) < 1000 {
 		t.Errorf("full reindex: %d layers, %v quads", n, r["quads"])
 	}
 }
@@ -459,7 +472,8 @@ func TestGraphResourcesAndPrompt(t *testing.T) {
 		return out.Contents[0].Text, out.Contents[0].MIMEType
 	}
 	overview, mime := read("govibe://graph/overview")
-	if mime != "text/markdown" || !strings.Contains(overview, "# Project graph overview") || !strings.Contains(overview, "`/_govibe/static/htmx.min.js`") {
+	// the resource is the default scope: the project's own nodes, and it says what it hides
+	if mime != "text/markdown" || !strings.Contains(overview, "# Project graph overview") || !strings.Contains(overview, "Scope: **My app**") || strings.Contains(overview, "`/_govibe/static/htmx.min.js`") {
 		t.Errorf("overview (%s):\n%.600s", mime, overview)
 	}
 	schema, mime := read("govibe://graph/schema")
@@ -473,7 +487,7 @@ func TestGraphResourcesAndPrompt(t *testing.T) {
 	if perr != nil || !strings.Contains(string(pl), "explain-change") || !strings.Contains(string(pl), `"paths"`) || !strings.Contains(string(pl), `"diff"`) {
 		t.Errorf("prompts/list: %s %v", pl, perr)
 	}
-	pg, perr := rpc(t, h, "prompts/get", map[string]any{"name": "explain-change", "arguments": map[string]string{"paths": "web/web.go"}})
+	pg, perr := rpc(t, h, "prompts/get", map[string]any{"name": "explain-change", "arguments": map[string]string{"paths": "web/web.go", "scope": "all"}})
 	if perr != nil {
 		t.Fatal(perr.Message)
 	}
@@ -495,7 +509,7 @@ func TestGraphResourcesAndPrompt(t *testing.T) {
 	}
 	// a diff works as well as paths, and neither is an error
 	diff := "diff --git a/web/web.go b/web/web.go\n--- a/web/web.go\n+++ b/web/web.go\n@@ -1 +1 @@\n"
-	pg, perr = rpc(t, h, "prompts/get", map[string]any{"name": "explain-change", "arguments": map[string]string{"diff": diff}})
+	pg, perr = rpc(t, h, "prompts/get", map[string]any{"name": "explain-change", "arguments": map[string]string{"diff": diff, "scope": "all"}})
 	if perr != nil || !strings.Contains(string(pg), "GET /_govibe/static/htmx.min.js") {
 		t.Errorf("a diff: %v %s", perr, pg)
 	}

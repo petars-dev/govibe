@@ -42,6 +42,10 @@ const (
 	// Phase 5: the findings layer.
 	KindFinding = quad.IRI("kind:finding")
 	KindRule    = quad.IRI("kind:rule")
+
+	// Framework extraction: a package or symbol outside the indexed project, which the
+	// project imports or calls (the framework's public API, a library).
+	KindExternal = quad.IRI("kind:external")
 )
 
 // Structural predicates: an IRI object, drawn as an edge by the explorer.
@@ -84,6 +88,13 @@ const (
 	// Phase 6: the opt-in calls and git layers.
 	PredCalls         = quad.IRI("calls")           // func -> func it calls (an annotation says how sure when it is not a plain call)
 	PredCoChangedWith = quad.IRI("co_changed_with") // file, doc, spec -> one that changed in the same commits (an annotation says how often)
+
+	// Framework extraction: edges from the project to what lies outside it. They are
+	// separate from `imports`, `calls` and `handled_by`, whose targets are always
+	// project code, so nothing that walks those has to know about externals.
+	PredImportsExt   = quad.IRI("imports_external")    // package -> external package it imports
+	PredCallsExt     = quad.IRI("calls_external")      // func -> external function or package it calls (the calls layer)
+	PredHandledByExt = quad.IRI("handled_by_external") // route -> external function that handles it
 )
 
 // Attribute predicates: a literal object, which a viewer can hide.
@@ -99,6 +110,14 @@ const (
 	PredExternalImports = quad.IRI("external_imports")
 	PredLines           = quad.IRI("lines")
 	PredGenerated       = quad.IRI("generated")
+
+	// Framework extraction: where a node comes from, and what an external node is.
+	PredFrameworkKey = quad.IRI("framework_key")  // config key: the framework declares it too (an application overrides a default of the framework's)
+	PredOrigin       = quad.IRI("origin")         // route, middleware, config_key, env_var, mcp_tool, external: "app" or "framework"
+	PredMountedBy    = quad.IRI("mounted_by")     // route: who registered it, "app" or "framework"
+	PredModule       = quad.IRI("module")         // external: the module the package belongs to
+	PredModuleVer    = quad.IRI("module_version") // external: that module's version in this build ("(devel)" for a local replace)
+	PredInternal     = quad.IRI("internal")       // external: inside the framework's internal/, collapsed to one leaf per package
 
 	// Phase 2 layers.
 	PredMethod      = quad.IRI("method")
@@ -119,6 +138,7 @@ const (
 	PredSeverity      = quad.IRI("severity")       // finding, rule: error, warning or info
 	PredMessage       = quad.IRI("message")        // finding: what is wrong and what to do
 	PredChecked       = quad.IRI("checked")        // rule: it ran on this graph (false: a layer it reads is not built)
+	PredOff           = quad.IRI("off")            // rule: switched off in govibe.yml, so it is not a rule that could not look
 	PredUnresolvedRef = quad.IRI("unresolved_ref") // doc, spec item: "<line>:<text>" of a reference to something that is gone
 
 	// Phase 6: the git layer's attributes, on file, doc and spec nodes, and the
@@ -155,17 +175,21 @@ const (
 	PredConfidence  = quad.IRI("confidence")
 
 	// build:latest and layer:<name> run nodes (owned by the meta layer).
-	PredGitSHA         = quad.IRI("git_sha")
-	PredDirty          = quad.IRI("dirty")
-	PredIndexedAt      = quad.IRI("indexed_at")
-	PredDurationMS     = quad.IRI("duration_ms")
-	PredIndexerVersion = quad.IRI("indexer_version")
-	PredQuads          = quad.IRI("quads")
-	PredFingerprint    = quad.IRI("fingerprint")
-	PredStatus         = quad.IRI("status")
-	PredAdded          = quad.IRI("added")
-	PredRemoved        = quad.IRI("removed")
-	PredError          = quad.IRI("error")
+	PredAppName          = quad.IRI("app_name")          // build: the application's name (App.Name)
+	PredAppModule        = quad.IRI("app_module")        // build: its module path
+	PredFrameworkModule  = quad.IRI("framework_module")  // build: the framework it is built on
+	PredFrameworkVersion = quad.IRI("framework_version") // build: that framework's version in this build
+	PredGitSHA           = quad.IRI("git_sha")
+	PredDirty            = quad.IRI("dirty")
+	PredIndexedAt        = quad.IRI("indexed_at")
+	PredDurationMS       = quad.IRI("duration_ms")
+	PredIndexerVersion   = quad.IRI("indexer_version")
+	PredQuads            = quad.IRI("quads")
+	PredFingerprint      = quad.IRI("fingerprint")
+	PredStatus           = quad.IRI("status")
+	PredAdded            = quad.IRI("added")
+	PredRemoved          = quad.IRI("removed")
+	PredError            = quad.IRI("error")
 )
 
 // structuralPredicates are the predicates whose object must be a node with a
@@ -177,10 +201,11 @@ var structuralPredicates = []quad.IRI{
 	PredHasColumn, PredHasIndex, PredFKTo, PredImplicitRef, PredManyToMany, PredIntroducedIn,
 	PredReadsTable, PredWritesTable, PredMapsTo, PredSubject, PredObject, PredVia,
 	PredAbout, PredCalls, PredCoChangedWith,
+	PredImportsExt, PredCallsExt, PredHandledByExt,
 }
 
 // archLayers is the closed set of `arch_layer` values.
-var archLayers = []string{"controllers", "business", "storage", "middleware", "wiring", "dev", "views", "support"}
+var archLayers = []string{"controllers", "business", "storage", "middleware", "commands", "wiring", "dev", "views", "support"}
 
 // LayerLabel is the label IRI that owns every quad of the named layer. The
 // `layer:` namespace is reserved for the indexer.
@@ -254,6 +279,15 @@ func idxID(table, index string) quad.IRI {
 	return quad.IRI("idx:" + idKey(table) + "." + idKey(index))
 }
 func migID(stem string) quad.IRI { return quad.IRI("mig:" + idKey(stem)) }
+
+// extID names an external package (`ext:github.com/petars-dev/govibe/web`) or one of
+// its functions (`ext:github.com/petars-dev/govibe/web.ServeHTMX`).
+func extID(importPath, name string) quad.IRI {
+	if name == "" {
+		return quad.IRI("ext:" + idKey(importPath))
+	}
+	return quad.IRI("ext:" + idKey(importPath) + "." + idKey(name))
+}
 
 // annID names the annotation of one inferred edge: a short hash of the edge, so
 // the same edge always has the same annotation.

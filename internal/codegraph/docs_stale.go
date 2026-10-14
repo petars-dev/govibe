@@ -21,7 +21,8 @@ import (
 //   - a path with a slash that ends in a source extension (so `legacy/handler.go`
 //     counts wherever `legacy` used to be) or starts at something that exists at
 //     the repository root (`docs/graph/gone.bolt`), and that is neither a node of
-//     the graph nor on disk. `net/http`, `application/json` and
+//     the graph, nor on disk, nor a generated file the profile lists as derived (such
+//     a file is absent from a clone, so its absence says nothing). `net/http`, `application/json` and
 //     `example.com/x/y` are not paths into the repository;
 //   - `pkg.Name`, when `pkg` is the one package of that name, no library the
 //     module imports shares the name (`middleware.RequestID` is chi's), and
@@ -140,8 +141,8 @@ func (rs *resolver) stalePath(tok, docDir string, needSlash bool) bool {
 		return false // climbs out of the repository: not ours to judge
 	}
 	for _, c := range candidates {
-		if rs.exists(c) {
-			return false
+		if rs.exists(c) || rs.prof.IsDerived(c) {
+			return false // there, or generated and so absent from a clone: not ours to judge
 		}
 	}
 	return true

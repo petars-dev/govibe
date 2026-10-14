@@ -1,0 +1,7 @@
+# The fixture is an application built on a stub framework (testdata/stubfw), in the default
+# layout of a generated app: settings in env.yml at the root, docs in docs/public and docs/specs.
+# Two things are its own: the framework it names, and devmcp/, a package that stands in for the
+# dev tooling and may import anything, so it is the `dev` layer.
+framework: example.com/stubfw
+layout:
+  dev: [devmcp]

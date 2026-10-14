@@ -8,15 +8,15 @@
 <finding:code.unreferenced:func:business/actions.Notify> <type> <kind:finding> <layer:findings> .
 <finding:config.undeclared:cfg:feature.beta> <about> <cfg:feature.beta> <layer:findings> .
 <finding:config.undeclared:cfg:feature.beta> <line> "7"^^<schema:Integer> <layer:findings> .
-<finding:config.undeclared:cfg:feature.beta> <message> "Config key feature.beta is read by actions.Notify but config/env.yml does not declare it. Declare it there as ${ENV:default} (SKILL.md), so it can be found and overridden." <layer:findings> .
+<finding:config.undeclared:cfg:feature.beta> <message> "Config key feature.beta is read by actions.Notify but env.yml does not declare it. Declare it there as ${ENV:default} (SKILL.md), so it can be found and overridden." <layer:findings> .
 <finding:config.undeclared:cfg:feature.beta> <name> "Config read but not declared" <layer:findings> .
 <finding:config.undeclared:cfg:feature.beta> <path> "business/actions/notify.go" <layer:findings> .
 <finding:config.undeclared:cfg:feature.beta> <rule> "config.undeclared" <layer:findings> .
 <finding:config.undeclared:cfg:feature.beta> <severity> "warning" <layer:findings> .
 <finding:config.undeclared:cfg:feature.beta> <type> <kind:finding> <layer:findings> .
 <finding:config.undeclared:env:FIXTURE_DEBUG> <about> <env:FIXTURE_DEBUG> <layer:findings> .
-<finding:config.undeclared:env:FIXTURE_DEBUG> <line> "18"^^<schema:Integer> <layer:findings> .
-<finding:config.undeclared:env:FIXTURE_DEBUG> <message> "Environment variable FIXTURE_DEBUG is read by main.main but config/env.yml does not declare it. Declare it there (SKILL.md prefers config over ad-hoc env lookups)." <layer:findings> .
+<finding:config.undeclared:env:FIXTURE_DEBUG> <line> "19"^^<schema:Integer> <layer:findings> .
+<finding:config.undeclared:env:FIXTURE_DEBUG> <message> "Environment variable FIXTURE_DEBUG is read by main.main but env.yml does not declare it. Declare it there (SKILL.md prefers config over ad-hoc env lookups)." <layer:findings> .
 <finding:config.undeclared:env:FIXTURE_DEBUG> <name> "Config read but not declared" <layer:findings> .
 <finding:config.undeclared:env:FIXTURE_DEBUG> <path> "main.go" <layer:findings> .
 <finding:config.undeclared:env:FIXTURE_DEBUG> <rule> "config.undeclared" <layer:findings> .
@@ -24,41 +24,41 @@
 <finding:config.undeclared:env:FIXTURE_DEBUG> <type> <kind:finding> <layer:findings> .
 <finding:config.unused:cfg:auth.api_key> <about> <cfg:auth.api_key> <layer:findings> .
 <finding:config.unused:cfg:auth.api_key> <line> "13"^^<schema:Integer> <layer:findings> .
-<finding:config.unused:cfg:auth.api_key> <message> "Config key auth.api_key is declared in config/env.yml but no code reads it (environment variable FIXTURE_API_KEY). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
+<finding:config.unused:cfg:auth.api_key> <message> "Config key auth.api_key is declared in env.yml but no code reads it (environment variable FIXTURE_API_KEY). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
 <finding:config.unused:cfg:auth.api_key> <name> "Config declared but never read" <layer:findings> .
-<finding:config.unused:cfg:auth.api_key> <path> "config/env.yml" <layer:findings> .
+<finding:config.unused:cfg:auth.api_key> <path> "env.yml" <layer:findings> .
 <finding:config.unused:cfg:auth.api_key> <rule> "config.unused" <layer:findings> .
 <finding:config.unused:cfg:auth.api_key> <severity> "info" <layer:findings> .
 <finding:config.unused:cfg:auth.api_key> <type> <kind:finding> <layer:findings> .
 <finding:config.unused:cfg:database.max_conns> <about> <cfg:database.max_conns> <layer:findings> .
 <finding:config.unused:cfg:database.max_conns> <line> "9"^^<schema:Integer> <layer:findings> .
-<finding:config.unused:cfg:database.max_conns> <message> "Config key database.max_conns is declared in config/env.yml but no code reads it (environment variable FIXTURE_DB_MAX_CONNS). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
+<finding:config.unused:cfg:database.max_conns> <message> "Config key database.max_conns is declared in env.yml but no code reads it (environment variable FIXTURE_DB_MAX_CONNS). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
 <finding:config.unused:cfg:database.max_conns> <name> "Config declared but never read" <layer:findings> .
-<finding:config.unused:cfg:database.max_conns> <path> "config/env.yml" <layer:findings> .
+<finding:config.unused:cfg:database.max_conns> <path> "env.yml" <layer:findings> .
 <finding:config.unused:cfg:database.max_conns> <rule> "config.unused" <layer:findings> .
 <finding:config.unused:cfg:database.max_conns> <severity> "info" <layer:findings> .
 <finding:config.unused:cfg:database.max_conns> <type> <kind:finding> <layer:findings> .
 <finding:config.unused:cfg:env> <about> <cfg:env> <layer:findings> .
 <finding:config.unused:cfg:env> <line> "1"^^<schema:Integer> <layer:findings> .
-<finding:config.unused:cfg:env> <message> "Config key env is declared in config/env.yml but no code reads it (environment variable APP_ENV). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
+<finding:config.unused:cfg:env> <message> "Config key env is declared in env.yml but no code reads it (environment variable APP_ENV). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
 <finding:config.unused:cfg:env> <name> "Config declared but never read" <layer:findings> .
-<finding:config.unused:cfg:env> <path> "config/env.yml" <layer:findings> .
+<finding:config.unused:cfg:env> <path> "env.yml" <layer:findings> .
 <finding:config.unused:cfg:env> <rule> "config.unused" <layer:findings> .
 <finding:config.unused:cfg:env> <severity> "info" <layer:findings> .
 <finding:config.unused:cfg:env> <type> <kind:finding> <layer:findings> .
 <finding:config.unused:cfg:region> <about> <cfg:region> <layer:findings> .
 <finding:config.unused:cfg:region> <line> "23"^^<schema:Integer> <layer:findings> .
-<finding:config.unused:cfg:region> <message> "Config key region is declared in config/env.yml but no code reads it. Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
+<finding:config.unused:cfg:region> <message> "Config key region is declared in env.yml but no code reads it. Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
 <finding:config.unused:cfg:region> <name> "Config declared but never read" <layer:findings> .
-<finding:config.unused:cfg:region> <path> "config/env.yml" <layer:findings> .
+<finding:config.unused:cfg:region> <path> "env.yml" <layer:findings> .
 <finding:config.unused:cfg:region> <rule> "config.unused" <layer:findings> .
 <finding:config.unused:cfg:region> <severity> "info" <layer:findings> .
 <finding:config.unused:cfg:region> <type> <kind:finding> <layer:findings> .
 <finding:config.unused:cfg:unused.flag> <about> <cfg:unused.flag> <layer:findings> .
 <finding:config.unused:cfg:unused.flag> <line> "26"^^<schema:Integer> <layer:findings> .
-<finding:config.unused:cfg:unused.flag> <message> "Config key unused.flag is declared in config/env.yml but no code reads it (environment variable FIXTURE_UNUSED_FLAG). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
+<finding:config.unused:cfg:unused.flag> <message> "Config key unused.flag is declared in env.yml but no code reads it (environment variable FIXTURE_UNUSED_FLAG). Remove it, or read it; a read through a variable name is not seen." <layer:findings> .
 <finding:config.unused:cfg:unused.flag> <name> "Config declared but never read" <layer:findings> .
-<finding:config.unused:cfg:unused.flag> <path> "config/env.yml" <layer:findings> .
+<finding:config.unused:cfg:unused.flag> <path> "env.yml" <layer:findings> .
 <finding:config.unused:cfg:unused.flag> <rule> "config.unused" <layer:findings> .
 <finding:config.unused:cfg:unused.flag> <severity> "info" <layer:findings> .
 <finding:config.unused:cfg:unused.flag> <type> <kind:finding> <layer:findings> .
@@ -75,7 +75,7 @@
 <finding:docs.route_undocumented:route:ANY:/assets/> <severity> "info" <layer:findings> .
 <finding:docs.route_undocumented:route:ANY:/assets/> <type> <kind:finding> <layer:findings> .
 <finding:docs.route_undocumented:route:GET:/> <about> <route:GET:/> <layer:findings> .
-<finding:docs.route_undocumented:route:GET:/> <line> "10"^^<schema:Integer> <layer:findings> .
+<finding:docs.route_undocumented:route:GET:/> <line> "11"^^<schema:Integer> <layer:findings> .
 <finding:docs.route_undocumented:route:GET:/> <message> "No doc or spec mentions GET /. Say what it is for in docs/public/ARCHITECTURE.md or the spec that owns it." <layer:findings> .
 <finding:docs.route_undocumented:route:GET:/> <name> "Route no doc mentions" <layer:findings> .
 <finding:docs.route_undocumented:route:GET:/> <path> "controllers/home.go" <layer:findings> .
@@ -121,13 +121,13 @@
 <rule:code.unreferenced> <title> "Exported function nothing references" <layer:findings> .
 <rule:code.unreferenced> <type> <kind:rule> <layer:findings> .
 <rule:config.undeclared> <checked> "True"^^<schema:Boolean> <layer:findings> .
-<rule:config.undeclared> <description> "Code reads a config key or environment variable that config/env.yml does not declare." <layer:findings> .
+<rule:config.undeclared> <description> "Code reads a config key or environment variable that the project's settings file (env.yml) does not declare." <layer:findings> .
 <rule:config.undeclared> <name> "config.undeclared" <layer:findings> .
 <rule:config.undeclared> <severity> "warning" <layer:findings> .
 <rule:config.undeclared> <title> "Config read but not declared" <layer:findings> .
 <rule:config.undeclared> <type> <kind:rule> <layer:findings> .
 <rule:config.unused> <checked> "True"^^<schema:Boolean> <layer:findings> .
-<rule:config.unused> <description> "config/env.yml declares a key that no code reads. Reads through a variable name are not seen." <layer:findings> .
+<rule:config.unused> <description> "The project's settings file (env.yml) declares a key that no code reads. Reads through a variable name are not seen." <layer:findings> .
 <rule:config.unused> <name> "config.unused" <layer:findings> .
 <rule:config.unused> <severity> "info" <layer:findings> .
 <rule:config.unused> <title> "Config declared but never read" <layer:findings> .
@@ -182,6 +182,12 @@
 <rule:docs.stale_ref> <severity> "warning" <layer:findings> .
 <rule:docs.stale_ref> <title> "Stale reference in a doc" <layer:findings> .
 <rule:docs.stale_ref> <type> <kind:rule> <layer:findings> .
+<rule:framework.import> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:framework.import> <description> "A package or template imports a framework package its architecture layer may not (SKILL.md: business logic and storage import nothing from the framework; controllers, middleware and views only govibe/web; commands only govibe; wiring govibe, govibe/config and govibe/web; nothing the framework's internal/). It does not apply to the framework's own repository." <layer:findings> .
+<rule:framework.import> <name> "framework.import" <layer:findings> .
+<rule:framework.import> <severity> "error" <layer:findings> .
+<rule:framework.import> <title> "Import the layer may not take from the framework" <layer:findings> .
+<rule:framework.import> <type> <kind:rule> <layer:findings> .
 <rule:layering> <checked> "True"^^<schema:Boolean> <layer:findings> .
 <rule:layering> <description> "A package imports one its architecture layer must not (SKILL.md: only actions and services may call storage). wiring and dev packages are exempt." <layer:findings> .
 <rule:layering> <name> "layering" <layer:findings> .

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/petars-dev/govibe/internal/rules"
 )
 
 // The generated reference pages (/dev/graph/reports/{routes,config,schema,layers}):
@@ -35,7 +37,7 @@ type FindingSummary struct {
 
 // reportRef describes a node for a report row.
 func (m *Model) reportRef(n *Node, o LinkOptions) ReportRef {
-	r := ReportRef{NodeRef: m.Ref(n), Label: m.reportLabel(n), Anchor: Anchor(n.ID), GraphURL: GraphURL(n.ID)}
+	r := ReportRef{NodeRef: m.Ref(n), Label: m.reportLabel(n), Anchor: Anchor(n.ID), GraphURL: m.graphURL(n.ID)}
 	for _, l := range m.Links(n, o) {
 		switch l.Kind {
 		case "editor":
@@ -226,7 +228,7 @@ func (m *Model) RoutesReport(o LinkOptions) *RoutesReport {
 
 // --- config ---
 
-// ConfigReport is the configuration reference: every key of config/env.yml and of
+// ConfigReport is the configuration reference: every key of the settings files and of
 // the code, and the environment variables the code reads on its own.
 type ConfigReport struct {
 	AsOf        string      `json:"as_of"`
@@ -675,17 +677,13 @@ type ViolationRow struct {
 	EditorURL string     `json:"editor_url,omitempty"`
 }
 
-// exemptLayers may import anything (the allow-list of layerVerdict).
-var exemptLayers = []string{"wiring", "dev"}
+// exemptLayers may import anything (the allow-list of the layering rule).
+var exemptLayers = rules.Exempt
 
-// layerPrinciples state the rule of layerVerdict in words, for the page. The
-// pairs it forbids are derived from layerVerdict itself, so only these sentences
-// can fall behind it (a test pins them to its verdicts).
-var layerPrinciples = []string{
-	"Only business actions and services may call the storage layer.",
-	"Storage is the lowest layer: it depends on nothing above it, only on support code.",
-	"Business logic does not depend on the HTTP layer (controllers, middleware, views) or on wiring and dev code.",
-}
+// layerPrinciples state the rule of layerVerdict in words, for the page. The pairs it
+// forbids are derived from layerVerdict itself, so only these sentences can fall behind
+// it (a test pins them to its verdicts).
+var layerPrinciples = rules.Principles
 
 // LayersReport builds the layer map.
 func (m *Model) LayersReport(o LinkOptions) *LayersReport {

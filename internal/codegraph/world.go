@@ -1,6 +1,12 @@
 package codegraph
 
-import "context"
+import (
+	"context"
+	"path/filepath"
+	"strings"
+
+	"github.com/petars-dev/govibe/internal/profile"
+)
 
 // memo caches the result of one computation for the lifetime of a world.
 type memo[T any] struct {
@@ -33,6 +39,8 @@ type world struct {
 	// build recorded instead of looking at the disk again.
 	settling bool
 
+	prof    memo[*profile.Profile]
+	modsV   memo[*moduleTable]
 	goFiles memo[*scan]
 	goFP    memo[string]
 	codeIdx memo[*codeIndex]
@@ -56,6 +64,74 @@ func newWorld(ctx context.Context, x *Indexer, root string, force bool) *world {
 	return &world{ctx: ctx, x: x, root: root, force: force}
 }
 
+// profile is where the project keeps its settings, migrations and docs: the one the
+// caller handed over, else the project's govibe.yml over the default. It is read once
+// per run, so an edit to govibe.yml takes effect on the next one.
+func (w *world) profile() (*profile.Profile, error) {
+	return w.prof.get(func() (*profile.Profile, error) {
+		if p := w.x.opts.Profile; p != nil {
+			return p, nil
+		}
+		p, err := profile.Load(w.root)
+		if err != nil {
+			return nil, err
+		}
+		return &p, nil
+	})
+}
+
+// modules is the table that says which module an import path belongs to, and at which
+// version.
+func (w *world) modules() *moduleTable {
+	t, _ := w.modsV.get(func() (*moduleTable, error) {
+		goMod := filepath.Join(w.root, "go.mod")
+		module, _ := readModulePath(goMod)
+		facts := w.x.opts.Build
+		if facts.AppModule != "" {
+			module = facts.AppModule
+		}
+		if facts.FrameworkModule == "" {
+			if prof, err := w.profile(); err == nil {
+				facts.FrameworkModule = prof.Framework // "" is the default
+			}
+		}
+		return newModuleTable(module, facts, goMod), nil
+	})
+	return t
+}
+
+// describeProject names what was indexed: the application (its name when the binary
+// said so, else the last element of its module path), its module, and the framework it
+// is built on with the version in this build. A project that is the framework itself
+// says so instead of giving a version.
+func (w *world) describeProject() (app, appModule, frameworkModule, frameworkVersion string) {
+	mods := w.modules()
+	appModule, frameworkModule = mods.app, mods.framework
+	app = w.x.opts.Build.AppName
+	if app == "" && appModule != "" {
+		app = appModule[strings.LastIndex(appModule, "/")+1:]
+	}
+	switch {
+	case appModule == frameworkModule:
+		frameworkVersion = "(this repository)"
+	default:
+		frameworkVersion = mods.versionOf(frameworkModule)
+	}
+	return app, appModule, frameworkModule, frameworkVersion
+}
+
+// profileFile is govibe.yml as a layer input: every layer reads the project through
+// the profile, so an edit to it makes them all stale.
+func (w *world) profileFile() []sourceFile {
+	if w.x.opts.Profile != nil {
+		return nil
+	}
+	if sf, ok := statRegular(w.root, profile.File, maxConfigBytes); ok {
+		return []sourceFile{sf}
+	}
+	return nil
+}
+
 // goScan lists the Go sources of the repo, once per run.
 func (w *world) goScan() (*scan, error) {
 	return w.goFiles.get(func() (*scan, error) { return scanGo(w.root) })
@@ -74,6 +150,7 @@ func (w *world) codeFingerprint() (string, error) {
 		if sf, ok := statRegular(w.root, "go.mod", maxConfigBytes); ok {
 			files = append(files, sf)
 		}
+		files = append(files, w.profileFile()...)
 		return fingerprint(files), nil
 	})
 }
@@ -93,7 +170,11 @@ func (w *world) code() (*codeIndex, error) {
 		if err != nil {
 			return nil, err
 		}
-		ci, err := buildCodeIndex(w.ctx, w.root, sc)
+		prof, err := w.profile()
+		if err != nil {
+			return nil, err
+		}
+		ci, err := buildCodeIndex(w.ctx, w.root, sc, prof, w.modules())
 		if err != nil {
 			return nil, err
 		}

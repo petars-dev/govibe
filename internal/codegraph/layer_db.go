@@ -19,10 +19,6 @@ import (
 	"github.com/petars-dev/govibe/internal/dbexplorer"
 )
 
-// migrationsDir is where a GoVibe app keeps its goose migrations (SKILL.md: "create a
-// new SQL file in storage/migrations/sql/").
-const migrationsDir = "storage/migrations/sql"
-
 const (
 	maxMigrationBytes = 1 << 20
 	maxMigrations     = 5000
@@ -42,10 +38,19 @@ type liveSchema struct {
 	fp         string
 }
 
+// migrationScan lists the goose migrations of the directory the profile names
+// (storage/migrations/sql by default). A project with none names no directory.
 func (w *world) migrationScan() (*scan, error) {
 	return w.migFiles.get(func() (*scan, error) {
+		prof, err := w.profile()
+		if err != nil {
+			return nil, err
+		}
+		if prof.Migrations == "" {
+			return &scan{}, nil
+		}
 		return walkFiles(w.root, walkSpec{
-			start:    migrationsDir,
+			start:    prof.Migrations,
 			accept:   func(name string) bool { return strings.HasSuffix(name, ".sql") && !strings.HasPrefix(name, ".") },
 			maxBytes: maxMigrationBytes,
 			maxFiles: maxMigrations,
@@ -364,7 +369,7 @@ func (dbLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 
 // mapTypeToTable finds the table a struct is a row of, from its `db:"col"` tags:
 // the one table that has every tagged column, or, when several do, the one the
-// type's name points at (Order -> orders, OrderItem -> order_items). It says
+// type's name points at (Item -> items, ItemTag -> item_tags). It says
 // nothing rather than guess.
 func mapTypeToTable(m *dbModel, ty *typeInfo) *dbTable {
 	var cols []string

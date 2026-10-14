@@ -18,7 +18,7 @@ type findingsLayer struct{}
 func (findingsLayer) name() string { return "findings" }
 
 func (findingsLayer) deps() []string {
-	return []string{"code", "routes", "templates", "config", "mcp", "db", "docs"}
+	return []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "externals"}
 }
 
 // fingerprint is a constant: nothing but the other layers feeds the rules. A
@@ -31,12 +31,20 @@ func (findingsLayer) build(ctx context.Context, w *world) (*layerOutput, error) 
 	if qs == nil {
 		return nil, errors.New("no graph store to read the other layers from")
 	}
+	prof, err := w.profile()
+	if err != nil {
+		return nil, err
+	}
+	if err := checkRuleSettings(prof); err != nil {
+		return nil, err
+	}
 	m, err := loadModel(ctx, qs, "findings")
 	if err != nil {
 		return nil, err
 	}
 	env := &ruleEnv{
 		m:     m,
+		prof:  prof,
 		templ: w.templText(),
 		built: func(layer string) bool {
 			// What this run (or an earlier one) recorded: the meta layer is only

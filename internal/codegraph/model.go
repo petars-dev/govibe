@@ -97,7 +97,13 @@ type Model struct {
 	nodes  map[string]*Node
 	ids    []string // sorted
 	byKind map[string][]*Node
-	quads  int
+	quads  int // quads the model was read from, whatever its scope
+
+	// scope says whose nodes the model shows (see Scope); hidden accounts for the
+	// ones it dropped, and is nil for scope all.
+	scope    Scope
+	explicit bool // the caller asked for this scope (Load was given one), so links should carry it
+	hidden   *hiddenIndex
 
 	// lazily built lookup tables
 	pathIdx   map[string][]*Node
@@ -108,9 +114,20 @@ type Model struct {
 	findIdx   map[string][]*Node // finding nodes by the node they are about
 }
 
-// Load reads the indexed graph from qs.
-func Load(ctx context.Context, qs graph.QuadStore) (*Model, error) {
-	return loadModel(ctx, qs, "")
+// Load reads the indexed graph from qs. With a scope the model shows only the nodes of
+// that origin (the app's, the framework's), and counts what it leaves out; without one
+// it shows everything, as the findings layer, the gate and the baseline need.
+func Load(ctx context.Context, qs graph.QuadStore, scope ...Scope) (*Model, error) {
+	m, err := loadModel(ctx, qs, "")
+	if err != nil {
+		return nil, err
+	}
+	if len(scope) > 0 {
+		sm := m.scoped(scope[0])
+		sm.explicit = true
+		return sm, nil
+	}
+	return m, nil
 }
 
 // loadModel reads every quad under a `layer:*` label, except those of the layer
@@ -286,18 +303,19 @@ func (m *Model) in(n *Node, pred string) []*Node  { return m.targets(n.In[pred])
 
 // NodeRef is the compact description of a node used in every tool's output.
 type NodeRef struct {
-	ID   string `json:"id"`
-	Kind string `json:"kind"`
-	Name string `json:"name,omitempty"`
-	Path string `json:"path,omitempty"`
-	Line int    `json:"line,omitempty"`
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Line   int    `json:"line,omitempty"`
+	Origin string `json:"origin,omitempty"` // app or framework: whose node it is
 }
 
 // Ref describes a node. A function or type has no path of its own; it takes the
 // one of the file that defines it. A route's `path` attribute is its URL, which
 // its name already carries.
 func (m *Model) Ref(n *Node) NodeRef {
-	r := NodeRef{ID: n.ID, Kind: n.Kind, Name: n.Str("name"), Line: n.Int("line")}
+	r := NodeRef{ID: n.ID, Kind: n.Kind, Name: n.Str("name"), Line: n.Int("line"), Origin: m.originOf(n)}
 	switch n.Kind {
 	case "route", "build", "layer", "annotation":
 	case "func", "type":

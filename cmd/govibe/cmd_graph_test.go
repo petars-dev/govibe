@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/petars-dev/govibe/internal/routeinfo"
 )
 
 // The fixture module the indexer's own tests use: one error finding, on purpose
@@ -72,7 +74,13 @@ func TestGraphIndexGateFailsOnNewFindingsOnly(t *testing.T) {
 	}
 
 	// Accepting what is there makes the same run pass...
-	out, err = runIndex(t, graphIndexOptions{failOn: "error", baseline: baseline, updateBaseline: true})
+	if _, err := runIndex(t, graphIndexOptions{failOn: "error", baseline: baseline, updateBaseline: true}); exitCode(err) != 2 || !strings.Contains(err.Error(), "--reason") {
+		t.Fatalf("accepting a finding without saying why is refused: %v", err)
+	}
+	if _, err := os.Stat(baseline); err == nil {
+		t.Error("a refused update wrote the baseline")
+	}
+	out, err = runIndex(t, graphIndexOptions{failOn: "error", baseline: baseline, updateBaseline: true, reason: "the handler is replaced next sprint"})
 	if err != nil || !strings.Contains(out, "baseline: wrote 1 finding") || strings.Contains(out, "gate (") {
 		t.Fatalf("update: %v\n%s", err, out)
 	}
@@ -95,7 +103,7 @@ func writeBaseline(t *testing.T, path string, ids ...string) {
 	t.Helper()
 	var entries []map[string]string
 	for _, id := range ids {
-		entries = append(entries, map[string]string{"id": id})
+		entries = append(entries, map[string]string{"id": id, "reason": "accepted for the test"})
 	}
 	b, _ := json.Marshal(map[string]any{"findings": entries})
 	if err := os.WriteFile(path, b, 0o644); err != nil {
@@ -129,7 +137,7 @@ func TestGraphIndexFormats(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &rep); err != nil {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
-	if len(rep.Report.Layers) != 10 || rep.Report.Quads < 1000 || rep.Gate.FailOn != "error" || len(rep.Gate.New) != 1 || rep.Gate.New[0].Rule != "layering" || rep.Gate.New[0].Path != "controllers/orders.go" {
+	if len(rep.Report.Layers) != 11 || rep.Report.Quads < 1000 || rep.Gate.FailOn != "error" || len(rep.Gate.New) != 1 || rep.Gate.New[0].Rule != "layering" || rep.Gate.New[0].Path != "controllers/orders.go" {
 		t.Errorf("%+v", rep)
 	}
 }
@@ -163,5 +171,150 @@ func TestGraphIndexFailsWhenALayerFails(t *testing.T) {
 	_, err := runIndex(t, graphIndexOptions{root: t.TempDir(), failOn: "error"})
 	if exitCode(err) != 2 || !strings.Contains(err.Error(), "a layer failed") {
 		t.Errorf("%v", err)
+	}
+}
+
+func TestAnAcceptedFindingWithoutAReasonFailsTheGate(t *testing.T) {
+	baseline := filepath.Join(t.TempDir(), "baseline.json")
+	if err := os.WriteFile(baseline, []byte(`{"findings":[{"id":"finding:layering:pkg:controllers#pkg:storage/orderstore"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runIndex(t, graphIndexOptions{failOn: "error", baseline: baseline})
+	if exitCode(err) != 1 || !strings.Contains(err.Error(), "no reason") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "baseline entries with no reason") || !strings.Contains(out, "0 new, 1 accepted") {
+		t.Errorf("the report says which entries need a reason:\n%s", out)
+	}
+	// without gating nobody is judged
+	if _, err := runIndex(t, graphIndexOptions{baseline: baseline}); err != nil {
+		t.Errorf("no threshold, no verdict: %v", err)
+	}
+}
+
+// helloApp is the reference app: a module of its own that depends on the framework.
+const helloApp = "../../examples/hello"
+
+func TestGraphIndexOfAnAppRunsTheRouteRulesFromItsOwnBinary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles and runs the example app")
+	}
+	out, err := runIndex(t, graphIndexOptions{root: helloApp, failOn: "info", calls: true})
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"routes     ok", "routes: 5 from the application's own `inspect --json` (2 registered by the framework)",
+		"findings: 0 error, 0 warning, 0 info", "gate (fail on info): 0 new, 0 accepted",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report lacks %q:\n%s", want, out)
+		}
+	}
+	// the route rules ran: only the rules about a live database are left out
+	if !strings.Contains(out, "did not run (no finding from them is not a clean bill): db.drift, db.unapplied\n") {
+		t.Errorf("with the route table, docs.route_undocumented runs:\n%s", out)
+	}
+}
+
+func TestGraphIndexUsesTheInspectDocumentItIsGiven(t *testing.T) {
+	// A fake binary: the app mounts one route of its own and the framework two. The route
+	// has a handler the hello sources can resolve, so the rule can look at it.
+	doc := &routeinfo.Inspect{
+		Schema:    routeinfo.InspectSchema,
+		App:       routeinfo.InspectApp{Name: "hello", Module: "github.com/petars-dev/govibe/examples/hello"},
+		Framework: routeinfo.InspectModule{Module: "github.com/petars-dev/govibe", Version: "v9.9.9"},
+		Routes: []routeinfo.InspectRoute{
+			{Method: "GET", Path: "/_govibe/static/htmx.min.js", MountedBy: routeinfo.MountedByFramework},
+			{Method: "GET", Path: "/assets/*", MountedBy: routeinfo.MountedByFramework},
+			{Method: "GET", Path: "/secret-page", MountedBy: routeinfo.MountedByApp},
+		},
+	}
+	var asked string
+	out, err := runIndex(t, graphIndexOptions{root: helloApp, failOn: "info", inspect: func(_ context.Context, root string) (*routeinfo.Inspect, error) {
+		asked = root
+		return doc, nil
+	}})
+	if asked != helloApp {
+		t.Errorf("the app was asked at %q", asked)
+	}
+	if exitCode(err) != 1 || !strings.Contains(out, "docs.route_undocumented") || !strings.Contains(out, "GET /secret-page") {
+		t.Fatalf("an app route no doc mentions is a finding, from the table the binary reported: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "/_govibe/static") || strings.Contains(out, "GET /assets") {
+		t.Errorf("the framework's routes are documented by the framework, not found wanting in the app:\n%s", out)
+	}
+	if !strings.Contains(out, "routes: 3 from the application's own `inspect --json` (2 registered by the framework)") {
+		t.Errorf("the report says where the routes came from:\n%s", out)
+	}
+}
+
+func TestGraphIndexSaysWhenTheAppCannotBeAsked(t *testing.T) {
+	_, err := runIndex(t, graphIndexOptions{root: helloApp, inspect: func(context.Context, string) (*routeinfo.Inspect, error) {
+		return nil, errors.New("go run: build failed: undefined: x")
+	}})
+	if err == nil || !strings.Contains(err.Error(), "build failed") || !strings.Contains(err.Error(), "--no-inspect") {
+		t.Errorf("a build failure is an error (status 2 from the command) that says how to go on without routes: %v", err)
+	}
+	// and with --no-inspect the app is indexed without a route table, saying so
+	out, err := runIndex(t, graphIndexOptions{root: helloApp, noInspect: true, failOn: "info", inspect: func(context.Context, string) (*routeinfo.Inspect, error) {
+		t.Fatal("--no-inspect must not run the app")
+		return nil, nil
+	}})
+	if err != nil || !strings.Contains(out, "routes: none: --no-inspect") || !strings.Contains(out, "docs.route_undocumented") {
+		t.Errorf("%v\n%s", err, out)
+	}
+}
+
+func TestAProjectThatIsNotAnAppHasNoBinaryToAsk(t *testing.T) {
+	out, err := runIndex(t, graphIndexOptions{inspect: func(context.Context, string) (*routeinfo.Inspect, error) {
+		t.Fatal("the fixture is not an app")
+		return nil, nil
+	}})
+	if err != nil || !strings.Contains(out, "does not depend on the framework") {
+		t.Errorf("%v\n%s", err, out)
+	}
+}
+
+func TestTheAppIsAskedWithAScrubbedEnvironment(t *testing.T) {
+	env := inspectEnv([]string{
+		"PATH=/usr/bin", "HOME=/home/x", "GOCACHE=/c", "GOFLAGS=-mod=mod", "GOWORK=off", "LC_ALL=C", "TMPDIR=/tmp",
+		"MARIADB_DSN=user:pass@tcp(db)/real", "AWS_SECRET_ACCESS_KEY=s", "GITHUB_TOKEN=t", "WORKOS_API_KEY=k", "CODE_REVIEW_DB_DSN=d",
+	})
+	got := strings.Join(env, " ")
+	for _, want := range []string{"PATH=/usr/bin", "HOME=/home/x", "GOCACHE=/c", "GOFLAGS=-mod=mod", "GOWORK=off", "LC_ALL=C", "TMPDIR=/tmp"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the toolchain's %s was dropped: %s", want, got)
+		}
+	}
+	for _, secret := range []string{"MARIADB_DSN", "AWS_SECRET", "GITHUB_TOKEN", "WORKOS", "CODE_REVIEW"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("%s reaches the application's binary: %s", secret, got)
+		}
+	}
+}
+
+func TestAnInvalidProfileFailsBeforeAnythingIsWritten(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "govibe.yml"), []byte("migration: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/x\n\ngo 1.25.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	if err := graphIndexCmd.Flags().Set("root", root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = graphIndexCmd.Flags().Set("root", ".") })
+	graphIndexCmd.SetOut(&bytes.Buffer{})
+	graphIndexCmd.SetErr(&bytes.Buffer{})
+	err := graphIndexCmd.RunE(graphIndexCmd, nil)
+	if exitCode(err) != 2 || !strings.Contains(err.Error(), "govibe.yml") || strings.Count(err.Error(), "graph index:") != 1 {
+		t.Errorf("%v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(cwd, "docs")); statErr == nil {
+		t.Error("a store was created in the working directory before the profile was checked")
 	}
 }

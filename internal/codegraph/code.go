@@ -19,6 +19,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/cayleygraph/quad"
+
+	"github.com/petars-dev/govibe/internal/profile"
 )
 
 const (
@@ -55,6 +57,8 @@ func (codeLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 // read the rest to resolve what they point at without parsing again.
 type codeIndex struct {
 	module   string
+	prof     *profile.Profile // which directory is which architecture layer
+	mods     *moduleTable     // which module an import path belongs to
 	quads    []quad.Quad
 	warnings []string
 
@@ -68,14 +72,15 @@ type codeIndex struct {
 	typesByKey  map[string]*typeInfo // "dir\x00Name"
 
 	// Facts, in source order and deduplicated.
-	refs      []refSite  // pkg.Name references into other module packages
-	typeRefs  []refSite  // the same, in signatures and type declarations (not in bodies): where a type of another package is named
-	cfgChains []cfgChain // cfg.A.B selector chains
-	envReads  []envRead  // os.Getenv("X") / os.LookupEnv("X")
-	cfgCalls  []cfgCall  // config.Get("a.b") / config.Unmarshal("a.b", ...), or the same methods on a config value (rt.Config.Get)
-	tools     []toolReg  // mcp.AddTool(srv, &mcp.Tool{...}, handler)
-	toolWarns []string
-	sql       []sqlText // SQL-looking strings used inside storage and business functions
+	extImports []refSite  // imports of packages outside the module, with where each is written: name is the import path
+	refs       []refSite  // pkg.Name references into other module packages
+	typeRefs   []refSite  // the same, in signatures and type declarations (not in bodies): where a type of another package is named
+	cfgChains  []cfgChain // cfg.A.B selector chains
+	envReads   []envRead  // os.Getenv("X") / os.LookupEnv("X")
+	cfgCalls   []cfgCall  // config.Get("a.b") / config.Unmarshal("a.b", ...), or the same methods on a config value (rt.Config.Get)
+	tools      []toolReg  // mcp.AddTool(srv, &mcp.Tool{...}, handler)
+	toolWarns  []string
+	sql        []sqlText // SQL-looking strings used inside storage and business functions
 
 	// What the test sources reference (they add no nodes): see readTests.
 	testRefs   map[string]bool            // "dir\x00Name", referenced as pkg.Name
@@ -263,13 +268,15 @@ func (ci *codeIndex) pkgNamed(name string) []string {
 	return dirs
 }
 
-func buildCodeIndex(ctx context.Context, root string, sc *scan) (*codeIndex, error) {
+func buildCodeIndex(ctx context.Context, root string, sc *scan, prof *profile.Profile, mods *moduleTable) (*codeIndex, error) {
 	module, err := readModulePath(filepath.Join(root, "go.mod"))
 	if err != nil {
 		return nil, err
 	}
 	ci := &codeIndex{
 		module:      module,
+		prof:        prof,
+		mods:        mods,
 		warnings:    append([]string(nil), sc.warnings...),
 		pkgs:        map[string]*pkgInfo{},
 		files:       map[string]*fileInfo{},
@@ -330,13 +337,20 @@ func buildCodeIndex(ctx context.Context, root string, sc *scan) (*codeIndex, err
 				continue
 			}
 			p.external[path] = true
+			if mods.isFramework(path) {
+				// Where the import is written, for a finding that says where to look.
+				ci.extImports = append(ci.extImports, refSite{
+					site: site{dir: pf.dir, file: pf.sf.rel, line: fset.Position(imp.Pos()).Line},
+					name: path,
+				})
+			}
 		}
 	}
 
 	// Package-level string constants of the layers that talk to the database, in
 	// source order so one constant may build on an earlier one.
 	for _, pf := range parsed {
-		if !holdsSQL(pf.dir) {
+		if !ci.holdsSQL(pf.dir) {
 			continue
 		}
 		for _, decl := range pf.ast.Decls {
@@ -382,13 +396,20 @@ func buildCodeIndex(ctx context.Context, root string, sc *scan) (*codeIndex, err
 		set.str(id, PredName, p.name())
 		set.str(id, PredPath, d)
 		set.str(id, PredImportPath, importPath(module, d))
-		set.str(id, PredArchLayer, classifyPackage(d))
+		set.str(id, PredArchLayer, prof.Classify(d))
 		if p.doc != "" {
 			set.str(id, PredDoc, p.doc)
 		}
 		set.num(id, PredExternalImports, len(p.external))
 		for imp := range p.imports {
 			set.add(id, PredImports, pkgID(imp))
+		}
+		// What the project takes from the framework it is built on: one node per package
+		// it imports, so the framework's side of the connection is in the graph, labelled.
+		for _, imp := range sortedKeys(p.external) {
+			if mods.isFramework(imp) {
+				set.add(id, PredImportsExt, mods.pkgRef(imp))
+			}
 		}
 	}
 
@@ -431,7 +452,7 @@ func (ci *codeIndex) emitFile(set *quadSet, fset *token.FileSet, ids *idAllocato
 	set.flag(fid, PredGenerated, pf.generated)
 	set.add(fid, PredInPackage, pkgID(pf.dir))
 
-	col := &collector{ci: ci, fset: fset, seen: seen, dir: pf.dir, file: pf.sf.rel, imps: ci.importNames(pf.ast), sql: holdsSQL(pf.dir)}
+	col := &collector{ci: ci, fset: fset, seen: seen, dir: pf.dir, file: pf.sf.rel, imps: ci.importNames(pf.ast), sql: ci.holdsSQL(pf.dir)}
 
 	for _, decl := range pf.ast.Decls {
 		switch d := decl.(type) {
@@ -627,7 +648,7 @@ func (c *collector) visit(n ast.Node) bool {
 			}
 		}
 	case *ast.BinaryExpr:
-		// "SELECT ... " + "FROM orders" is one statement, not two fragments.
+		// "SELECT ... " + "FROM items" is one statement, not two fragments.
 		if c.sql && x.Op == token.ADD {
 			if s, ok := constStringIn(x, c.ci.pkgStrings[c.dir]); ok {
 				c.sqlText(x.Pos(), s)
@@ -684,8 +705,8 @@ var sqlHintRe = regexp.MustCompile(`(?is)\b(from|join|into|update|truncate)\b`)
 
 // holdsSQL reports whether packages in dir are expected to talk to the
 // database: the storage and business layers.
-func holdsSQL(dir string) bool {
-	switch classifyPackage(dir) {
+func (ci *codeIndex) holdsSQL(dir string) bool {
+	switch ci.prof.Classify(dir) {
 	case "storage", "business":
 		return true
 	}
@@ -1090,41 +1111,4 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
-}
-
-// classifyPackage maps a package directory to its `arch_layer`; the first
-// matching row of the table in docs/public/GRAPH_SCHEMA.md wins.
-func classifyPackage(dir string) string {
-	if dir == "." {
-		return "wiring"
-	}
-	top, rest, _ := strings.Cut(dir, "/")
-	switch top {
-	case "internal":
-		// The framework's own packages: the kernel boots the app, the dev tools host
-		// the panel and the MCP server fronts it (all three assemble the process and
-		// may import anything); the rest is support.
-		switch sub, _, _ := strings.Cut(rest, "/"); sub {
-		case "kernel":
-			return "wiring"
-		case "devtools", "devmcp":
-			return "dev"
-		}
-		return "support"
-	case "controllers":
-		return "controllers"
-	case "business":
-		return "business"
-	case "storage":
-		return "storage"
-	case "middleware":
-		return "middleware"
-	case "routes", "cmd":
-		return "wiring"
-	case "devmcp":
-		return "dev"
-	case "assets":
-		return "views"
-	}
-	return "support"
 }

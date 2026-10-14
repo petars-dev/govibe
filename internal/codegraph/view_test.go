@@ -66,7 +66,7 @@ func (v *ViewResult) edge(from, pred, to string) *ViewEdge {
 func TestPresetViewsOfTheFixture(t *testing.T) {
 	m := fixtureGraph(t)
 
-	arch := viewOf(t, m, ViewQuery{})
+	arch := viewOf(t, m, ViewQuery{Preset: "architecture"})
 	if arch.Preset != "architecture" || strings.Join(arch.Columns, ",") != "wiring,dev,controllers,middleware,business,storage,support" || len(arch.Nodes) != 10 {
 		t.Fatalf("architecture: %s %v %d", arch.Preset, arch.Columns, len(arch.Nodes))
 	}
@@ -198,7 +198,7 @@ func (v *ViewResult) Node(id string) *ViewNode { return v.node(id) }
 
 func TestViewErrorsAreHelpful(t *testing.T) {
 	m := fixtureGraph(t)
-	if _, err := m.View(ViewQuery{Preset: "pie_chart"}); err == nil || !strings.Contains(err.Error(), "presets: architecture, request_flow") {
+	if _, err := m.View(ViewQuery{Preset: "pie_chart"}); err == nil || !strings.Contains(err.Error(), "presets: app_map, architecture, request_flow") {
 		t.Errorf("unknown preset: %v", err)
 	}
 	if _, err := m.View(ViewQuery{Preset: "manual"}); err == nil {
@@ -489,5 +489,59 @@ func TestViewsStayBoundedOnABigGraph(t *testing.T) {
 	}
 	if v := viewOf(t, m, ViewQuery{Focus: "pkg:p000", Depth: 1}); v.node("pkg:p000").More == 0 {
 		t.Errorf("a hub says how many edges it left out: %+v", v.node("pkg:p000"))
+	}
+}
+
+func TestTheAppMapIsTheDefaultViewAndShowsTheAppsOwnConnections(t *testing.T) {
+	m := fixtureGraph(t).scoped(ScopeApp)
+	v := viewOf(t, m, ViewQuery{})
+	if v.Preset != "app_map" || v.Title != "App map" || v.Scope != ScopeApp || v.Hidden.Nodes == 0 {
+		t.Fatalf("default view: %s %q scope=%s hidden=%+v", v.Preset, v.Title, v.Scope, v.Hidden)
+	}
+	if strings.Join(v.Columns, ",") != "route,handler,actions, services, stores,tables,templates, settings, docs" {
+		t.Errorf("columns = %q", v.Columns)
+	}
+	if ViewPresets[0].ID != "app_map" {
+		t.Errorf("the app map is the first preset: %v", ViewPresets[0])
+	}
+
+	// a route, its handler, the packages it reaches (estimated from imports: dashed), the table
+	const route, handler = "route:GET:/api/orders", "func:controllers.ListOrders"
+	for _, id := range []string{route, handler, "pkg:business/services/orders", "pkg:storage/orderstore", "table:orders"} {
+		if v.node(id) == nil {
+			t.Errorf("the app map lacks %s", id)
+		}
+	}
+	if e := v.edge(route, "handled_by", handler); e == nil {
+		t.Error("a route is linked to its handler")
+	}
+	if e := v.edge(handler, "imports", "pkg:business/services/orders"); e == nil || !e.Inferred {
+		t.Errorf("without the calls layer, reach is an estimate from imports, drawn dashed: %+v", e)
+	}
+	if e := v.edge("pkg:storage/orderstore", "reads_table", "table:orders"); e == nil || !e.Inferred {
+		t.Errorf("the table is reached through the store: %+v", e)
+	}
+	for _, n := range v.Nodes {
+		if n.Origin != OriginApp {
+			t.Errorf("%s is %s in the app's own scope", n.ID, n.Origin)
+		}
+		if n.Kind == "route" && strings.HasPrefix(n.Label, "ANY /dev") {
+			t.Errorf("a /dev route in the app map: %s", n.ID)
+		}
+		if n.Kind == "middleware" || n.Kind == "mcp_tool" {
+			t.Errorf("the app map is not the request flow: %s", n.ID)
+		}
+	}
+
+	// with both scopes the framework's routes appear too, labelled, after the app's own
+	all := viewOf(t, fixtureGraph(t), ViewQuery{})
+	var fw []string
+	for _, n := range all.Nodes {
+		if n.Kind == "route" && n.Origin == OriginFramework {
+			fw = append(fw, n.ID)
+		}
+	}
+	if len(fw) == 0 {
+		t.Errorf("scope all labels the framework's routes: %v", all.Nodes)
 	}
 }

@@ -30,7 +30,7 @@
 <file:controllers/hello.go> <type> <kind:file> <layer:code> .
 <file:controllers/home.go> <generated> "False"^^<schema:Boolean> <layer:code> .
 <file:controllers/home.go> <in_package> <pkg:controllers> <layer:code> .
-<file:controllers/home.go> <lines> "12"^^<schema:Integer> <layer:code> .
+<file:controllers/home.go> <lines> "13"^^<schema:Integer> <layer:code> .
 <file:controllers/home.go> <name> "home.go" <layer:code> .
 <file:controllers/home.go> <path> "controllers/home.go" <layer:code> .
 <file:controllers/home.go> <type> <kind:file> <layer:code> .
@@ -48,7 +48,7 @@
 <file:devmcp/devmcp.go> <type> <kind:file> <layer:code> .
 <file:main.go> <generated> "False"^^<schema:Boolean> <layer:code> .
 <file:main.go> <in_package> <pkg:.> <layer:code> .
-<file:main.go> <lines> "26"^^<schema:Integer> <layer:code> .
+<file:main.go> <lines> "28"^^<schema:Integer> <layer:code> .
 <file:main.go> <name> "main.go" <layer:code> .
 <file:main.go> <path> "main.go" <layer:code> .
 <file:main.go> <type> <kind:file> <layer:code> .
@@ -84,7 +84,7 @@
 <file:storage/orderstore/zz_generated.go> <type> <kind:file> <layer:code> .
 <func:..main> <defined_in> <file:main.go> <layer:code> .
 <func:..main> <exported> "False"^^<schema:Boolean> <layer:code> .
-<func:..main> <line> "18"^^<schema:Integer> <layer:code> .
+<func:..main> <line> "19"^^<schema:Integer> <layer:code> .
 <func:..main> <name> "main" <layer:code> .
 <func:..main> <signature> "func main()" <layer:code> .
 <func:..main> <type> <kind:func> <layer:code> .
@@ -153,7 +153,7 @@
 <func:controllers.HomePage> <defined_in> <file:controllers/home.go> <layer:code> .
 <func:controllers.HomePage> <doc> "HomePage renders the landing page template." <layer:code> .
 <func:controllers.HomePage> <exported> "True"^^<schema:Boolean> <layer:code> .
-<func:controllers.HomePage> <line> "10"^^<schema:Integer> <layer:code> .
+<func:controllers.HomePage> <line> "11"^^<schema:Integer> <layer:code> .
 <func:controllers.HomePage> <name> "HomePage" <layer:code> .
 <func:controllers.HomePage> <signature> "func HomePage(w http.ResponseWriter, r *http.Request)" <layer:code> .
 <func:controllers.HomePage> <type> <kind:func> <layer:code> .
@@ -245,6 +245,7 @@
 <pkg:.> <import_path> "example.com/fixture" <layer:code> .
 <pkg:.> <imports> <pkg:config> <layer:code> .
 <pkg:.> <imports> <pkg:routes> <layer:code> .
+<pkg:.> <imports_external> <ext:example.com/stubfw> <layer:code> .
 <pkg:.> <name> "main" <layer:code> .
 <pkg:.> <path> "." <layer:code> .
 <pkg:.> <type> <kind:package> <layer:code> .
@@ -271,11 +272,12 @@
 <pkg:config> <path> "config" <layer:code> .
 <pkg:config> <type> <kind:package> <layer:code> .
 <pkg:controllers> <arch_layer> "controllers" <layer:code> .
-<pkg:controllers> <external_imports> "3"^^<schema:Integer> <layer:code> .
+<pkg:controllers> <external_imports> "4"^^<schema:Integer> <layer:code> .
 <pkg:controllers> <import_path> "example.com/fixture/controllers" <layer:code> .
 <pkg:controllers> <imports> <pkg:business/actions> <layer:code> .
 <pkg:controllers> <imports> <pkg:business/services/orders> <layer:code> .
 <pkg:controllers> <imports> <pkg:storage/orderstore> <layer:code> .
+<pkg:controllers> <imports_external> <ext:example.com/stubfw/web> <layer:code> .
 <pkg:controllers> <name> "controllers" <layer:code> .
 <pkg:controllers> <path> "controllers" <layer:code> .
 <pkg:controllers> <type> <kind:package> <layer:code> .

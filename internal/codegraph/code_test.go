@@ -123,9 +123,19 @@ func TestCodeLayerFixtureFacts(t *testing.T) {
 		}
 		// Standard library and third-party imports are counted, not noded; so is
 		// a module package with no node of its own (assets/templates holds only
-		// generated templ output).
-		if got := f.one(t, "pkg:controllers", "external_imports"); got != quad.Value(quad.Int(3)) {
-			t.Errorf("controllers external_imports = %v, want 3 (encoding/json, net/http, assets/templates)", got)
+		// generated templ output). The framework's packages are counted too, and also get an
+		// external node and an imports_external edge (the stub framework's web helpers).
+		if got := f.one(t, "pkg:controllers", "external_imports"); got != quad.Value(quad.Int(4)) {
+			t.Errorf("controllers external_imports = %v, want 4 (encoding/json, net/http, assets/templates, the framework's web)", got)
+		}
+		if !f.has("pkg:controllers", "imports_external", quad.IRI("ext:example.com/stubfw/web")) {
+			t.Error("controllers does not point at the framework's web package")
+		}
+		if !f.has("pkg:.", "imports_external", quad.IRI("ext:example.com/stubfw")) {
+			t.Error("main does not point at the framework's root package")
+		}
+		if f.exists("ext:example.com/stubfw/web") {
+			t.Error("the code layer wrote an external node: the externals layer owns them")
 		}
 	})
 

@@ -35,6 +35,18 @@ html.theme-light .gv-body { --gv-error: #cf222e; --gv-warning: #9a6700; --gv-inf
 /* presets, search */
 .gv-toolbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px 4px; }
 .gv-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+/* The scope switch: whose nodes the page shows. A segmented control, set apart from the view presets. */
+.gv-scope { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.gv-scope-btn { font: inherit; font-size: .85rem; padding: 4px 12px; background: var(--bg-elev); color: var(--muted); border: 0; border-right: 1px solid var(--border); cursor: pointer; }
+.gv-scope-btn:last-child { border-right: 0; }
+.gv-scope-btn:hover { color: var(--text); }
+.gv-scope-btn.active { background: var(--accent, #e0793b); color: var(--accent-contrast, #fff); font-weight: 600; }
+.gv-scope-btn:focus-visible { outline: 2px solid var(--accent, #e0793b); outline-offset: -2px; }
+.gv-scopeinfo { color: var(--text); }
+.gv-scopeinfo strong { font-weight: 600; }
+.gv-originbadge { margin-left: 8px; padding: 0 6px; border-radius: 4px; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; border: 1px solid var(--border); color: var(--muted); }
+.gv-originbadge.framework { border-style: double; border-width: 3px; }
+.gv-uses { margin: 4px 0 6px; font-size: .85rem; color: var(--muted); font-style: italic; }
 .gv-preset { font: inherit; font-size: .88rem; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
 .gv-preset:hover { border-color: var(--link); }
 .gv-preset.active { background: rgba(59,130,246,.15); border-color: rgba(59,130,246,.45); color: var(--link); }

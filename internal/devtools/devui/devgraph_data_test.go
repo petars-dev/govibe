@@ -22,12 +22,18 @@ import (
 // indexed root, the way devtools.Mount mounts them.
 func dataRouter(t *testing.T, root string, db bool) (http.Handler, *codegraph.Indexer, func(quad.Quad)) {
 	t.Helper()
+	return dataRouterWith(t, codegraph.Options{Root: root}, db)
+}
+
+// dataRouterWith is dataRouter with the indexer's options (a route table, say).
+func dataRouterWith(t *testing.T, opts codegraph.Options, db bool) (http.Handler, *codegraph.Indexer, func(quad.Quad)) {
+	t.Helper()
 	h, err := graphdb.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { h.Close() })
-	ix := codegraph.New(h.QuadStore, codegraph.Options{Root: root})
+	ix := codegraph.New(h.QuadStore, opts)
 	if _, err := ix.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +88,7 @@ func TestGraphDataStatusAndViews(t *testing.T) {
 
 	st := getJSON(t, h, "/dev/graph/data/status", 200)
 	fr := st["freshness"].(map[string]any)
-	if fr["indexed"] != true || fr["quads"].(float64) < 1000 || fr["added"].(float64) == 0 || len(list(fr["layers"])) != 10 {
+	if fr["indexed"] != true || fr["quads"].(float64) < 1000 || fr["added"].(float64) == 0 || len(list(fr["layers"])) != 11 {
 		t.Errorf("freshness: %v", fr)
 	}
 	fc := st["findings"].(map[string]any)
@@ -90,8 +96,12 @@ func TestGraphDataStatusAndViews(t *testing.T) {
 		t.Errorf("findings counts: %v", fc)
 	}
 
-	arch := getJSON(t, h, "/dev/graph/data/view", 200) // the default preset
-	if arch["preset"] != "architecture" || len(list(arch["presets"])) != 7 {
+	def := getJSON(t, h, "/dev/graph/data/view", 200) // the default preset: the app map
+	if def["preset"] != "app_map" || len(list(def["presets"])) != 8 || def["scope"] != "app" {
+		t.Fatalf("view: %v scope %v", def["preset"], def["scope"])
+	}
+	arch := getJSON(t, h, "/dev/graph/data/view?preset=architecture", 200)
+	if arch["preset"] != "architecture" {
 		t.Fatalf("view: %v", arch["preset"])
 	}
 	nodes := ids(arch["nodes"])
@@ -143,7 +153,7 @@ func strs(v any) []string {
 func TestGraphDataBadRequestsAre400WithAReason(t *testing.T) {
 	h, _, _ := dataRouter(t, codegraphFixture, false)
 	for url, want := range map[string]string{
-		"/dev/graph/data/view?preset=pie":               "presets: architecture",
+		"/dev/graph/data/view?preset=pie":               "presets: app_map, architecture",
 		"/dev/graph/data/view?focus=nope.Nope":          "no node matches",
 		"/dev/graph/data/view?preset=db_er&kinds=apple": "unknown kind",
 		"/dev/graph/data/node?id=nope.Nope":             "no node matches",

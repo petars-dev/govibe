@@ -29,6 +29,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/petars-dev/govibe/internal/dbexplorer"
+	"github.com/petars-dev/govibe/internal/profile"
 	"github.com/petars-dev/govibe/internal/routeinfo"
 )
 
@@ -72,6 +73,21 @@ type Options struct {
 	Calls bool
 	Git   bool
 
+	// Profile says where the project keeps its settings, migrations and docs and which
+	// directory is which architecture layer. Nil reads <Root>/govibe.yml over the
+	// default profile (a generated app's layout).
+	Profile *profile.Profile
+
+	// Build is what the running binary (or its `inspect --json`) knows about itself: the
+	// modules it was built from, and which routes the framework registered. Optional:
+	// without it versions come from go.mod and a route's origin from its path.
+	Build BuildFacts
+
+	// Manifest is what the framework publishes about itself (its settings, its MCP
+	// tools): it lets the graph of a project that depends on the framework name the
+	// framework's side without indexing it. Nil in the framework's own repository.
+	Manifest *Manifest
+
 	// RootHint is a function of the application as the Go runtime reports it,
 	// normally its own Routes function. It says where the running binary's sources
 	// were compiled, which the routes layer needs to map a handler's file onto the
@@ -84,9 +100,10 @@ type Options struct {
 	// liveTTL overrides how long a live schema read is reused (tests).
 	liveTTL time.Duration
 
-	// routeSource replaces the router walk. Tests use it to feed the routes
-	// layer runtime facts for a project that cannot be run.
-	routeSource func() ([]runtimeRoute, error)
+	// RouteSource replaces the router walk: it feeds the routes layer the routes of a
+	// project that is not being run here, as its own binary reported them (see
+	// OptionsFromInspect), or, in tests, a table made up for the purpose.
+	RouteSource func() ([]routeinfo.Route, error)
 	// buildRoot overrides where the running binary's sources were compiled.
 	buildRoot *string
 }
@@ -125,6 +142,7 @@ type layerOutput struct {
 	warnings []string // inputs that were skipped; makes the run "partial"
 	skipped  string   // why the layer does not apply; nothing is written, status "skipped"
 	clear    bool     // with skipped: also remove what the layer wrote before
+	note     string   // what a reader of the layer should know about how it was built (the calls layer's build tags)
 }
 
 // Indexer builds the graph layers and writes them into one quad store.
@@ -144,6 +162,10 @@ type Indexer struct {
 		fp  string
 		idx *codeIndex
 	}
+	callCache struct {
+		fp  string
+		idx *callIndex
+	}
 	liveCache struct {
 		at  time.Time
 		res *liveSchema
@@ -162,7 +184,7 @@ func New(qs graph.QuadStore, opts Options) *Indexer {
 	return &Indexer{
 		opts:   opts,
 		writer: newWriter(qs),
-		layers: []layer{codeLayer{}, routesLayer{}, templatesLayer{}, configLayer{}, mcpLayer{}, dbLayer{}, docsLayer{}, callsLayer{}, gitLayer{}, findingsLayer{}},
+		layers: []layer{codeLayer{}, routesLayer{}, templatesLayer{}, configLayer{}, mcpLayer{}, dbLayer{}, docsLayer{}, callsLayer{}, gitLayer{}, externalsLayer{}, findingsLayer{}},
 		state:  map[string]LayerReport{},
 		enabled: map[string]bool{
 			callsLayerName: opts.Calls,
@@ -205,6 +227,12 @@ type Report struct {
 
 // BuildReport mirrors the `build:latest` node.
 type BuildReport struct {
+	// What was indexed: the application, and the framework it is built on.
+	App              string `json:"app,omitempty"`
+	AppModule        string `json:"app_module,omitempty"`
+	FrameworkModule  string `json:"framework_module,omitempty"`
+	FrameworkVersion string `json:"framework_version,omitempty"`
+
 	GitSHA         string    `json:"git_sha,omitempty"`
 	Dirty          bool      `json:"dirty,omitempty"`
 	IndexedAt      time.Time `json:"indexed_at"`
@@ -248,10 +276,10 @@ func (x *Indexer) Run(ctx context.Context) (*Report, error) {
 }
 
 // Model reads the graph the indexer wrote into a Model, as the agent tools and
-// the generated reports work from it. It does not bring stale layers up to date;
-// call Refresh first for that.
-func (x *Indexer) Model(ctx context.Context) (*Model, error) {
-	return Load(ctx, x.writer.qs)
+// the generated reports work from it, for a scope (everything when none is given). It
+// does not bring stale layers up to date; call Refresh first for that.
+func (x *Indexer) Model(ctx context.Context, scope ...Scope) (*Model, error) {
+	return Load(ctx, x.writer.qs, scope...)
 }
 
 // RootDir is the absolute, symlink-free repository root the indexer reads, or ""
@@ -331,6 +359,9 @@ func (x *Indexer) Stale(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("graph index: root %q: %w", x.opts.Root, err)
 	}
 	w := newWorld(ctx, x, root, false)
+	if _, err := w.profile(); err != nil {
+		return nil, fmt.Errorf("graph index: %w", err)
+	}
 	fps := x.fingerprints(w)
 	var stale []string
 	for _, l := range x.layers {
@@ -355,6 +386,9 @@ func (x *Indexer) run(ctx context.Context, force bool, only map[string]bool) (*R
 	}
 
 	w := newWorld(ctx, x, root, force || only != nil)
+	if _, err := w.profile(); err != nil {
+		return nil, fmt.Errorf("graph index: %w", err)
+	}
 	// Fingerprints are taken before any input is read, so an edit that lands
 	// mid-run leaves the stored fingerprint older than the content and the
 	// layer reads as stale on the next check, never falsely fresh.
@@ -419,6 +453,7 @@ func (x *Indexer) run(ctx context.Context, force bool, only map[string]bool) (*R
 		DurationMS:     int(time.Since(start).Milliseconds()),
 		IndexerVersion: IndexerVersion,
 	}
+	rep.Build.App, rep.Build.AppModule, rep.Build.FrameworkModule, rep.Build.FrameworkVersion = w.describeProject()
 	// The meta layer records each layer's own last run, not this call's view.
 	var layers []LayerReport
 	for _, l := range x.layers {
@@ -464,12 +499,9 @@ func (x *Indexer) fingerprints(w *world) map[string]fpResult {
 			out[l.name()] = fpResult{err: err}
 			continue
 		}
-		if len(deps) == 0 {
-			out[l.name()] = fpResult{fp: own}
-			continue
-		}
+		// Every layer reads the project through the profile, so govibe.yml is an input of all.
 		h := sha256.New()
-		fmt.Fprintf(h, "%s\n", own)
+		fmt.Fprintf(h, "%s\nprofile=%s\n", own, fingerprint(w.profileFile()))
 		for _, d := range deps {
 			fmt.Fprintf(h, "%s=%s\n", d, out[d].fp)
 		}
@@ -577,6 +609,7 @@ func (x *Indexer) runLayer(ctx context.Context, l layer, w *world, fp fpResult) 
 		return lr
 	}
 	lr.Status, lr.Quads, lr.Added, lr.Removed = statusOK, d.Quads, d.Added, d.Removed
+	lr.Note = out.note
 	if len(out.warnings) > 0 {
 		lr.Status, lr.Warnings = statusPartial, out.warnings
 	}

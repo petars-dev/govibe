@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/cayleygraph/quad"
+
+	"github.com/petars-dev/govibe/internal/profile"
 )
 
 // Findings are the problems the graph can see across its layers: a package that
@@ -61,6 +63,9 @@ type rule struct {
 // ruleEnv is what a rule looks at.
 type ruleEnv struct {
 	m *Model
+	// prof is the project's profile: rules read where things live from it, and it
+	// can switch a rule off or change its severity.
+	prof *profile.Profile
 	// ci is the code index, for the facts the graph does not store (where an
 	// import is used, who calls an exported function). Nil when it is not
 	// available: the rules that need it are then not checked.
@@ -80,6 +85,7 @@ type RuleInfo struct {
 	Severity    string `json:"severity"`
 	Description string `json:"description"`
 	Checked     bool   `json:"checked"`
+	Off         bool   `json:"off,omitempty"`  // switched off in govibe.yml: a choice, not a rule that could not look
 	Note        string `json:"note,omitempty"` // why it did not run
 	Findings    int    `json:"findings"`
 }
@@ -91,6 +97,11 @@ func ruleCatalog() []rule {
 			name: "layering", title: "Layering violation", severity: sevError,
 			description: "A package imports one its architecture layer must not (SKILL.md: only actions and services may call storage). wiring and dev packages are exempt.",
 			needs:       []string{"code"}, check: checkLayering,
+		},
+		{
+			name: "framework.import", title: "Import the layer may not take from the framework", severity: sevError,
+			description: "A package or template imports a framework package its architecture layer may not (SKILL.md: business logic and storage import nothing from the framework; controllers, middleware and views only govibe/web; commands only govibe; wiring govibe, govibe/config and govibe/web; nothing the framework's internal/). It does not apply to the framework's own repository.",
+			needs:       []string{"code", "templates", "externals"}, applies: dependsOnFramework, check: checkFrameworkImport,
 		},
 		{
 			name: "docs.stale_ref", title: "Stale reference in a doc", severity: sevWarning,
@@ -109,12 +120,12 @@ func ruleCatalog() []rule {
 		},
 		{
 			name: "config.undeclared", title: "Config read but not declared", severity: sevWarning,
-			description: "Code reads a config key or environment variable that config/env.yml does not declare.",
+			description: "Code reads a config key or environment variable that the project's settings file (env.yml) does not declare.",
 			needs:       []string{"config"}, check: checkConfigUndeclared,
 		},
 		{
 			name: "config.unused", title: "Config declared but never read", severity: sevInfo,
-			description: "config/env.yml declares a key that no code reads. Reads through a variable name are not seen.",
+			description: "The project's settings file (env.yml) declares a key that no code reads. Reads through a variable name are not seen.",
 			needs:       []string{"config"}, check: checkConfigUnused,
 		},
 		{
@@ -159,12 +170,38 @@ type findingQuads struct {
 	found    int
 }
 
+// checkRuleSettings fails on a govibe.yml that names a rule that does not exist: a
+// typo would otherwise leave the rule running and the author sure it was off.
+func checkRuleSettings(prof *profile.Profile) error {
+	known := map[string]bool{}
+	var names []string
+	for _, r := range ruleCatalog() {
+		known[r.name] = true
+		names = append(names, r.name)
+	}
+	var unknown []string
+	for name := range prof.Rules {
+		if !known[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	return fmt.Errorf("%s: rules.%s is not a rule; rules: %s", profile.File, strings.Join(unknown, ", rules."), strings.Join(names, ", "))
+}
+
 // runRules runs every rule whose layers are built and renders the result.
 func runRules(e *ruleEnv) findingQuads {
 	set := newQuadSet("findings")
 	var out findingQuads
 	seen := map[quad.IRI]bool{}
 	for _, r := range ruleCatalog() {
+		setting, _ := e.prof.RuleSetting(r.name)
+		if setting != "" && setting != profile.RuleOff {
+			r.severity = setting // govibe.yml changes the severity of every finding of the rule
+		}
 		rid := ruleID(r.name)
 		set.add(rid, PredType, KindRule)
 		set.str(rid, PredName, r.name)
@@ -172,6 +209,13 @@ func runRules(e *ruleEnv) findingQuads {
 		set.str(rid, PredSeverity, r.severity)
 		set.str(rid, PredDescription, r.description)
 
+		if setting == profile.RuleOff {
+			// A choice, not a gap: it is not counted among the rules that did not look.
+			set.flag(rid, PredChecked, false)
+			set.flag(rid, PredOff, true)
+			set.str(rid, PredNote, "switched off in "+profile.File)
+			continue
+		}
 		if why := unmet(e, r); why != "" {
 			set.flag(rid, PredChecked, false)
 			set.str(rid, PredNote, why)
@@ -234,7 +278,7 @@ func unmet(e *ruleEnv, r rule) string {
 			return fmt.Sprintf("the %s layer is not built", l)
 		}
 	}
-	if r.name == "code.unreferenced" && e.ci == nil {
+	if (r.name == "code.unreferenced" || r.name == "framework.import") && e.ci == nil {
 		return "there is no code index"
 	}
 	return ""

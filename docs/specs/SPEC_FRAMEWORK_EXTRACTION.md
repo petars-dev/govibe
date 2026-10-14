@@ -691,6 +691,7 @@ Each phase ends with the test suite green, the graph gate green, and a run from 
      a fake clock; decide the engine.
    - S9 Scope: apply an origin filter in a scratch `Model` and confirm views, reports and tools need no other change.
    - Output: a "Spike results" table here (done, see "Spike results (Phase 0)"), with the amendments it requires.
+   - **Status: done 2026-10-11, see "Spike results (Phase 0)".** Sign-off of the amendments is still open (below).
 1. **Phase 1 — Invert inside the repo, and clean up** (behavior-preserving, except the removals; everything still at the root)
    - T1.1 `config`: instance-based, layered (framework defaults, app file, environment as today); drop the `cfgRaw`
      global; one load per boot.
@@ -711,6 +712,7 @@ Each phase ends with the test suite green, the graph gate green, and a run from 
    - Done when: every existing test passes, goldens are unchanged except the fixture's renamed mail keys, the panel and the
      Hello page look the same, the dev pages no longer read anything from `/assets/static`, and an index with an empty
      baseline reports only the layering finding, in a fresh clone as well as on a developer machine.
+   - **Status: done 2026-10-11, see "Phase 1 results".**
 2. **Phase 2 — Physical split** (mechanical moves, no logic edits in the same commit)
    - T2.1 Rename the module to `github.com/petars-dev/govibe`.
    - T2.2 `git mv` into `internal/*` per the table above; public packages `govibe`, `config`, `web`, `govibetest`.
@@ -747,6 +749,7 @@ Each phase ends with the test suite green, the graph gate green, and a run from 
    - T3.11 Rebuild `testdata/fixture` as an app that depends on a stub framework module, with neutral key names; regenerate
      goldens and review the diff.
    - Done when: indexing `examples/hello` reports zero findings, A3, A8 and A10 pass, and the golden tests are green.
+   - **Status: done 2026-10-13, see "Phase 3 results".**
 4. **Phase 4 — Commands and the scheduler**
    - T4.1 `internal/scheduler`: spec parsing, runner, clock, overlap, timeout, recover, the optional DB lock; unit tests on a fake clock
      (due times, DST, overlap, timeout, panic, shutdown).
@@ -826,6 +829,13 @@ deciding AM1.
 | AM12 | Scheduler: wrap the parser (recover its panic on a bare `CRON_TZ=Zone`; reject a spec that never fires; set a minimum for `@every`, since 0 s, negative and sub-second values silently become 1 s). `schedule list` prints "6h after start" for `@every`, not a date. DST: a run in a spring-forward gap is skipped and not caught up; in a fall-back repeat a spec with a fixed hour and minute fires once and a wildcard hour follows real hours. Document dom/dow OR (stepped fields included), Sunday as 0, no `L`, and that `CRON_TZ=` beats `scheduler.timezone`. gocron's latest is v2.22.0 (2026-07-09); robfig's last release is 2020-01-04. The runner prototype (`docs/spikes/_prototypes/s8-scheduler-runner`) is a starting point for T4.1 | Scheduler design, T4.1, T4.3 |
 | AM13 | Rename (T2.1): the count is 38 excluding this spec. Do it as its own commit and **before** the `git mv` moves, so the byte-identical proof applies to each step. Delete `docs/graph/*.bolt` first. Fix the two files that were already gofmt-unclean (`cmd/govibe/cmd_generate.go`, `root.go`) in a separate earlier commit so the rename diff stays pure. The script is `docs/spikes/scripts/s7-rename.sh` | T2.1 |
 | AM14 | Nothing warns when a global `govibe` differs from the version pinned in the app's `go.mod`; `doctor` and the T7.1 shim must do it | T6.2, T7.1 |
+
+**Where the amendments stand after Phase 3.** Applied: AM4, AM5 (Phase 2), AM6 (the calls layer is tag-aware and bounded; the module index comes from the module table, not
+`packages.Visit`), AM7 (routes are classified by who registered them; `inspect --json` carries `mounted_by`, the module table, `build.tags` and `build.trimpath`; the indexer's root comes from
+the hint), AM8 (`internal/routeinfo`, and `codegraph.OptionsFromInspect` exports the route source with the modules and the framework), AM9 (scope is a parameter of `Load`, the gate and baseline read
+`all`, findings are computed once on `all` with the origin of the node they are about, `Hidden` accounts for what a scope drops; the one part not applied is retiring `dev_only`, see "Phase 3 results"),
+AM10 (framework-origin routes are skipped by `docs.route_undocumented`; a profile with no settings file makes the `config` layer `skipped`), AM11, AM13. Still open: AM1 to AM3 (Go version and tool pins,
+Phase 5) and AM12 (scheduler, Phase 4), AM14 (version skew, Phases 6 and 7), and the owner's sign-off of all fourteen.
 
 ## Phase 1 results (inside the repo, behavior-preserving)
 Done 2026-10-11. Everything is still at the repository root and one module; the framework's public packages (`govibe`,
@@ -930,6 +940,56 @@ graph page draws the app's own architecture, no console errors), over MCP (`grap
 - Amendments: AM4, AM5 and AM13 are applied as written (AM13 with the script fixes above), AM8 was Phase 1's, AM7's root hint is in; AM1 to AM3 (Go version and tool pins) and the
   sign-off of all fourteen are still open.
 
+## Phase 3 results (profile, the app-only graph, findings and the docs surface)
+Done 2026-10-13, on top of the committed Phase 2. The graph, the findings, the reports, the docs and the agent tools are about the application by default; the framework is one switch away and
+labelled. Verified in tests (the whole suite, with and without the `govibe_dev` tag, the example module's own tests), by both CI gates at `--fail-on info` (the framework and `examples/hello`: 0 findings, empty
+baselines), and by running the reference app in a scratch copy under `env -i` (A3 over MCP, A8 in a browser and over HTTP, A10 over HTTP).
+
+| Task | Result |
+| --- | --- |
+| T3.1 profile | `internal/profile`: `Default` (a generated app's layout), `Load` (`govibe.yml` over it, unknown keys, absolute and escaping paths, a directory claimed by two layers, bad rule values are errors that name the key), `Classify` (longest directory match), `IsDerived`. The indexer reads settings files, migrations, docs, spec prefix, layer table, derived paths and rule settings from it; `govibe.yml` is an input of every layer's fingerprint; an invalid profile fails the run; a `config` layer with no settings file is `skipped` with the names it looked for. The framework's own `govibe.yml` keeps its layout (`internal/kernel` wiring, the dev packages `dev`, settings `config/defaults.yml`). Added the `framework` key (the spec's "framework path" of `govibe.yml`). Second fixture `testdata/fixture_layout` (non-default layout, two settings files, migrations and docs elsewhere, a prefix, a derived path, rule overrides) |
+| T3.2 origin | `origin` quads on routes (who registered them: `Build.FrameworkRoutes` from the kernel's snapshot or `inspect --json` `mounted_by`, plus the reserved prefixes), middleware (the framework's when on the framework's own routes or in its module), settings, environment variables, MCP tools and externals. `external` nodes (kind, module, version, origin, `internal`) with `imports_external`, `calls_external` and `handled_by_external` edges |
+| T3.3 scope | `Load(ctx, qs, scope...)`, `Scope`, `ParseScope`, `Model.Hidden`, `NodeRef.Origin`; the filter drops other-origin nodes, their edges, findings about them and annotations with an end gone, once, in the model. App map preset (first, the default view), `scope=` on every `/dev/graph/data/*` endpoint and report (400 for a bad one), the toolbar switch (URL `?scope=`, remembered per browser), the banner and the report strip say the scope and what it hides, framework nodes have a double outline and an origin badge, links carry the scope |
+| T3.4 manifest | `devtools.FrameworkManifest`: the defaults file (`config.Defaults`), the typed `Config` fields by reflection (so `cfg.Server.Port` is a read of `server.port`) and the MCP tools (`devmcp.Tools`, read through an in-memory client). The config and mcp layers add them with origin `framework`; `config.unused` and `docs.route_undocumented` skip the framework's |
+| T3.5 rules | `internal/rules` (layering table, framework-import table, spec sections, `Markdown()` for the rendered text); `framework.import` (error; packages and `.templ` files; where the import is written; not applicable in the framework's own repository); `commands` is an architecture layer with the controllers' rule; baseline entries have `reason` and `date`, `--update-baseline --reason`, an entry without a reason fails the gate; rules can be switched `off` or re-severitied in `govibe.yml` (an unknown rule name fails the findings layer) |
+| T3.6 offline facts | `routeinfo.Inspect` (moved from the kernel, with what the `App` contributes), `codegraph.OptionsFromInspect`, exported `Options.RouteSource`; `govibe graph index` in an application runs its `inspect --json` (`--no-inspect` skips it) and the tool's manifest, so `docs.route_undocumented` runs in CI; `--dir` defaults to the profile's store directory |
+| T3.7 calls | type-checked with `-tags govibe_dev` (or `build.tags`), stated in the layer's note; calls out of the module are bounded edges to external leaves (one per public framework function, one for `internal/`, one per library package, the standard library not at all) |
+| T3.8 MCP | `scope` on every graph tool but `graph_query`/`graph_reindex`; `graph_schema` names the app and the framework version, the scope and what it hides, with examples from the scoped model; resources `govibe://skill`, `govibe://app/manifest`, `govibe://docs/<slug>`; the server is titled after `App.Name`; the overview and the prompt follow the scope |
+| T3.9 docs | `/dev/docs` redirects to `/dev/docs/app`; the app's docs and specs come from the directories its profile names; the framework's are a muted group under `/dev/docs/govibe/<slug>` (`internal/frameworkdocs`: an allowlist, titles prefixed `GoVibe:`, copies of `docs/public` generated for `go:embed` by `make docs-embed` with a staleness test, the rules doc rendered from the tables); contributor mode (`dev.framework_src`, `GOVIBE_FRAMEWORK_SRC`) reads them from a checkout and lists its specs; a test asks for every framework spec under every URL in an app. New docs: Guide, Configuration, Upgrading |
+| T3.10 `/dev` | the front door (`devui.DevIndex`): app, module, framework version, environment, what is mounted and why not, counts of the app's own routes, commands, packages and findings (in the app's scope), the first step when there are no routes; a Dev tab on every dev page |
+| T3.11 fixture | `testdata/fixture` is an app built on a stub framework (`testdata/stubfw`, `framework: example.com/stubfw` in its `govibe.yml`), settings in a root `env.yml`; goldens regenerated and the diff reviewed (origin quads, the settings path, the external edges); new `externals.nq` golden and tests that every external edge has its node |
+
+**Deviations and things to know**
+- **A new indexer layer, `externals`.** The spec had each layer write `origin` and its externals; but the code, templates, routes and calls layers all point at the same external node, and a node's quads belong to one layer (the
+  well-formedness test said so). The `externals` layer writes every external node from the indexes of the layers that point at them, and they write only the edge. The graph now has eleven layers; `findings` depends on it.
+- **`Load` takes the scope as an optional argument** (`Load(ctx, qs, scope...)`, no scope meaning everything) instead of a required one, so the findings layer, the gate and the existing tests read the whole graph; every page and tool passes one,
+  defaulting to `app`.
+- **T3.4 is partly folded into other tasks.** The framework's routes and middleware come from the live router and `inspect --json` (with who registered them), not from a manifest, and the public API appears as the external nodes the project's
+  imports and calls point at, not as a symbol list. The manifest carries the settings and the tools.
+- **`dev_only` was kept**, next to `origin` (AM9 said to retire it): the rules and the views use the origin; the attribute is still on routes under `/dev` for the people and tools that read it.
+- **`framework.import` does not judge test files** (tests add no nodes), so the table's "tests: `govibetest`" row is documented, not enforced; `doctor` (Phase 6) can. The `commands` layer is only an architecture layer here: `command` nodes, the
+  commands report and `docs.command_undocumented` are T4.4.
+- **`govibe check` is Phase 5.** Its parts exist: the gate (now with reasons) and the rules. The `skill` doc is rendered from the rules tables until Phase 5 generates the app-facing `SKILL.md`.
+- **The `/dev` index has no scheduler card and `COMMANDS_AND_SCHEDULER` is not in the framework docs yet** (Phase 4: T4.5 and T4.7); the allowlist already names it and leaves it out until the file exists.
+- **Run a framework gate by the same command as an app's**: with the framework's own `govibe.yml` and no binary, its routes layer is skipped and `framework.import` is not applicable, both reported as rules that did not run; the example app's run has the route table and
+  runs every rule but the two that need a live database.
+- **Tests that indexed this repository as "the app"** (the MCP e2e tests, the reports tests) now ask for scope `all`, because the repository's own `/_govibe/*` routes are the framework's by their path; separate tests cover the default scope.
+- **Not run here:** the database tests (`GOVIBE_TEST_MARIADB_DSN`), `-race` on the kernel's dev test (the upstream `checkptr` issue of Phase 1), and the GitHub Actions workflows themselves (their scripts were run locally).
+- **Fixture domain kept out of what an app reads.** The test fixtures are directories of their own modules (`testdata/fixture`, `fixture_layout`, `stubfw`): no build embeds them, and the framework's module zip omits them (checked with `golang.org/x/mod/zip`). What did reach apps
+  was text: examples in tool descriptions, `graph_schema` and the embedded `GRAPH_SCHEMA.md`/`ARCHITECTURE.md` that named the shop domain and the fixture files. Those use neutral names now (`items`), the contributor-only parts of a doc sit between
+  `framework-only` markers and are stripped from the embedded copy, and `TestNoShippedDocNamesTheFrameworksFixtures` fails if a served doc names a fixture. The Phase 0 prototype app `docs/spikes/_prototypes/shop-app` was deleted (its result is `examples/hello`).
+- **An independent review of the Phase 3 diff** found thirteen things; ten were fixed and tested, three are noted. Fixed: (1) a `govibe.yml` key with no value (`layout:` and only comments under it) emptied the default
+  and made every package `support`; a null value is now "not set" at every depth; (2) an app that overrides a framework default was told its `server.port` was "declared and read by nothing" (the config key now records that the
+  framework declares it too); (3) a package of the app's own module under the framework's path (the generated templ package) was an external node of the framework in the calls layer (`moduleOf` now excludes the project's module);
+  (4) a failed calls layer made the externals layer drop the leaves its old edges still point at (the layer now fails with it and keeps its nodes), and a skipped config layer still let docs resolve manifest keys (nothing resolves
+  against settings the layer did not write; a typeless node belongs to no scope); (5) `--update-baseline --reason` did not fill an entry that had no reason; (7) with an invalid `govibe.yml` the CLI created the store in the working
+  directory before failing, and doubled its error prefix; (8) a template or route edit with the calls layer on type-checked the whole module again (the call index is cached until the Go sources, `go.sum` or the tags change);
+  (9) libraries were called "framework" in the inspector's line (it now says `uses framework: web; uses libraries: chi/v5`) and `chi/v5` was named `v5`; (10) a data race on the commands list of the `/dev` index; (11) the dev docs could
+  not express "no specs" or "no docs directory" (`Docs.FromProfile`); (12) the config report now links to `GoVibe: Configuration`; (13) tests for the internal leaf, a library leaf, the calls failure, the cache and the hello module path were added, and one vacuous
+  assertion was made real. (6) `govibe graph index` of an application compiles and runs its code: kept as the default (the route rules need the binary), now with a scrubbed environment (only the toolchain's and the path: no secret of the job
+  reaches it) and a stated way out (`--no-inspect`). Noted, not changed: the banner's "framework nodes" count includes the libraries' externals; a few empty-state texts ("add Markdown files to docs/public", the `/dev` first-step text) name the
+  default layout rather than the profile's; and an application with no `go` on `PATH` cannot be asked for its routes (reported with the exit status 2 and `--no-inspect`).
+
 ## Risks
 | Risk | Mitigation |
 | --- | --- |
@@ -1002,10 +1062,12 @@ graph page draws the app's own architecture, no console errors), over MCP (`grap
 | The framework's own layering finding resolved, empty baseline | Yes | | Phase 2: both gates (framework, `examples/hello`) report 0 findings at any severity |
 | `env.yml` in the project root (embedded, environment-resolved as today) | Yes | | Phase 1 for this repository (embedded by `main.go`, over `config/defaults.yml`); the scaffold's copy is Phase 5 |
 | Hello GoVibe demo in every generated app (`web.IfDev`, synced from `examples/hello`) | Partly | | `examples/hello` exists as a module of its own (Phase 2); the generated copy and the sync check are Phase 5 |
-| Phase 3 profile, origin, `framework.import` rule, offline facts, fixture rebuild | No | | Planned |
-| App-only graph view (scope in the `Model`, app map, switch, tools) | No | | Planned: Phase 3 |
-| Findings: reasons in the baseline, rule overrides, test references | Partly | | Test references: done in Phase 1. Reasons in the baseline and rule overrides: Phase 3 |
-| Docs surface (app first, `GoVibe:` group, no framework specs, contributor mode) | No | | Planned: Phase 3 |
+| Phase 3 profile, origin, `framework.import` rule, offline facts, fixture rebuild | Yes | | Done 2026-10-13, see "Phase 3 results" (one extra indexer layer, `externals`; the profile has a `framework` key) |
+| App-only graph view (scope in the `Model`, app map, switch, tools) | Yes | | Phase 3: scope in the `Model`, the app map as the default view, the switch and banner, `scope` on every graph tool and report |
+| Findings: reasons in the baseline, rule overrides, test references | Yes | | Test references: Phase 1. Reasons in the baseline (`reason`, `date`, `--reason`, the gate fails without one), `rules:` overrides in `govibe.yml`, `framework.import`: Phase 3. `docs.command_undocumented`: Phase 4 |
+| Docs surface (app first, `GoVibe:` group, no framework specs, contributor mode) | Yes | | Phase 3: `/dev/docs` opens on the app's docs, the framework's are `GoVibe:` docs under `/dev/docs/govibe`, no spec is embedded or served in an app (tested), contributor mode through `dev.framework_src`. `COMMANDS_AND_SCHEDULER` follows in Phase 4 |
+| `/dev` index page | Yes | | Phase 3 (T3.10); its scheduler card comes with `/dev/schedule` in Phase 4 |
+| `govibe.yml` project profile (layout, rules, derived paths, framework) | Yes | | Phase 3; the manifest half of the file (managed-file hashes) is Phase 5 |
 | Phase 4 commands and the scheduler (`schedule list`, `schedule run`, dev page, graph layer) | No | | Planned |
 | Phase 5 `govibe new`, managed files, app `SKILL.md`, `govibe check`, keystone CI job | No | | Planned |
 | Phase 6 generators, `govibe upgrade`, `govibe doctor` | No | | Planned |

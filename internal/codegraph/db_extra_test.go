@@ -59,7 +59,7 @@ func richRoot(t *testing.T) string {
 // richWorld is a world over richRoot, with the fixture's runtime routes.
 func richWorld(t *testing.T, opts Options) *world {
 	t.Helper()
-	opts.routeSource = fixtureOptions().routeSource
+	opts.RouteSource = fixtureOptions().RouteSource
 	return newTestWorld(t, richRoot(t), opts)
 }
 

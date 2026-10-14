@@ -25,7 +25,7 @@ func fixtureRoutes() []runtimeRoute {
 	mw := []handlerRef{requestID, logger}
 	return []runtimeRoute{
 		{Method: "GET", Path: "/", MW: mw,
-			Handler: handlerRef{Symbol: "example.com/fixture/controllers.HomePage", File: "controllers/home.go", Line: 10}},
+			Handler: handlerRef{Symbol: "example.com/fixture/controllers.HomePage", File: "controllers/home.go", Line: 11}},
 		{Method: "GET", Path: "/api/hello", MW: mw,
 			Handler: handlerRef{Symbol: "example.com/fixture/controllers.HelloAPI", File: "controllers/hello.go", Line: 10}},
 		// A handler factory: the closure resolves to the function that contains it.
@@ -42,7 +42,7 @@ func fixtureRoutes() []runtimeRoute {
 }
 
 func fixtureOptions() Options {
-	return Options{routeSource: func() ([]runtimeRoute, error) { return sortRoutes(fixtureRoutes()), nil }}
+	return Options{RouteSource: func() ([]runtimeRoute, error) { return sortRoutes(fixtureRoutes()), nil }}
 }
 
 func fixtureWorld(t *testing.T) *world { return newTestWorld(t, fixtureRoot, fixtureOptions()) }
@@ -231,7 +231,7 @@ func TestConfigLayerFixtureFacts(t *testing.T) {
 	if got := f.one(t, "cfg:database.max_conns", "field"); got != str("Config.Database.MaxConns") {
 		t.Errorf("max_conns field = %v", got)
 	}
-	if got := f.one(t, "cfg:server.port", "path"); got != str("config/env.yml") {
+	if got := f.one(t, "cfg:server.port", "path"); got != str("env.yml") {
 		t.Errorf("path = %v", got)
 	}
 	if got := f.one(t, "cfg:server.port", "line"); got != quad.Value(quad.Int(4)) {
@@ -803,7 +803,7 @@ func TestFixtureGraphInvariants(t *testing.T) {
 		}
 	}
 	res := graphcheck.Check(t, h, graphcheck.Options{
-		Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "findings"},
+		Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "externals", "findings"},
 		RequireEdges: []string{"handled_by", "uses_mw", "renders", "uses_config", "reads_env", "registers", "has_item", "mentions", "covers",
 			"has_column", "has_index", "fk_to", "implicit_ref", "many_to_many", "introduced_in", "reads_table", "writes_table", "maps_to",
 			"subject", "object", "via"},

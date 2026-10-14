@@ -1,0 +1,19 @@
+# A project that does not use the default layout: everything is under internal/, settings
+# are in config/, migrations in db/, docs in doc/ and specs are SP_*.md.
+config: [config/base.yml, config/settings.yml]
+migrations: db/migrations
+docs:
+  dirs: [doc]
+  specs: doc/specs
+  spec_prefix: SP_
+  root: [README.md]
+graph:
+  derived: [build/*.out]
+layout:
+  controllers: [internal/http]
+  business: [internal/core]
+  storage: [internal/store]
+  wiring: [".", internal/app]
+rules:
+  config.unused: off
+  code.unreferenced: warning

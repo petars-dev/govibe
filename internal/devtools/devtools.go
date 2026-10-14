@@ -10,6 +10,7 @@ package devtools
 import (
 	"context"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -24,7 +25,9 @@ import (
 	"github.com/petars-dev/govibe/internal/dbexplorer"
 	"github.com/petars-dev/govibe/internal/devmcp"
 	"github.com/petars-dev/govibe/internal/devtools/devui"
+	"github.com/petars-dev/govibe/internal/frameworkdocs"
 	"github.com/petars-dev/govibe/internal/graphdb"
+	"github.com/petars-dev/govibe/internal/profile"
 	"github.com/petars-dev/govibe/internal/routeinfo"
 	"github.com/petars-dev/govibe/web"
 )
@@ -42,11 +45,14 @@ type Deps struct {
 	// Root is the application's root directory: the graph indexes it and the graph
 	// store lives under it.
 	Root string
-	// RootHint is the application's own Routes function as the Go runtime reports it
-	// (zero when it has none): it tells the graph where the running binary's sources
-	// were compiled, so route handlers resolve to the application's code even when
-	// the application is a module of its own and the framework a dependency.
-	RootHint routeinfo.Ref
+	// Inspect is what the running binary reports about itself (the document
+	// `inspect --json` prints): the modules it was built from, the framework's version,
+	// which routes the framework registered before the application's, and the
+	// application's own Routes function, which tells the graph where the binary's
+	// sources were compiled, so route handlers resolve to the application's code even
+	// when the application is a module of its own and the framework a dependency. Nil
+	// when there is none (the tools then fall back to go.mod and to each route's path).
+	Inspect *routeinfo.Inspect
 }
 
 // Mount registers the dev tools and starts the indexer. It never fails the
@@ -63,13 +69,23 @@ func Mount(d Deps) (stop func()) {
 		g.Handle(web.StaticPrefix+"/*", http.StripPrefix(web.StaticPrefix, http.FileServerFS(devui.Static())))
 	})
 
-	// Dev docs routes (renders Markdown docs to HTML)
+	// Dev docs routes (renders Markdown docs to HTML). The app's own docs come first, from
+	// the directories its profile names; the framework's reference docs are a separate group
+	// under /dev/docs/govibe, every title prefixed "GoVibe:".
+	docs := docsFor(d.Root, cfg)
 	r.Route("/dev/docs", func(dd chi.Router) {
-		dd.Use(devui.DocsRoot(d.Root)) // read the project's docs, wherever the process started
+		dd.Use(devui.DocsFor(docs)) // read the project's docs, wherever the process started
+		dd.Get("/", devui.DevDocsIndex)
 		dd.Get("/app", devui.DevDocsAppIndex)
 		dd.Get("/app/{slug}", devui.DevDocsAppFile)
 		dd.Get("/specs", devui.DevDocsSpecs)
 		dd.Get("/specs/{slug}", devui.DevDocsSpecFile)
+		dd.Get("/govibe", devui.DevDocsFrameworkIndex)
+		dd.Get("/govibe/{slug}", devui.DevDocsFrameworkFile)
+		if docs.FrameworkSpecs != nil { // contributors only: never in an application
+			dd.Get("/govibe-specs", devui.DevDocsFrameworkSpecsIndex)
+			dd.Get("/govibe-specs/{slug}", devui.DevDocsFrameworkSpecFile)
+		}
 	})
 
 	var quadStore graph.QuadStore
@@ -119,7 +135,19 @@ func Mount(d Deps) (stop func()) {
 	if quadStore != nil {
 		// The opt-in layers (the call graph, git history) cost more than parsing, so
 		// they are on only when config asks; graph_reindex can switch one on later.
-		opts := codegraph.Options{Root: d.Root, Router: r, RootHint: d.RootHint, Calls: cfg.Dev.Graph.Calls, Git: cfg.Dev.Graph.Git}
+		var opts codegraph.Options
+		var version string
+		if d.Inspect != nil {
+			opts = codegraph.OptionsFromInspect(d.Inspect)
+			opts.RouteSource = nil // the live router has the dev tools' own routes too
+			version = d.Inspect.Framework.Version
+		}
+		opts.Root, opts.Router, opts.Calls, opts.Git = d.Root, r, cfg.Dev.Graph.Calls, cfg.Dev.Graph.Git
+		if mf, err := FrameworkManifest(context.Background(), version); err != nil {
+			logrus.WithError(err).Warn("graph: the framework manifest could not be built; the framework's settings and tools are not labelled")
+		} else {
+			opts.Manifest = mf
+		}
 		if explorer != nil {
 			opts.Schema = explorer.Snapshot
 		}
@@ -154,9 +182,25 @@ func Mount(d Deps) (stop func()) {
 		if indexer != nil {
 			graphIndexer = indexer
 		}
-		r.Handle("/dev/mcp", devmcp.NewHandler(explorer, quadStore, graphIndexer))
+		mcpOpts := devmcp.Options{Root: d.Root, Inspect: d.Inspect, Docs: docs.Framework}
+		if d.Inspect != nil {
+			mcpOpts.AppName = d.Inspect.App.Name
+		}
+		r.Handle("/dev/mcp", devmcp.NewHandler(explorer, quadStore, graphIndexer, mcpOpts))
 		logrus.Info("embedded MCP server enabled at /dev/mcp")
 	}
+
+	// The front door: what the app is, which tools are there, and what to do first.
+	info := devui.DevInfo{Env: cfg.Env, DB: explorer != nil, Graph: indexer != nil, MCP: explorer != nil || quadStore != nil, FrameworkDocs: docs.Framework != nil}
+	if d.Inspect != nil {
+		info.AppName, info.Module, info.FrameworkVersion = d.Inspect.App.Name, d.Inspect.App.Module, d.Inspect.Framework.Version
+		for _, c := range d.Inspect.Commands {
+			info.Commands = append(info.Commands, devui.DevCommand{Name: c.Name, Short: c.Short})
+		}
+	}
+	index := devui.DevIndex(info, indexer)
+	r.Get("/dev", index)
+	r.Get("/dev/", index)
 
 	// Fill the graph store with the project's own structure. Async, so startup is
 	// never delayed, and never fatal: a failed layer is logged and the server stays
@@ -180,4 +224,27 @@ func Mount(d Deps) (stop func()) {
 			closeStore()
 		}
 	}
+}
+
+// docsFor says where the dev docs read from: the application's docs and specs by its
+// profile, the framework's curated docs embedded in the binary, and, for a contributor who
+// pointed dev.framework_src at a checkout, the framework's docs from that checkout and its
+// development specs as a group of their own.
+func docsFor(root string, cfg config.Config) devui.Docs {
+	docs := devui.Docs{Root: root, Framework: frameworkdocs.Embedded()}
+	if prof, err := profile.Load(root); err != nil {
+		logrus.WithError(err).Warn("dev docs: govibe.yml is invalid; reading docs from the default places")
+	} else {
+		docs.Dirs, docs.Specs, docs.SpecPrefix, docs.FromProfile = prof.Docs.Dirs, prof.Docs.Specs, prof.Docs.SpecPrefix, true
+	}
+	if src := cfg.Dev.FrameworkSrc; src != "" {
+		if st, err := os.Stat(filepath.Join(src, "docs", "public")); err != nil || !st.IsDir() {
+			logrus.WithField("dir", src).Warn("dev docs: dev.framework_src is not a checkout of the framework (no docs/public); serving the embedded docs")
+		} else {
+			docs.Framework = frameworkdocs.FromDisk(src)
+			docs.FrameworkSpecs = frameworkdocs.ContributorSpecs(src)
+			logrus.WithField("dir", src).Info("dev docs: serving the framework's docs and specs from a checkout (contributor mode)")
+		}
+	}
+	return docs
 }

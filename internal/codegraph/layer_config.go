@@ -12,14 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// configFiles are the files that declare settings, lowest layer first, as the
-// config loader merges them: the framework's defaults (config/defaults.yml, embedded
-// by the config package), the settings file of a project that predates the split
-// (config/env.yml), and the application's env.yml in the project root. A key
-// declared again by a later file replaces the earlier declaration. A Profile
-// replaces this list.
-var configFiles = []string{"config/defaults.yml", "config/env.yml", "env.yml"}
-
 // sensitiveRe marks a key or environment variable whose value must never reach
 // the graph: no default, no value.
 var sensitiveRe = regexp.MustCompile(`(?i)key|secret|password|token|dsn`)
@@ -27,8 +19,8 @@ var sensitiveRe = regexp.MustCompile(`(?i)key|secret|password|token|dsn`)
 // envName is what the config loader accepts as a variable in `${NAME:default}`.
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// configIndex is the settings declared in config/env.yml, the Go struct fields
-// they bind to, and which declared names the code reads.
+// configIndex is the settings the project's settings files declare, the Go struct
+// fields they bind to, and which declared names the code reads.
 type configIndex struct {
 	keys  []*cfgKey // declared and referenced leaf keys, sorted by key
 	envs  []*envInfo
@@ -39,6 +31,7 @@ type configIndex struct {
 	envByName map[string]*envInfo
 	groups    map[string]bool // dotted paths that are not leaves
 	file      string          // the settings file walkYAML is reading
+	origin    string          // whose file that is: the project's or the framework's (its manifest)
 }
 
 type cfgKey struct {
@@ -50,7 +43,11 @@ type cfgKey struct {
 	sensitive bool
 	field     string // Config.Server.Port, when bound to a struct field
 	declared  bool   // present in a settings file
-	file      string // the settings file that declares it
+	file      string // the settings file that declares it ("" for a framework setting)
+	origin    string // whose setting it is: of the file that declares it last
+	// framework is set when the framework's own defaults declare the key too: an application
+	// that overrides one does not read it (the framework does), so it is not "declared and unused".
+	framework bool
 }
 
 type envInfo struct {
@@ -59,6 +56,8 @@ type envInfo struct {
 	hasDef    bool
 	sensitive bool
 	declared  bool // appears as ${NAME} in env.yml
+	origin    string
+	seen      bool
 }
 
 type cfgUse struct {
@@ -72,10 +71,16 @@ type envUse struct {
 	name string
 }
 
-// configStats are the settings files the project has.
+// configStats are the settings files the project has, of those its profile lists
+// (lowest layer first, as the config loader merges them: a key declared again by a
+// later file replaces the earlier declaration).
 func (w *world) configStats() []sourceFile {
+	prof, err := w.profile()
+	if err != nil {
+		return nil
+	}
 	var out []sourceFile
-	for _, rel := range configFiles {
+	for _, rel := range prof.Config {
 		if sf, ok := statRegular(w.root, rel, maxConfigBytes); ok {
 			out = append(out, sf)
 		}
@@ -99,7 +104,25 @@ func buildConfigIndex(w *world, ci *codeIndex) (*configIndex, error) {
 		envByName: map[string]*envInfo{},
 		groups:    map[string]bool{},
 	}
+	if len(w.configStats()) == 0 {
+		// No settings file: the layer is skipped and writes nothing, so nothing may resolve
+		// against keys it does not have (the framework's, from the manifest, included).
+		return cx, nil
+	}
 
+	// The framework's own settings lie under the project's: its manifest first, then
+	// the project's files, each declaration replacing the one below it.
+	if mf := w.x.opts.Manifest; mf != nil && len(mf.ConfigYAML) > 0 {
+		var doc yaml.Node
+		if err := yaml.Unmarshal(mf.ConfigYAML, &doc); err != nil {
+			return nil, fmt.Errorf("framework manifest: %w", err)
+		}
+		if doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 {
+			cx.origin = OriginFramework
+			cx.walkYAML(doc.Content[0], "")
+		}
+	}
+	cx.origin = OriginApp
 	for _, sf := range w.configStats() {
 		b, err := os.ReadFile(sf.abs)
 		if err != nil {
@@ -116,6 +139,15 @@ func buildConfigIndex(w *world, ci *codeIndex) (*configIndex, error) {
 	}
 
 	goToKey, keyToGo, fieldGroups := configFields(ci)
+	if mf := w.x.opts.Manifest; mf != nil {
+		// The framework's typed Config: a chain `cfg.Server.Port` reads `server.port`.
+		// A struct of the project's own with the same field wins.
+		for goPath, key := range mf.ConfigFields {
+			if _, own := goToKey[goPath]; !own {
+				goToKey[goPath], keyToGo[key] = key, "Config."+goPath
+			}
+		}
+	}
 	for k, f := range keyToGo {
 		if kk := cx.keyByPath[k]; kk != nil {
 			kk.field = f
@@ -186,7 +218,10 @@ func (cx *configIndex) walkYAML(n *yaml.Node, prefix string) {
 			cx.walkYAML(v, path)
 			continue
 		}
-		key := &cfgKey{key: path, line: k.Line, declared: true, file: cx.file}
+		key := &cfgKey{key: path, line: k.Line, declared: true, file: cx.file, origin: cx.origin}
+		if cx.origin == OriginFramework {
+			key.file, key.line = "", 0 // the framework's file is not in this tree
+		}
 		sensitive := sensitiveRe.MatchString(path)
 		if v.Kind == yaml.ScalarNode {
 			if name, def, ok := placeholder(v.Value); ok {
@@ -194,6 +229,10 @@ func (cx *configIndex) walkYAML(n *yaml.Node, prefix string) {
 				sensitive = sensitive || sensitiveRe.MatchString(name)
 				key.env = name
 				e := cx.env(name)
+				if cx.origin == OriginApp || !e.seen {
+					e.origin = cx.origin // the project's own declaration takes the variable over
+				}
+				e.seen = true
 				e.declared = true
 				e.sensitive = e.sensitive || sensitive
 				if def != "" && !e.hasDef {
@@ -210,6 +249,9 @@ func (cx *configIndex) walkYAML(n *yaml.Node, prefix string) {
 		key.sensitive = sensitive
 		if sensitive {
 			key.def, key.hasDef = "", false
+		}
+		if prev := cx.keyByPath[path]; prev != nil && prev.framework || cx.origin == OriginFramework {
+			key.framework = true
 		}
 		cx.keyByPath[path] = key
 	}
@@ -231,7 +273,7 @@ func placeholder(s string) (name, def string, ok bool) {
 func (cx *configIndex) env(name string) *envInfo {
 	e := cx.envByName[name]
 	if e == nil {
-		e = &envInfo{name: name, sensitive: sensitiveRe.MatchString(name)}
+		e = &envInfo{name: name, sensitive: sensitiveRe.MatchString(name), origin: OriginApp}
 		cx.envByName[name] = e
 	}
 	return e
@@ -252,7 +294,7 @@ func (cx *configIndex) resolveKeys(path string, keyToGo map[string]string, field
 	}
 	if len(out) == 0 && !cx.groups[path] && !fieldGroups[path] {
 		// Read but not declared.
-		k := &cfgKey{key: path, sensitive: sensitiveRe.MatchString(path), field: keyToGo[path]}
+		k := &cfgKey{key: path, sensitive: sensitiveRe.MatchString(path), field: keyToGo[path], origin: OriginApp}
 		cx.keyByPath[path] = k
 		return []*cfgKey{k}
 	}
@@ -318,6 +360,18 @@ func (configLayer) fingerprint(w *world) (string, error) {
 }
 
 func (configLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
+	prof, err := w.profile()
+	if err != nil {
+		return nil, err
+	}
+	if len(w.configStats()) == 0 {
+		// Not the same as a file with no settings in it: with nothing to read, a rule
+		// about declared settings has not looked, and must not read as clean.
+		return &layerOutput{
+			skipped: fmt.Sprintf("no settings file found (looked for %s); set `config:` in govibe.yml if the project keeps it elsewhere", strings.Join(prof.Config, ", ")),
+			clear:   true,
+		}, nil
+	}
 	cx, err := w.configIndex()
 	if err != nil {
 		return nil, err
@@ -334,7 +388,11 @@ func (configLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 		set.str(id, PredName, k.key)
 		set.flag(id, PredSensitive, k.sensitive)
 		set.flag(id, PredDeclared, k.declared)
-		if k.declared {
+		set.str(id, PredOrigin, k.origin)
+		if k.framework {
+			set.flag(id, PredFrameworkKey, true)
+		}
+		if k.declared && k.file != "" {
 			set.str(id, PredPath, k.file)
 			set.num(id, PredLine, k.line)
 		}
@@ -354,6 +412,7 @@ func (configLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 		set.str(id, PredName, e.name)
 		set.flag(id, PredSensitive, e.sensitive)
 		set.flag(id, PredDeclared, e.declared)
+		set.str(id, PredOrigin, e.origin)
 		if e.hasDef && !e.sensitive {
 			set.str(id, PredDefault, e.def)
 		}

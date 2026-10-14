@@ -18,12 +18,15 @@ import (
 	"github.com/yuin/goldmark/extension"
 	east "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/text"
+
+	"github.com/petars-dev/govibe/internal/profile"
 )
 
 // The docs layer reads the project's human-written documentation: every
-// markdown file under docs/public and docs/specs, plus README.md and SKILL.md.
+// markdown file under the profile's doc directories (docs/public and docs/specs by
+// default), plus the docs at the root (README.md and SKILL.md).
 //
-//   - docs/specs/SPEC_*.md files are specs (spec:<slug>); everything else is a doc.
+//   - SPEC_*.md files in the specs directory are specs (spec:<slug>); everything else is a doc.
 //   - A spec's status table (| Item | Implemented | Skipped | Why |) becomes one
 //     spec_item per row, with a status and, for skipped rows, why.
 //   - Backticked text and link targets that name something the graph knows (a
@@ -33,12 +36,6 @@ import (
 //
 // Nothing is guessed: a token that does not resolve exactly is ignored, and a
 // bare identifier is never resolved (only pkg.Name and Type.Method forms are).
-
-// docsDirs and docsRootFiles are where documentation lives, relative to the repo root.
-var docsDirs = []string{"docs/public", "docs/specs"}
-var docsRootFiles = []string{"README.md", "SKILL.md"}
-
-const specPrefix = "SPEC_"
 
 type docsIndex struct {
 	docs     []*docInfo // sorted by path
@@ -75,13 +72,17 @@ type itemInfo struct {
 
 func (w *world) docScan() (*scan, error) {
 	return w.docFiles.get(func() (*scan, error) {
+		prof, err := w.profile()
+		if err != nil {
+			return nil, err
+		}
 		out := &scan{}
-		for _, rel := range docsRootFiles {
+		for _, rel := range prof.Docs.Root {
 			if sf, ok := statRegular(w.root, rel, maxDocFileBytes); ok {
 				out.files = append(out.files, sf)
 			}
 		}
-		for _, dir := range docsDirs {
+		for _, dir := range prof.ScanDirs() {
 			sc, err := walkFiles(w.root, walkSpec{
 				start:    dir,
 				accept:   func(n string) bool { return strings.HasSuffix(n, ".md") && !strings.HasPrefix(n, ".") },
@@ -107,15 +108,20 @@ func slugify(s string) string {
 	return strings.Trim(slugRe.ReplaceAllString(strings.ToLower(s), "-"), "-")
 }
 
-// docKind classifies a markdown file.
-func docKind(rel string) (isSpec bool, slug string) {
+// docKind classifies a markdown file: a spec (a prefixed file in the specs
+// directory), a public doc (a file directly in one of the doc directories, which has
+// a slug), or any other doc (a file at the root, or deeper down).
+func docKind(prof *profile.Profile, rel string) (isSpec bool, slug string) {
 	base := path.Base(rel)
 	name := strings.TrimSuffix(base, path.Ext(base))
-	if path.Dir(rel) == "docs/specs" && strings.HasPrefix(name, specPrefix) {
-		return true, slugify(strings.TrimPrefix(name, specPrefix))
+	dir := path.Dir(rel)
+	if prof.Docs.Specs != "" && dir == prof.Docs.Specs && prof.Docs.SpecPrefix != "" && strings.HasPrefix(name, prof.Docs.SpecPrefix) {
+		return true, slugify(strings.TrimPrefix(name, prof.Docs.SpecPrefix))
 	}
-	if path.Dir(rel) == "docs/public" {
-		return false, slugify(name)
+	for _, d := range prof.Docs.Dirs {
+		if dir == d {
+			return false, slugify(name)
+		}
 	}
 	return false, ""
 }
@@ -146,7 +152,11 @@ func (w *world) docs() (*docsIndex, error) {
 		if err != nil {
 			return nil, fmt.Errorf("db: %w", err)
 		}
-		return buildDocsIndex(w.ctx, sc, newResolver(w.root, sc, ci, rt, ti, cx, dm))
+		prof, err := w.profile()
+		if err != nil {
+			return nil, err
+		}
+		return buildDocsIndex(w.ctx, sc, newResolver(w.root, prof, sc, ci, rt, ti, cx, dm))
 	})
 }
 
@@ -165,7 +175,7 @@ func buildDocsIndex(ctx context.Context, sc *scan, rs *resolver) (*docsIndex, er
 			di.warnings = append(di.warnings, fmt.Sprintf("%s: %v", sf.rel, err))
 			continue
 		}
-		isSpec, slug := docKind(sf.rel)
+		isSpec, slug := docKind(rs.prof, sf.rel)
 		d := &docInfo{rel: sf.rel, isSpec: isSpec, slug: slug}
 		if isSpec {
 			d.id, d.name = specID(slug), slug
@@ -417,6 +427,7 @@ func nodeLine(n ast.Node, src []byte) int {
 // returns exists.
 type resolver struct {
 	root string
+	prof *profile.Profile
 	ci   *codeIndex
 	rt   *routeTable
 	ti   *templIndex
@@ -440,10 +451,10 @@ type resolver struct {
 	migPath  map[string]quad.IRI    // migration file path, and its base name when unambiguous
 }
 
-func newResolver(root string, sc *scan, ci *codeIndex, rt *routeTable, ti *templIndex, cx *configIndex, dm *dbModel) *resolver {
+func newResolver(root string, prof *profile.Profile, sc *scan, ci *codeIndex, rt *routeTable, ti *templIndex, cx *configIndex, dm *dbModel) *resolver {
 	rs := &resolver{
-		root: root,
-		ci:   ci, rt: rt, ti: ti, cx: cx,
+		root: root, prof: prof,
+		ci: ci, rt: rt, ti: ti, cx: cx,
 		probe:         map[string]bool{},
 		externalNames: externalPackageNames(ci),
 		noRoutes:      rt.absent,
@@ -523,7 +534,7 @@ func newResolver(root string, sc *scan, ci *codeIndex, rt *routeTable, ti *templ
 		}
 	}
 	for _, sf := range sc.files {
-		isSpec, slug := docKind(sf.rel)
+		isSpec, slug := docKind(prof, sf.rel)
 		var id quad.IRI
 		if isSpec {
 			id = specID(slug)
@@ -680,7 +691,7 @@ func (rs *resolver) resolvePath(tok, docDir string) []quad.IRI {
 }
 
 // resolveSchema resolves the name of a table, or table.column. It runs after
-// the symbol rules, so `orders.Service` stays the package's type.
+// the symbol rules, so `items.Service` stays the package's type.
 func (rs *resolver) resolveSchema(tok string) []quad.IRI {
 	if !identRe.MatchString(tok) && !tableColumnRe.MatchString(tok) {
 		return nil

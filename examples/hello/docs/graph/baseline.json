@@ -1,4 +1,4 @@
 {
-  "comment": "Findings accepted as known debt by `govibe graph index --baseline`. A finding listed here does not fail the gate; one that is not listed does. Regenerate with `govibe graph index --update-baseline` after fixing or deliberately accepting findings, and review the diff.",
+  "comment": "Findings accepted as known debt by `govibe graph index --baseline`. A finding listed here does not fail the gate; one that is not listed does. Every entry says why it is accepted. Regenerate with `govibe graph index --update-baseline --reason \"...\"` after fixing or deliberately accepting findings, and review the diff.",
   "findings": []
 }

@@ -40,8 +40,9 @@ until the first tag; until then, work inside `examples/`, where `go.work` and a 
 ## Try it
 1. `make dev` runs the reference app with the dev tools compiled in (`go run -tags govibe_dev .`): `http://localhost:8080/` is the Hello GoVibe page.
 2. Explore the dev panel (it exists only in a build with the `govibe_dev` tag, never in production):
-   - Docs: `http://localhost:8080/dev/docs/app` and `/dev/docs/specs`
-   - Project graph: `http://localhost:8080/dev/graph`
+   - The front door, `http://localhost:8080/dev`: the app, what is mounted and what to do first
+   - Docs: `http://localhost:8080/dev/docs/app` and `/dev/docs/specs` come first (your docs and specs); the framework's reference docs are a separate group under `/dev/docs/govibe`, every title prefixed `GoVibe:`
+   - Project graph: `http://localhost:8080/dev/graph` shows the app's own routes, code, tables and docs by default; the switch (My app, Framework, All) shows the framework it runs on, labelled
    - Database explorer: `http://localhost:8080/dev/db` (needs `MARIADB_DSN`; see `docs/public/DEV_DB_EXPLORER.md`)
    - MCP server for local agents: `http://localhost:8080/dev/mcp`
 3. `make test` and `make test-dev` run the tests without and with the dev tools; `make graph-check` and `make graph-check-app` are the CI gates.
@@ -52,6 +53,7 @@ until the first tag; until then, work inside `examples/`, where `go.work` and a 
   resolved from the environment, e.g. `${PORT:8080}`. Your own settings go under a name of your own and are read with `rt.Config.Get` or `rt.Config.Unmarshal`.
 - `APP_ENV` controls behavior: local, dev, staging, prod/production. In local and dev the app's `./assets` directory is served from disk with no-cache headers.
 - `DATABASE_TYPE` (default `mysql`) selects the goose dialect; it is always passed explicitly, because goose defaults to postgres.
+- `govibe.yml` in the project root is the project profile: where the tools find settings, migrations and docs, which directory is which architecture layer, and per-rule switches (see `docs/public/CONFIGURATION.md`).
 - `DEV_DB_ALLOW_MUTATIONS` (default `false`) enables the `/dev/db` and MCP test-data mutation tools. It never takes effect in production.
 
 ## Development loop with AI

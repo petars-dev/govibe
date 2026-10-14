@@ -259,7 +259,7 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// pathLabel names a function in a message: `controllers.ListOrders`.
+// pathLabel names a function in a message: `controllers.ListItems`.
 func (m *Model) pathLabel(id string) string {
 	n := m.nodes[id]
 	if n == nil {

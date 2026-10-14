@@ -20,6 +20,7 @@ import (
 	_ "github.com/cayleygraph/quad/nquads"
 
 	"github.com/petars-dev/govibe/internal/graphdb"
+	"github.com/petars-dev/govibe/internal/profile"
 )
 
 const fixtureRoot = "testdata/fixture"
@@ -37,6 +38,19 @@ func newTestWorld(t *testing.T, root string, opts Options) *world {
 	opts.Root = root
 	return newWorld(context.Background(), New(nil, opts), abs, true)
 }
+
+// mustProfile is the profile a world reads the project through.
+func mustProfile(t *testing.T, w *world) *profile.Profile {
+	t.Helper()
+	p, err := w.profile()
+	if err != nil {
+		t.Fatalf("profile of %s: %v", w.root, err)
+	}
+	return p
+}
+
+// loadProfileForTest reads root's govibe.yml over the default profile.
+func loadProfileForTest(root string) (profile.Profile, error) { return profile.Load(root) }
 
 // buildLayer runs one layer over a world and returns its sorted quads.
 func buildLayer(t *testing.T, w *world, l layer) *layerOutput {
@@ -176,10 +190,26 @@ func storedLabel(t *testing.T, h *cayley.Handle, layer string) []quad.Quad {
 	return qs
 }
 
-// copyTree copies src into a fresh temp dir and returns it.
+// copyTree copies src into a fresh temp dir and returns it. A fixture that depends on the stub
+// framework names it by a relative replace, which means nothing from a temp dir: it is pointed
+// at the stub's real directory.
 func copyTree(t *testing.T, src string) string {
 	t.Helper()
 	dst := t.TempDir()
+	defer func() {
+		goMod := filepath.Join(dst, "go.mod")
+		b, err := os.ReadFile(goMod)
+		if err != nil || !strings.Contains(string(b), "=> ../stubfw") {
+			return
+		}
+		stub, err := filepath.Abs("testdata/stubfw")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(goMod, []byte(strings.ReplaceAll(string(b), "=> ../stubfw", "=> "+stub)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

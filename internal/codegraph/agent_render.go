@@ -33,6 +33,11 @@ func (m *Model) Overview(stale []string) string {
 		return b.String()
 	}
 	fmt.Fprintf(&b, "As of %s · %d quads · layers: %s\n\n", m.AsOf(), f.Quads, layerSummary(f.Layers))
+	if m.Scope() != ScopeAll {
+		// Every page and tool says which scope it shows and what that leaves out.
+		h := m.Hidden()
+		fmt.Fprintf(&b, "> Scope: **%s**, which hides %d nodes of the other origin (the graph tools take `scope`: app, framework or all).\n\n", m.Scope().Title(), h.Nodes)
+	}
 	if len(stale) > 0 {
 		fmt.Fprintf(&b, "> Stale layers: %s (graph_reindex rebuilds them).\n\n", strings.Join(stale, ", "))
 	}
@@ -198,7 +203,7 @@ func (m *Model) Overview(stale []string) string {
 				sensitive++
 			}
 		}
-		fmt.Fprintf(&b, "## Config\n\n%d keys in `config/env.yml` and the code (%d sensitive, %d read in code but not declared), %d environment variables.\n\n",
+		fmt.Fprintf(&b, "## Config\n\n%d keys in the settings files and the code (%d sensitive, %d read in code but not declared), %d environment variables.\n\n",
 			len(keys), sensitive, undeclared, len(m.byKind["env_var"]))
 	}
 
@@ -589,7 +594,7 @@ func notIndexedReason(p string) string {
 	case strings.HasSuffix(p, ".sql"):
 		return "a migration outside storage/migrations/sql, or a new one the db layer has not read yet"
 	}
-	return "the graph indexes Go and templ sources, docs and specs, migrations and config/env.yml"
+	return "the graph indexes Go and templ sources, docs and specs, migrations and the settings files"
 }
 
 // shortID drops the kind prefix of an ID for prose: func:controllers.HelloAPI

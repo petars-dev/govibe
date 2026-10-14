@@ -1,0 +1,2 @@
+shop:
+  currency: ${SHOP_CURRENCY:EUR}

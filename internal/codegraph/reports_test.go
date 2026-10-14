@@ -310,15 +310,15 @@ func TestLayersReportOnTheFixture(t *testing.T) {
 			forbidden[r.From] = append(forbidden[r.From], f.To)
 		}
 	}
-	for _, from := range []string{"controllers", "middleware", "views", "support"} {
+	for _, from := range []string{"controllers", "commands", "middleware", "views", "support"} {
 		if strings.Join(forbidden[from], ",") != "storage" {
 			t.Errorf("%s may call storage only through business: %v", from, forbidden[from])
 		}
 	}
-	if got := strings.Join(forbidden["storage"], ","); got != "controllers,business,middleware,wiring,dev,views" {
+	if got := strings.Join(forbidden["storage"], ","); got != "controllers,business,middleware,commands,wiring,dev,views" {
 		t.Errorf("storage depends on nothing above it: %s", got)
 	}
-	if got := strings.Join(forbidden["business"], ","); got != "controllers,middleware,wiring,dev,views" {
+	if got := strings.Join(forbidden["business"], ","); got != "controllers,middleware,commands,wiring,dev,views" {
 		t.Errorf("business does not depend on the HTTP layer: %s", got)
 	}
 	for _, r := range rep.Rule {

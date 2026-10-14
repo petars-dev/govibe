@@ -75,6 +75,16 @@ func EditorURL(root, rel string, line int) string {
 // GraphURL opens a node in the graph explorer.
 func GraphURL(id string) string { return "/dev/graph#node=" + url.QueryEscape(id) }
 
+// graphURL opens a node in the graph explorer in the scope the model was read in, so a
+// link from a page that shows the framework's nodes does not land where they are hidden.
+// The default scope (the app's) is not spelled out.
+func (m *Model) graphURL(id string) string {
+	if m.explicit && m.scope != ScopeApp {
+		return "/dev/graph?scope=" + string(m.scope) + "#node=" + url.QueryEscape(id)
+	}
+	return GraphURL(id)
+}
+
 // ReportURL is the page of a report, and the node's place on it when id is set.
 func ReportURL(name, id string) string {
 	u := "/dev/graph/reports/" + name
@@ -86,7 +96,7 @@ func ReportURL(name, id string) string {
 
 // Links lists where n can be opened. The first is always the graph explorer.
 func (m *Model) Links(n *Node, o LinkOptions) []Link {
-	links := []Link{{Label: "Show in graph", URL: GraphURL(n.ID), Kind: "graph"}}
+	links := []Link{{Label: "Show in graph", URL: m.graphURL(n.ID), Kind: "graph"}}
 	add := func(label, u, kind string) {
 		if u != "" {
 			links = append(links, Link{Label: label, URL: u, Kind: kind})

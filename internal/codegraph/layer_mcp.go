@@ -33,6 +33,7 @@ func (mcpLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 			described[t.name] = true
 			set.add(id, PredType, KindMCPTool)
 			set.str(id, PredName, t.name)
+			set.str(id, PredOrigin, OriginApp)
 			set.str(id, PredPath, t.file)
 			set.num(id, PredLine, t.line)
 			if t.description != "" {
@@ -44,6 +45,22 @@ func (mcpLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 		}
 		if t.fn != "" {
 			set.add(t.fn, PredRegisters, id)
+		}
+	}
+	// The framework's own tools (the dev server's db_* and graph_*): not registered by
+	// anything in this tree, so there is no registering function, only the manifest.
+	if mf := w.x.opts.Manifest; mf != nil {
+		for _, t := range mf.Tools {
+			if described[t.Name] {
+				continue // the project registers one of that name itself
+			}
+			id := toolID(t.Name)
+			set.add(id, PredType, KindMCPTool)
+			set.str(id, PredName, t.Name)
+			set.str(id, PredOrigin, OriginFramework)
+			if t.Description != "" {
+				set.str(id, PredDescription, t.Description)
+			}
 		}
 	}
 	return &layerOutput{quads: set.quads, warnings: ci.toolWarns}, nil

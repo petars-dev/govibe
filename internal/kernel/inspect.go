@@ -15,76 +15,21 @@ import (
 	"github.com/petars-dev/govibe/internal/routeinfo"
 )
 
-// InspectSchema versions the document `inspect --json` prints. The tools that read
-// it refuse a schema they do not know.
-const InspectSchema = "govibe.inspect/1"
+// The document `inspect --json` prints is defined in routeinfo, which the tools that
+// read it share; these names keep the kernel's own vocabulary.
+type (
+	Inspect       = routeinfo.Inspect
+	InspectApp    = routeinfo.InspectApp
+	InspectModule = routeinfo.InspectModule
+	InspectBuild  = routeinfo.InspectBuild
+	BuildModule   = routeinfo.BuildModule
+	InspectRef    = routeinfo.InspectRef
+	InspectRoute  = routeinfo.InspectRoute
+	InspectCmd    = routeinfo.InspectCmd
+)
 
-// Inspect is the offline facts of an app: its routes and commands as the running
-// binary reports them, plus what a reader needs to place a handler's source file
-// (the module table, the build flags, a hint to the compile-time root). It holds
-// nothing resolved from the environment: no config values, no database schema.
-type Inspect struct {
-	Schema    string         `json:"schema"`
-	App       InspectApp     `json:"app"`
-	Framework InspectModule  `json:"framework"`
-	Go        string         `json:"go"`
-	Build     InspectBuild   `json:"build"`
-	Routes    []InspectRoute `json:"routes"`
-	Commands  []InspectCmd   `json:"commands"`
-}
-
-type InspectApp struct {
-	Name   string `json:"name"`
-	Module string `json:"module"`
-	// RootHint is where the app's Routes function was compiled: with its import
-	// path it recovers the compile-time root of the module, whatever -trimpath,
-	// GOMODCACHE or `replace` made of the file spelling.
-	RootHint InspectRef `json:"root_hint"`
-}
-
-type InspectModule struct {
-	Module  string `json:"module"`
-	Version string `json:"version"`
-}
-
-type InspectBuild struct {
-	Trimpath bool   `json:"trimpath"`
-	Tags     string `json:"tags,omitempty"`
-	// Modules is the build's dependency table (debug.ReadBuildInfo): with it a
-	// source path maps to a module exactly.
-	Modules []BuildModule `json:"modules"`
-}
-
-// BuildModule is one dependency of the binary.
-type BuildModule struct {
-	Path       string `json:"path"`
-	Version    string `json:"version"`
-	ReplaceDir string `json:"replace_dir,omitempty"` // where a local `replace` points, as written in go.mod
-}
-
-// InspectRef is a function as the Go runtime describes it.
-type InspectRef struct {
-	Symbol string `json:"symbol"`
-	File   string `json:"file"`
-	Line   int    `json:"line"`
-}
-
-type InspectRoute struct {
-	Method  string     `json:"method"`
-	Path    string     `json:"path"`
-	Handler InspectRef `json:"handler"`
-	// MountedBy says who registered the route: "framework" (before the app's Routes
-	// ran) or "app". It is not the handler's origin: an app can mount a framework
-	// handler and the framework mounts stdlib ones.
-	MountedBy  string       `json:"mounted_by"`
-	Middleware []InspectRef `json:"middleware,omitempty"`
-}
-
-type InspectCmd struct {
-	Name    string     `json:"name"`
-	Short   string     `json:"short"`
-	Handler InspectRef `json:"handler"`
-}
+// InspectSchema versions the document.
+const InspectSchema = routeinfo.InspectSchema
 
 // runInspect is `inspect --json`: steps 1, 2, 4 and 5 of the boot, with no
 // database, no dev mount and quiet logging, so stdout is the document alone.
@@ -118,6 +63,10 @@ func FrameworkModule() string {
 func (b *Built) Inspect() Inspect {
 	doc := Inspect{Schema: InspectSchema, Go: runtime.Version()}
 	doc.App.Name = b.App.Name
+	doc.App.Contributes = routeinfo.InspectContributes{
+		Config: b.App.Config != nil, Migrations: b.App.Migrations != nil, Assets: b.App.Assets != nil,
+		Routes: b.App.Routes != nil, Commands: b.App.Commands != nil, Shutdown: b.App.Shutdown != nil,
+	}
 	doc.Framework.Module = FrameworkModule()
 	doc.Framework.Version = "(devel)"
 	doc.Build.Modules = []BuildModule{}
@@ -151,9 +100,9 @@ func (b *Built) Inspect() Inspect {
 
 	doc.Routes = []InspectRoute{}
 	for _, r := range routeinfo.Walk(b.Router) {
-		ir := InspectRoute{Method: r.Method, Path: r.Path, Handler: ref(r.Handler), MountedBy: "app"}
+		ir := InspectRoute{Method: r.Method, Path: r.Path, Handler: ref(r.Handler), MountedBy: routeinfo.MountedByApp}
 		if b.FrameworkRoutes[r.Key()] {
-			ir.MountedBy = "framework"
+			ir.MountedBy = routeinfo.MountedByFramework
 		}
 		for _, m := range r.MW {
 			ir.Middleware = append(ir.Middleware, ref(m))

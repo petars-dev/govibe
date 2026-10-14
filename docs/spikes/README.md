@@ -16,7 +16,6 @@ few pieces a later phase can start from. Delete it once the phases that reuse it
 | `patches/s9-scope-filter.patch` | `origin` and `Scope` in the `Model`, findings on `all`, `cmd/s9dump` and `cmd/s9probe` | T3.2, T3.3, AM9 |
 | `patches/s2-s3-s5-s6-framework.patch` | The prototype framework: `govibe.go`, `config/layered.go` and `defaults.yml`, `govibetest`, `web`, `internal/{kernel,migrate,routeinfo}`, the route-origin changes in the indexer, `cmd/spikecalls`, `cmd/spikeindex` | T1.1, T1.2, T3.2, T3.6, AM7, AM8 |
 | `_prototypes/s8-scheduler-runner/` | The own scheduler runner over the robfig parser (183 code lines), its fake clock and 9 tests; `compare/` holds the gocron comparison harness and the recorded outputs | T4.1, AM12 |
-| `_prototypes/shop-app/` | The scratch app from S2, S3, S5 and S6: root `env.yml`, embedded hand-over, `main_test.go`, a tag-only dev route | the shape of `examples/hello` (T2.3) |
 | `_prototypes/s4-tool-directive/` | `go.mod` of an app with `tool` directives, once with latest tools (`go 1.26.0`) and once pinned (`go 1.25.0`) | AM1 |
 
 ## Using it
@@ -27,7 +26,7 @@ few pieces a later phase can start from. Delete it once the phases that reuse it
   docs layer does not read it either. The `.go.txt` files are single-file programs (each a `package main`) kept as text so they do
   not read as one Go package.
 - **Paths in the notes** point into the scratch directory they were written in. `base` is the repository at `a353f8a`; `s1`, `s7`
-  and `s9` are copies of it; `fw` is the scratch framework; `app` is `_prototypes/shop-app`; `s8` is `_prototypes/s8-scheduler-runner`.
+  and `s9` are copies of it; `fw` is the scratch framework; `app` was a scratch app that has been deleted (its result is `examples/hello`, T2.3); `s8` is `_prototypes/s8-scheduler-runner`.
   `go.mod` files here that mention `replace ... => ../fw` or `../../s4fw` point at directories that no longer exist.
 - **Running anything** from these notes: use a scratch copy and start with `env -i` (see Guardrails in the spec). The shell that
   ran Phase 0 exported database and WorkOS variables, and four early scratch boots connected to the local database.

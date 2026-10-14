@@ -1,12 +1,15 @@
 <mw:github.com/go-chi/chi/v5/middleware.RequestID> <name> "RequestID" <layer:routes> .
+<mw:github.com/go-chi/chi/v5/middleware.RequestID> <origin> "framework" <layer:routes> .
 <mw:github.com/go-chi/chi/v5/middleware.RequestID> <type> <kind:middleware> <layer:routes> .
 <mw:middleware.RequestLogger> <implemented_by> <func:middleware.RequestLogger> <layer:routes> .
 <mw:middleware.RequestLogger> <name> "RequestLogger" <layer:routes> .
+<mw:middleware.RequestLogger> <origin> "app" <layer:routes> .
 <mw:middleware.RequestLogger> <type> <kind:middleware> <layer:routes> .
 <route:ANY:/assets/> <dev_only> "False"^^<schema:Boolean> <layer:routes> .
 <route:ANY:/assets/> <handler> "net/http.StripPrefix" <layer:routes> .
 <route:ANY:/assets/> <method> "ANY" <layer:routes> .
 <route:ANY:/assets/> <name> "ANY /assets/" <layer:routes> .
+<route:ANY:/assets/> <origin> "app" <layer:routes> .
 <route:ANY:/assets/> <path> "/assets/" <layer:routes> .
 <route:ANY:/assets/> <type> <kind:route> <layer:routes> .
 <route:ANY:/assets/> <uses_mw> <mw:github.com/go-chi/chi/v5/middleware.RequestID> <layer:routes> .
@@ -15,6 +18,7 @@
 <route:ANY:/dev/mcp> <handled_by> <func:devmcp.NewHandler> <layer:routes> .
 <route:ANY:/dev/mcp> <method> "ANY" <layer:routes> .
 <route:ANY:/dev/mcp> <name> "ANY /dev/mcp" <layer:routes> .
+<route:ANY:/dev/mcp> <origin> "framework" <layer:routes> .
 <route:ANY:/dev/mcp> <path> "/dev/mcp" <layer:routes> .
 <route:ANY:/dev/mcp> <type> <kind:route> <layer:routes> .
 <route:ANY:/dev/mcp> <uses_mw> <mw:github.com/go-chi/chi/v5/middleware.RequestID> <layer:routes> .
@@ -23,6 +27,7 @@
 <route:GET:/> <handled_by> <func:controllers.HomePage> <layer:routes> .
 <route:GET:/> <method> "GET" <layer:routes> .
 <route:GET:/> <name> "GET /" <layer:routes> .
+<route:GET:/> <origin> "app" <layer:routes> .
 <route:GET:/> <path> "/" <layer:routes> .
 <route:GET:/> <type> <kind:route> <layer:routes> .
 <route:GET:/> <uses_mw> <mw:github.com/go-chi/chi/v5/middleware.RequestID> <layer:routes> .
@@ -31,6 +36,7 @@
 <route:GET:/api/hello> <handled_by> <func:controllers.HelloAPI> <layer:routes> .
 <route:GET:/api/hello> <method> "GET" <layer:routes> .
 <route:GET:/api/hello> <name> "GET /api/hello" <layer:routes> .
+<route:GET:/api/hello> <origin> "app" <layer:routes> .
 <route:GET:/api/hello> <path> "/api/hello" <layer:routes> .
 <route:GET:/api/hello> <type> <kind:route> <layer:routes> .
 <route:GET:/api/hello> <uses_mw> <mw:github.com/go-chi/chi/v5/middleware.RequestID> <layer:routes> .
@@ -39,6 +45,7 @@
 <route:GET:/api/orders/{id}> <handled_by> <func:controllers.GetOrder> <layer:routes> .
 <route:GET:/api/orders/{id}> <method> "GET" <layer:routes> .
 <route:GET:/api/orders/{id}> <name> "GET /api/orders/{id}" <layer:routes> .
+<route:GET:/api/orders/{id}> <origin> "app" <layer:routes> .
 <route:GET:/api/orders/{id}> <path> "/api/orders/{id}" <layer:routes> .
 <route:GET:/api/orders/{id}> <type> <kind:route> <layer:routes> .
 <route:GET:/api/orders/{id}> <uses_mw> <mw:github.com/go-chi/chi/v5/middleware.RequestID> <layer:routes> .
@@ -47,6 +54,7 @@
 <route:GET:/api/orders> <handled_by> <func:controllers.ListOrders> <layer:routes> .
 <route:GET:/api/orders> <method> "GET" <layer:routes> .
 <route:GET:/api/orders> <name> "GET /api/orders" <layer:routes> .
+<route:GET:/api/orders> <origin> "app" <layer:routes> .
 <route:GET:/api/orders> <path> "/api/orders" <layer:routes> .
 <route:GET:/api/orders> <type> <kind:route> <layer:routes> .
 <route:GET:/api/orders> <uses_mw> <mw:github.com/go-chi/chi/v5/middleware.RequestID> <layer:routes> .

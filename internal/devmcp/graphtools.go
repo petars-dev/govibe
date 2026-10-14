@@ -53,11 +53,16 @@ func (g *graphTools) refresh(ctx context.Context) {
 	}
 }
 
-// model refreshes the graph and reads it. The read is a few thousand quads, tens
-// of milliseconds, so nothing is cached: every answer is from the graph as it is.
-func (g *graphTools) model(ctx context.Context) (*codegraph.Model, error) {
+// model refreshes the graph and reads it for a scope: the app's own nodes by default,
+// the framework's, or both. The read is a few thousand quads, tens of milliseconds, so
+// nothing is cached: every answer is from the graph as it is.
+func (g *graphTools) model(ctx context.Context, scope string) (*codegraph.Model, error) {
+	sc, err := codegraph.ParseScope(scope)
+	if err != nil {
+		return nil, err
+	}
 	g.refresh(ctx)
-	m, err := codegraph.Load(ctx, g.qs)
+	m, err := codegraph.Load(ctx, g.qs, sc)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +112,8 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 			"g.V().Has(g.IRI('type'), g.IRI('kind:func')).Filter(like('func:controllers.%')).All(), " +
 			"g.V(g.IRI('func:controllers.HelloAPI')).OutPredicates().All(). " +
 			"Hand-added quads are plain strings, e.g. g.V('alice').Out('knows').All(). " +
-			"Vocabulary and more queries: docs/public/GRAPH_SCHEMA.md.",
+			"Vocabulary and more queries: docs/public/GRAPH_SCHEMA.md. " +
+			"This tool is not scoped: it reads the raw store, framework nodes included (they carry origin 'framework'); the other graph_* tools take `scope`.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in graphQueryIn) (*mcp.CallToolResult, graphQueryOut, error) {
 		g.refresh(ctx)
@@ -140,10 +146,11 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 		Description: "START HERE. Describes the project graph as it is right now: every kind of node with its count, ID format and a real example, " +
 			"every predicate with its count and what it links, how to read confidence and method, which tool answers which question, " +
 			"example graph_query queries, which layers are built, and how fresh the graph is (git sha, dirty, indexed_at, stale layers). " +
-			"Opt-in layers that are off (calls, git) are named with how to switch them on, so an empty answer is not read as a clean one.",
+			"Opt-in layers that are off (calls, git) are named with how to switch them on, so an empty answer is not read as a clean one. " +
+			"It names the app and the framework version it is built on. Every graph tool takes `scope`: app (default), framework or all.",
 		Annotations: readOnly,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, codegraph.SchemaInfo, error) {
-		m, err := g.model(ctx)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in schemaIn) (*mcp.CallToolResult, codegraph.SchemaInfo, error) {
+		m, err := g.model(ctx, in.Scope)
 		if err != nil {
 			return nil, codegraph.SchemaInfo{}, err
 		}
@@ -160,7 +167,7 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 			"Give exactly one of path, symbol, route, table or node.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in contextIn) (*mcp.CallToolResult, codegraph.Context, error) {
-		m, err := g.model(ctx)
+		m, err := g.model(ctx, in.Scope)
 		if err != nil {
 			return nil, codegraph.Context{}, err
 		}
@@ -183,7 +190,7 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 			"Call graph_context first if you only need to know what something is.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in impactIn) (*mcp.CallToolResult, codegraph.ImpactResult, error) {
-		m, err := g.model(ctx)
+		m, err := g.model(ctx, in.Scope)
 		if err != nil {
 			return nil, codegraph.ImpactResult{}, err
 		}
@@ -203,7 +210,7 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 			"so the missing hop is visible. It never invents a hop.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in pathIn) (*mcp.CallToolResult, codegraph.PathResult, error) {
-		m, err := g.model(ctx)
+		m, err := g.model(ctx, in.Scope)
 		if err != nil {
 			return nil, codegraph.PathResult{}, err
 		}
@@ -220,7 +227,7 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 			"Use it when you know part of a name or a phrase; use graph_context when you know what you are looking at.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchIn) (*mcp.CallToolResult, codegraph.SearchResult, error) {
-		m, err := g.model(ctx)
+		m, err := g.model(ctx, in.Scope)
 		if err != nil {
 			return nil, codegraph.SearchResult{}, err
 		}
@@ -237,7 +244,7 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 			"Filter by direction (out, in, both) and by predicate. `degree` counts the node's edges by predicate even when the list is cut off.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in neighborsIn) (*mcp.CallToolResult, codegraph.NeighborsResult, error) {
-		m, err := g.model(ctx)
+		m, err := g.model(ctx, in.Scope)
 		if err != nil {
 			return nil, codegraph.NeighborsResult{}, err
 		}
@@ -257,7 +264,7 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 			"`available` is false when the whole findings layer is missing.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in findingsIn) (*mcp.CallToolResult, codegraph.FindingsResult, error) {
-		m, err := g.model(ctx)
+		m, err := g.model(ctx, in.Scope)
 		if err != nil {
 			return nil, codegraph.FindingsResult{}, err
 		}
@@ -311,7 +318,7 @@ func registerGraphResources(srv *mcp.Server, g *graphTools) {
 		Description: "The architecture of this project rendered from the graph: layers and their packages, imports between layers, routes with handlers, MCP tools, database tables, config, specs, and what is not covered. Always as fresh as the graph.",
 		MIMEType:    "text/markdown",
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		m, err := g.model(ctx)
+		m, err := g.model(ctx, "")
 		if err != nil {
 			return nil, err
 		}
@@ -325,7 +332,7 @@ func registerGraphResources(srv *mcp.Server, g *graphTools) {
 		Description: "What graph_schema returns, as a document: node kinds, predicates, conventions, example queries and freshness.",
 		MIMEType:    "application/json",
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		m, err := g.model(ctx)
+		m, err := g.model(ctx, "")
 		if err != nil {
 			return nil, err
 		}
@@ -350,13 +357,14 @@ func registerGraphPrompts(srv *mcp.Server, g *graphTools) {
 		Arguments: []*mcp.PromptArgument{
 			{Name: "paths", Title: "Changed paths", Description: "Repository-relative paths, separated by commas or newlines."},
 			{Name: "diff", Title: "Unified diff", Description: "The output of git diff; the files it names are analysed."},
+			{Name: "scope", Title: "Scope", Description: "app (default: the project's own nodes), framework or all."},
 		},
 	}, func(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		m, err := g.model(ctx)
+		args := req.Params.Arguments
+		m, err := g.model(ctx, args["scope"])
 		if err != nil {
 			return nil, err
 		}
-		args := req.Params.Arguments
 		text, err := m.ExplainChange(args["paths"], args["diff"])
 		if err != nil {
 			return nil, err
@@ -370,6 +378,10 @@ func registerGraphPrompts(srv *mcp.Server, g *graphTools) {
 
 // --- tool inputs and outputs ---
 
+type schemaIn struct {
+	Scope string `json:"scope,omitempty" jsonschema:"whose nodes to answer from: app (the default: the project's own code, docs and connections), framework (what the framework it runs on contributes) or all (both, each labelled with its origin)"`
+}
+
 type graphQueryIn struct {
 	Query string `json:"query" jsonschema:"Gizmo query to run, e.g. g.V().All()"`
 	Limit int    `json:"limit,omitempty" jsonschema:"max results to return (default 100, max 1000)"`
@@ -381,14 +393,16 @@ type graphQueryOut struct {
 }
 
 type contextIn struct {
+	Scope  string `json:"scope,omitempty" jsonschema:"whose nodes to answer from: app (the default: the project's own code, docs and connections), framework (what the framework it runs on contributes) or all (both, each labelled with its origin)"`
 	Path   string `json:"path,omitempty" jsonschema:"a repo-relative file or directory, doc or spec (a :line suffix or an absolute path inside the repo also works), e.g. controllers/api.go"`
-	Symbol string `json:"symbol,omitempty" jsonschema:"a Go function, type or templ component: controllers.HelloAPI, orderstore.Store.List, Type.Method or a bare name"`
+	Symbol string `json:"symbol,omitempty" jsonschema:"a Go function, type or templ component: controllers.HelloAPI, itemstore.Store.List, Type.Method or a bare name"`
 	Route  string `json:"route,omitempty" jsonschema:"a route as 'GET /api/hello', or a bare path, or a concrete URL path that a route pattern serves"`
-	Table  string `json:"table,omitempty" jsonschema:"a table name, e.g. orders"`
+	Table  string `json:"table,omitempty" jsonschema:"a table name, e.g. items"`
 	Node   string `json:"node,omitempty" jsonschema:"any node ID (cfg:server.port, tool:graph_query, spec:graph-indexer) or any of the forms above"`
 }
 
 type impactIn struct {
+	Scope string   `json:"scope,omitempty" jsonschema:"whose nodes to answer from: app (the default: the project's own code, docs and connections), framework (what the framework it runs on contributes) or all (both, each labelled with its origin)"`
 	Node  string   `json:"node" jsonschema:"what changes: a node ID or any reference graph_context takes (a file, package, symbol, route, table, config key, migration)"`
 	Depth int      `json:"depth,omitempty" jsonschema:"hops of exact dependencies to follow (default 3, max 6; with the calls layer on, default 6, max 10)"`
 	Limit int      `json:"limit,omitempty" jsonschema:"max affected nodes returned, weakest evidence dropped first (default 100, max 500)"`
@@ -396,18 +410,21 @@ type impactIn struct {
 }
 
 type pathIn struct {
+	Scope    string `json:"scope,omitempty" jsonschema:"whose nodes to answer from: app (the default: the project's own code, docs and connections), framework (what the framework it runs on contributes) or all (both, each labelled with its origin)"`
 	From     string `json:"from" jsonschema:"where to start: a node ID or any reference graph_context takes"`
 	To       string `json:"to" jsonschema:"where to end"`
 	MaxDepth int    `json:"max_depth,omitempty" jsonschema:"longest chain to search, in hops (default 12, max 24)"`
 }
 
 type searchIn struct {
+	Scope string   `json:"scope,omitempty" jsonschema:"whose nodes to answer from: app (the default: the project's own code, docs and connections), framework (what the framework it runs on contributes) or all (both, each labelled with its origin)"`
 	Text  string   `json:"text" jsonschema:"words to look for; every word must match"`
 	Kinds []string `json:"kinds,omitempty" jsonschema:"only these kinds, e.g. func, route, table, doc (aliases like function and endpoint work)"`
 	Limit int      `json:"limit,omitempty" jsonschema:"max hits (default 20, max 100)"`
 }
 
 type neighborsIn struct {
+	Scope      string   `json:"scope,omitempty" jsonschema:"whose nodes to answer from: app (the default: the project's own code, docs and connections), framework (what the framework it runs on contributes) or all (both, each labelled with its origin)"`
 	Node       string   `json:"node" jsonschema:"the node: an ID or any reference graph_context takes"`
 	Direction  string   `json:"direction,omitempty" jsonschema:"out (edges leaving the node), in (edges arriving) or both (default)"`
 	Predicates []string `json:"predicates,omitempty" jsonschema:"only follow these predicates, e.g. imports, handled_by, reads_table"`
@@ -416,6 +433,7 @@ type neighborsIn struct {
 }
 
 type findingsIn struct {
+	Scope    string `json:"scope,omitempty" jsonschema:"whose nodes to answer from: app (the default: the project's own code, docs and connections), framework (what the framework it runs on contributes) or all (both, each labelled with its origin)"`
 	Severity string `json:"severity,omitempty" jsonschema:"only this severity"`
 	Rule     string `json:"rule,omitempty" jsonschema:"only this rule; a trailing * matches a prefix"`
 	Limit    int    `json:"limit,omitempty" jsonschema:"max findings (default 50, max 200)"`

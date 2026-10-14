@@ -39,7 +39,7 @@ type TableRefs struct {
 // maxRefsPerGroup bounds each group; the report and the graph hold the rest.
 const maxRefsPerGroup = 30
 
-// TableRefs gathers what refers to a table (`orders` or `table:orders`).
+// TableRefs gathers what refers to a table (`items` or `table:items`).
 func (m *Model) TableRefs(table string, o LinkOptions) (*TableRefs, error) {
 	res := &TableRefs{Code: []RefItem{}, Routes: []RefItem{}, Tools: []RefItem{}, Docs: []RefItem{}, Findings: []FindingRef{}, Links: []Link{}, AsOf: m.AsOf()}
 	found := m.ResolveTable(table)
@@ -69,7 +69,7 @@ func (m *Model) TableRefs(table string, o LinkOptions) (*TableRefs, error) {
 	}
 	res.Notes = append(res.Notes, imp.Notes...)
 	item := func(a NodeRef, conf int, method, access string) RefItem {
-		it := RefItem{NodeRef: a, Access: access, Confidence: conf, Method: method, Certain: conf >= 90, Graph: GraphURL(a.ID)}
+		it := RefItem{NodeRef: a, Access: access, Confidence: conf, Method: method, Certain: conf >= 90, Graph: m.graphURL(a.ID)}
 		if a.Path != "" {
 			it.Editor = EditorURL(o.Root, a.Path, a.Line)
 		}

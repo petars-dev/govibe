@@ -42,7 +42,7 @@ func TestWholeGraphInvariants(t *testing.T) {
 	// application), so the schema and render edges are exercised on the fixture
 	// instead (TestFixtureGraphInvariants).
 	res := graphcheck.Check(t, h, graphcheck.Options{
-		Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "findings"},
+		Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "externals", "findings"},
 		RequireEdges: []string{"handled_by", "uses_mw", "implemented_by", "uses_config", "reads_env",
 			"registers", "has_item", "mentions", "covers", "imports"},
 	})

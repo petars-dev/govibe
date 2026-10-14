@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -17,8 +19,11 @@ import (
 	"github.com/petars-dev/govibe/config"
 	"github.com/petars-dev/govibe/internal/codegraph"
 	"github.com/petars-dev/govibe/internal/dbexplorer"
+	"github.com/petars-dev/govibe/internal/devtools"
 	"github.com/petars-dev/govibe/internal/graphdb"
 	"github.com/petars-dev/govibe/internal/kernel"
+	"github.com/petars-dev/govibe/internal/profile"
+	"github.com/petars-dev/govibe/internal/routeinfo"
 )
 
 func init() {
@@ -27,12 +32,14 @@ func init() {
 
 	f := graphIndexCmd.Flags()
 	f.String("root", ".", "repository root: the directory holding go.mod")
-	f.String("dir", graphdb.DefaultDir, "directory of the graph store (a scratch directory is fine, and needed while a dev server holds the default one)")
+	f.String("dir", graphdb.DefaultDir, "directory of the graph store, default the profile's graph.dir under --root (a scratch directory is fine, and needed while a dev server holds the default one)")
 	f.Bool("calls", false, "also index which function calls which (type-checks the module; needs the Go toolchain)")
 	f.Bool("git", false, "also index last commit, churn and co-change from `git log` (CI needs the full history: fetch-depth 0)")
 	f.String("fail-on", "none", "exit 1 when there is a finding at or above this severity that the baseline does not accept: error, warning, info or none")
 	f.String("baseline", "", "file of accepted findings (see --update-baseline); with --fail-on, only findings it does not list fail")
-	f.Bool("update-baseline", false, "write the findings at or above --fail-on (default error) to --baseline and exit 0")
+	f.Bool("update-baseline", false, "write the findings at or above --fail-on (default error) to --baseline and exit 0; findings new to the baseline need --reason")
+	f.String("reason", "", "with --update-baseline: why the findings that are new to the baseline are accepted instead of fixed (kept per entry, with the date)")
+	f.Bool("no-inspect", false, "do not run the app's `inspect --json` for its routes: index without a route table (the route rules are then not run)")
 	f.String("format", "text", "output: text, json, or github (text plus workflow annotations for the new findings)")
 	f.Bool("verbose", false, "log every layer as it is indexed")
 	graphIndexCmd.SilenceUsage = true
@@ -53,8 +60,14 @@ print how it went, and optionally fail on findings. It is the offline counterpar
 the dev server's boot indexer and of POST /dev/graph/reindex, for when no server
 holds the store's lock, and for CI with --dir on a scratch directory.
 
-An offline run has no router, so the routes layer is skipped and the rules that
-need it are reported as not run. With --calls, the call graph is indexed too.
+A project that depends on the framework is an application: its routes come from its
+own binary (go run -tags govibe_dev . inspect --json: no database, no dev tools, no
+scheduler), so the route rules run offline. That compiles and runs the project's own code
+(with a scrubbed environment: no secret of the job reaches it), so index a project you do not trust with --no-inspect. Any other project has no router, so the
+routes layer is skipped and the rules that need it are reported as not run. With
+--calls, the call graph is indexed too. The graph covers the project's own code; what
+it takes from the framework is labelled external, and the framework's own settings
+and tools come from this tool's manifest (the tool and the library are one version).
 
 Exit status: 0 on success, 1 when --fail-on finds a new finding, 2 when indexing
 itself failed (a layer failed, the store is locked, a bad flag).`,
@@ -62,7 +75,10 @@ itself failed (a layer failed, the store is locked, a bad flag).`,
   govibe graph index --dir /tmp/govibe-graph --calls
 
   # CI: fail on any error finding that docs/graph/baseline.json does not accept
-  govibe graph index --dir "$RUNNER_TEMP/graph" --calls --git --fail-on error --baseline docs/graph/baseline.json --format github`,
+  govibe graph index --dir "$RUNNER_TEMP/graph" --calls --git --fail-on error --baseline docs/graph/baseline.json --format github
+
+  # accept what is there, saying why (each entry keeps its reason and date)
+  govibe graph index --dir /tmp/govibe-graph --baseline docs/graph/baseline.json --update-baseline --reason "legacy handler, replaced in Q4"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		o := graphIndexOptions{}
@@ -74,7 +90,18 @@ itself failed (a layer failed, the store is locked, a bad flag).`,
 		o.failOn, _ = f.GetString("fail-on")
 		o.baseline, _ = f.GetString("baseline")
 		o.updateBaseline, _ = f.GetBool("update-baseline")
+		o.reason, _ = f.GetString("reason")
+		o.noInspect, _ = f.GetBool("no-inspect")
 		o.format, _ = f.GetString("format")
+		if !f.Changed("dir") {
+			// The store lives where the project's profile says, under its root. A profile that
+			// does not load is reported now: nothing may be written in the wrong place first.
+			prof, err := profile.Load(o.root)
+			if err != nil {
+				return &exitError{code: 2, msg: "graph index: " + err.Error()}
+			}
+			o.dir = filepath.Join(o.root, prof.Graph.Dir)
+		}
 		verbose, _ := f.GetBool("verbose")
 		if verbose {
 			logrus.SetLevel(logrus.InfoLevel)
@@ -87,7 +114,11 @@ itself failed (a layer failed, the store is locked, a bad flag).`,
 		err := runGraphIndex(cmd.Context(), o, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		var ee *exitError
 		if err != nil && !errors.As(err, &ee) {
-			return &exitError{code: 2, msg: "graph index: " + err.Error()}
+			msg := err.Error()
+			if !strings.HasPrefix(msg, "graph index:") {
+				msg = "graph index: " + msg
+			}
+			return &exitError{code: 2, msg: msg}
 		}
 		return err
 	},
@@ -109,7 +140,13 @@ type graphIndexOptions struct {
 	failOn         string
 	baseline       string
 	updateBaseline bool
+	reason         string // why the findings new to the baseline are accepted
+	noInspect      bool   // do not ask the app for its routes
 	format         string
+
+	// inspect asks the application for the facts only its binary knows (its routes and
+	// who registered them, the modules it was built from); nil runs it with `go run`.
+	inspect func(ctx context.Context, root string) (*routeinfo.Inspect, error)
 
 	// openSchema opens the live database's schema reader, when the configuration has
 	// a database; nil, or a nil result, means the migrations alone. close releases it.
@@ -156,11 +193,13 @@ func runGraphIndex(ctx context.Context, o graphIndexOptions, out, errOut io.Writ
 		return errors.New("--update-baseline needs --baseline FILE")
 	}
 	var baseline map[string]bool
+	var noReason []string
 	if o.baseline != "" && !o.updateBaseline {
-		var err error
-		if baseline, err = codegraph.ReadBaseline(o.baseline); err != nil {
+		b, err := codegraph.LoadBaseline(o.baseline)
+		if err != nil {
 			return err
 		}
+		baseline, noReason = b.Accepted(), b.WithoutReason()
 	}
 
 	if err := os.MkdirAll(o.dir, 0o755); err != nil {
@@ -173,7 +212,10 @@ func runGraphIndex(ctx context.Context, o graphIndexOptions, out, errOut io.Writ
 	}
 	defer h.Close()
 
-	opts := codegraph.Options{Root: o.root, Calls: o.calls, Git: o.git}
+	opts, routesNote, err := o.indexerOptions(ctx)
+	if err != nil {
+		return err
+	}
 	var dbNote string
 	if o.openSchema != nil {
 		var closer func()
@@ -198,18 +240,18 @@ func runGraphIndex(ctx context.Context, o graphIndexOptions, out, errOut io.Writ
 	}
 	var gate *codegraph.GateResult
 	if !rep.Failed() {
-		if gate, err = m.Gate(codegraph.GateOptions{FailOn: failOn, Baseline: baseline}); err != nil {
+		if gate, err = m.Gate(codegraph.GateOptions{FailOn: failOn, Baseline: baseline, NoReason: noReason}); err != nil {
 			return err
 		}
 	}
 
-	r := &graphReport{Root: ix.RootDir(), Store: o.dir, Report: rep, Gate: gate, DBNote: dbNote, Baseline: o.baseline}
+	r := &graphReport{Root: ix.RootDir(), Store: o.dir, Report: rep, Gate: gate, DBNote: dbNote, RoutesNote: routesNote, Baseline: o.baseline}
 	switch {
 	case o.updateBaseline && gate != nil:
 		list, _ := codegraph.AtOrAbove(m.AllFindings(), failOn)
-		n, err := codegraph.WriteBaseline(o.baseline, list)
+		n, err := codegraph.WriteBaseline(o.baseline, list, o.reason)
 		if err != nil {
-			return err
+			return &exitError{code: 2, msg: "graph index: " + err.Error()}
 		}
 		r.BaselineWritten = n
 	}
@@ -220,9 +262,12 @@ func runGraphIndex(ctx context.Context, o graphIndexOptions, out, errOut io.Writ
 	switch {
 	case rep.Failed():
 		return &exitError{code: 2, msg: "graph index: " + failedLayers(rep)}
-	case !o.updateBaseline && gating && gate.Failed():
-		return &exitError{code: 1, msg: fmt.Sprintf("graph index: %d new %s at or above %q (accept them with --update-baseline, or fix them)",
+	case !o.updateBaseline && gating && len(gate.New) > 0:
+		return &exitError{code: 1, msg: fmt.Sprintf("graph index: %d new %s at or above %q (accept them with --update-baseline --reason \"...\", or fix them)",
 			len(gate.New), plural(len(gate.New), "finding", "findings"), gate.FailOn)}
+	case !o.updateBaseline && gating && len(gate.NoReason) > 0:
+		return &exitError{code: 1, msg: fmt.Sprintf("graph index: %d baseline %s no reason (an accepted finding says why: add a \"reason\" to each entry of %s)",
+			len(gate.NoReason), plural(len(gate.NoReason), "entry has", "entries have"), o.baseline)}
 	}
 	return nil
 }
@@ -251,6 +296,7 @@ type graphReport struct {
 	Report          *codegraph.Report     `json:"report"`
 	Gate            *codegraph.GateResult `json:"gate,omitempty"`
 	DBNote          string                `json:"database_note,omitempty"`
+	RoutesNote      string                `json:"routes_note,omitempty"`
 	Baseline        string                `json:"baseline,omitempty"`
 	BaselineWritten int                   `json:"baseline_written,omitempty"`
 }
@@ -284,6 +330,9 @@ func (r *graphReport) write(w io.Writer, format string) error {
 	if r.DBNote != "" {
 		fmt.Fprintf(w, "note: %s\n", r.DBNote)
 	}
+	if r.RoutesNote != "" {
+		fmt.Fprintf(w, "routes: %s\n", r.RoutesNote)
+	}
 	if r.Gate == nil {
 		return nil
 	}
@@ -302,6 +351,9 @@ func (r *graphReport) write(w io.Writer, format string) error {
 	}
 	if g.FailOn == "none" || r.BaselineWritten > 0 {
 		return nil // nothing to judge: no threshold, or the baseline was just made from what there is
+	}
+	if len(g.NoReason) > 0 {
+		fmt.Fprintf(w, "baseline entries with no reason (an accepted finding says why): %s\n", strings.Join(g.NoReason, ", "))
 	}
 	fmt.Fprintf(w, "gate (fail on %s): %d new, %d accepted by the baseline", g.FailOn, len(g.New), len(g.Accepted))
 	if len(g.Fixed) > 0 {
@@ -367,4 +419,97 @@ func escapeAnnotation(s string) string {
 
 func escapeProperty(s string) string {
 	return strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A", ":", "%3A", ",", "%2C").Replace(s)
+}
+
+// indexerOptions are the options of the indexer for the project at o.root: for an
+// application (a project that depends on the framework) what its own binary reports
+// (the route table, who registered each route, the modules it was built from) and
+// the framework's manifest, which names the framework's side of the graph. note says
+// where the routes came from, or why there are none.
+func (o graphIndexOptions) indexerOptions(ctx context.Context) (opts codegraph.Options, note string, err error) {
+	app := codegraph.RequiresFramework(o.root)
+	var version string
+	switch {
+	case !app:
+		note = "none: this project does not depend on the framework, so it has no binary to ask"
+	case o.noInspect:
+		note = "none: --no-inspect (the route rules do not run)"
+	default:
+		run := o.inspect
+		if run == nil {
+			run = inspectApp
+		}
+		doc, err := run(ctx, o.root)
+		if err != nil {
+			return opts, "", fmt.Errorf("%w\nthe application could not be asked for its routes: fix the build, or index without them with --no-inspect", err)
+		}
+		opts = codegraph.OptionsFromInspect(doc)
+		version = doc.Framework.Version
+		note = fmt.Sprintf("%d from the application's own `inspect --json` (%d registered by the framework)", len(doc.Routes), countMountedBy(doc, routeinfo.MountedByFramework))
+	}
+	if app {
+		mf, err := devtools.FrameworkManifest(ctx, version)
+		if err != nil {
+			return opts, "", fmt.Errorf("the framework manifest: %w", err)
+		}
+		opts.Manifest = mf
+	}
+	opts.Root, opts.Calls, opts.Git = o.root, o.calls, o.git
+	return opts, note, nil
+}
+
+func countMountedBy(doc *routeinfo.Inspect, who string) int {
+	n := 0
+	for _, r := range doc.Routes {
+		if r.MountedBy == who {
+			n++
+		}
+	}
+	return n
+}
+
+// inspectApp runs the application's own `inspect --json`: the facts only its binary
+// knows, with no database, no dev tools mounted and no scheduler, so it needs no
+// environment. The dev tag is passed so that files tagged for development are part
+// of what is asked about.
+func inspectApp(ctx context.Context, root string) (*routeinfo.Inspect, error) {
+	c := exec.CommandContext(ctx, "go", "run", "-tags", devTags, ".", "inspect", "--json")
+	c.Dir = root
+	// The binary needs no settings from the environment to say what it declares (that is what
+	// `inspect` is for), so it does not get any: no secret an analysis job holds reaches it.
+	c.Env = inspectEnv(os.Environ())
+	var stdout, stderr bytes.Buffer
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		return nil, fmt.Errorf("`go run -tags %s . inspect --json` in %s: %w\n%s", devTags, root, err, strings.TrimSpace(lastLines(stderr.String(), 15)))
+	}
+	return routeinfo.ParseInspect(stdout.Bytes())
+}
+
+// inspectEnv keeps what the Go toolchain and a process need to run (PATH, HOME, temp
+// directories, locale, GO* and the variables a Windows toolchain wants) and drops the rest.
+func inspectEnv(environ []string) []string {
+	var out []string
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		switch {
+		case strings.HasPrefix(name, "GO"), strings.HasPrefix(name, "LC_"), strings.HasPrefix(name, "CGO_"):
+		case name == "PATH", name == "HOME", name == "USER", name == "LANG", name == "TMPDIR", name == "TEMP", name == "TMP",
+			name == "SystemRoot", name == "SYSTEMROOT", name == "USERPROFILE", name == "LOCALAPPDATA", name == "APPDATA", name == "XDG_CACHE_HOME",
+			name == "SSL_CERT_FILE", name == "SSL_CERT_DIR", name == "HTTPS_PROXY", name == "HTTP_PROXY", name == "NO_PROXY":
+		default:
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+// lastLines is the last n lines of s.
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }

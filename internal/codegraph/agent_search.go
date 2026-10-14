@@ -163,7 +163,7 @@ func (m *Model) search(text string, kinds map[string]bool) []SearchHit {
 			case low == t:
 				try(110, "id")
 			case key == t:
-				try(105, "id") // `table:orders` for "orders", ahead of anything merely named orders
+				try(105, "id") // `table:items` for "items", ahead of anything merely named items
 			case strings.Contains(low, t):
 				try(50, "id")
 			}

@@ -32,6 +32,10 @@ dev:
     # mutation endpoints, for seeding or clearing fixtures in test builds. Has
     # no effect in production regardless of this flag.
     allow_mutations: ${DEV_DB_ALLOW_MUTATIONS:false}
+  # Contributors to the framework only: a checkout of the framework's repository. With it
+  # set, /dev/docs serves the framework's docs from that checkout (so an edit shows at
+  # once) and lists its development specs in a group of their own. Never set in an app.
+  framework_src: ${GOVIBE_FRAMEWORK_SRC:}
   # Opt-in layers of the project graph (/dev/graph, the graph_* MCP tools). Both are
   # off by default because they cost more than parsing; `graph_reindex` with the
   # layer's name switches one on for the life of the server without these.

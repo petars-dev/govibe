@@ -100,3 +100,11 @@
   .docs-layout { grid-template-columns: 1fr; }
   .docs-sidebar { position: relative; top: auto; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
 }
+
+/* The framework's docs are a separate, muted group after the app's own. */
+.tab-muted { opacity: .8; }
+.sidebar-muted { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--border); opacity: .85; }
+.sidebar-muted .sidebar-title { font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.index-muted { margin-top: 28px; padding-top: 12px; border-top: 1px solid var(--border); color: var(--muted); }
+.index-muted h2 { font-size: 1rem; font-weight: 600; color: var(--muted); }
+.md-content .muted, .docs-content p.muted { color: var(--muted); }

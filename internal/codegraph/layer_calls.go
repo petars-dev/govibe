@@ -65,6 +65,16 @@ func dispatchConfidence(candidates int) int {
 //     confidence and the interface it goes through.
 //   - A closure has no node, so a call inside one belongs to the declared function
 //     that contains it, as a handler closure's route does.
+//   - A call out of the module is bounded, so the graph says what the project takes
+//     from outside without becoming a map of it: a call into the framework's public
+//     packages is an edge to one external leaf per function (`web.JSON`,
+//     `Config.Get`), a call into the framework's internal/ collapses to one leaf for
+//     all of it, a call into a library is one leaf per package, and the standard
+//     library is not recorded. Those edges are `calls_external` and the leaves carry
+//     the module and its version.
+//   - The module is type-checked with the dev build tag (`govibe_dev` unless the
+//     binary says otherwise), so a file only a dev build compiles is seen; the layer's
+//     note states the tags.
 //   - Not seen: calls through function values (a callback, a handler held in a
 //     variable or a map), reflection, calls from package-level initializers, calls
 //     through interfaces the module does not declare (http.Handler), and calls
@@ -93,6 +103,15 @@ func (callsLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 		return nil, err
 	}
 	set := newQuadSet(callsLayerName)
+	mods := w.modules()
+	seenExt := map[callKey]bool{}
+	for _, c := range idx.external {
+		leaf := mods.leafRef(c.importPath, c.name)
+		if k := (callKey{c.from, leaf}); !seenExt[k] { // the framework's internals are one leaf
+			seenExt[k] = true
+			set.add(c.from, PredCallsExt, leaf)
+		}
+	}
 	keys := make([]callKey, 0, len(idx.edges))
 	for k := range idx.edges {
 		keys = append(keys, k)
@@ -120,7 +139,7 @@ func (callsLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 			set.add(aid, PredVia, e.via)
 		}
 	}
-	return &layerOutput{quads: set.quads, warnings: idx.warnings}, nil
+	return &layerOutput{quads: set.quads, warnings: idx.warnings, note: "type-checked with -tags " + idx.tags}, nil
 }
 
 // callKey is one edge: a caller and the function it calls.
@@ -137,9 +156,22 @@ type callEdge struct {
 // callIndex is the result of type-checking the module once.
 type callIndex struct {
 	edges    map[callKey]*callEdge
+	external []extCall // calls out of the module, bounded (see callsLayer), sorted
 	warnings []string
-	packages int // module packages that were type-checked
+	packages int    // module packages that were type-checked
+	tags     string // the build tags it was type-checked with
 }
+
+// extCall is a call out of the module: the caller, and the package and the function
+// (`Name` or `Recv.Name`) it calls there.
+type extCall struct {
+	from             quad.IRI
+	importPath, name string
+}
+
+// defaultCallTags are the build tags the module is type-checked with when the running
+// binary did not say: the dev tag, so the files only a dev build compiles are seen.
+const defaultCallTags = "govibe_dev"
 
 // calls returns the call index, built once per run.
 func (w *world) calls() (*callIndex, error) {
@@ -148,13 +180,37 @@ func (w *world) calls() (*callIndex, error) {
 		if err != nil {
 			return nil, fmt.Errorf("code index: %w", err)
 		}
-		return buildCallIndex(w.ctx, w.root, ci)
+		tags := w.x.opts.Build.Tags
+		if tags == "" {
+			tags = defaultCallTags
+		}
+		// Type-checking the module is the one expensive step, and two layers read its result
+		// (calls, and externals for the leaves). It depends on the Go sources, the dependency
+		// checksums and the tags, so it is reused across runs until one of them changes, and an
+		// edit to a template or a route does not repeat it.
+		cfp, err := w.codeFingerprint()
+		if err != nil {
+			return nil, err
+		}
+		fp := cfp + "|" + tags
+		if sf, ok := statRegular(w.root, "go.sum", 64<<20); ok {
+			fp += "|" + fingerprint([]sourceFile{sf})
+		}
+		if c := w.x.callCache; !w.force && c.idx != nil && c.fp == fp {
+			return c.idx, nil
+		}
+		idx, err := buildCallIndex(w.ctx, w.root, ci, w.modules(), tags)
+		if err != nil {
+			return nil, err
+		}
+		w.x.callCache.fp, w.x.callCache.idx = fp, idx
+		return idx, nil
 	})
 }
 
 // buildCallIndex loads and type-checks the module and records the calls between
 // its declared functions.
-func buildCallIndex(ctx context.Context, root string, ci *codeIndex) (*callIndex, error) {
+func buildCallIndex(ctx context.Context, root string, ci *codeIndex, mods *moduleTable, tags string) (*callIndex, error) {
 	ctx, cancel := context.WithTimeout(ctx, callsTimeout)
 	defer cancel()
 
@@ -165,6 +221,9 @@ func buildCallIndex(ctx context.Context, root string, ci *codeIndex) (*callIndex
 			packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
 		Tests: false,
 	}
+	if tags != "" {
+		cfg.BuildFlags = []string{"-tags=" + tags}
+	}
 	pkgs, err := packages.Load(cfg, "./...")
 	if err != nil {
 		if ctx.Err() != nil {
@@ -173,8 +232,8 @@ func buildCallIndex(ctx context.Context, root string, ci *codeIndex) (*callIndex
 		return nil, fmt.Errorf("calls layer: it needs the Go toolchain (`go list` failed): %w", err)
 	}
 
-	idx := &callIndex{edges: map[callKey]*callEdge{}}
-	r := &callResolver{ci: ci, idx: idx, byPkg: map[string][]*types.Named{}, expanded: map[string]bool{}}
+	idx := &callIndex{edges: map[callKey]*callEdge{}, tags: tags}
+	r := &callResolver{ci: ci, idx: idx, mods: mods, byPkg: map[string][]*types.Named{}, expanded: map[string]bool{}, ext: map[extCall]bool{}}
 
 	var mod []*packages.Package
 	for _, p := range pkgs {
@@ -221,14 +280,29 @@ func buildCallIndex(ctx context.Context, root string, ci *codeIndex) (*callIndex
 		}
 	}
 	sort.Strings(idx.warnings)
+	for c := range r.ext {
+		idx.external = append(idx.external, c)
+	}
+	sort.Slice(idx.external, func(i, j int) bool {
+		a, b := idx.external[i], idx.external[j]
+		if a.from != b.from {
+			return a.from < b.from
+		}
+		if a.importPath != b.importPath {
+			return a.importPath < b.importPath
+		}
+		return a.name < b.name
+	})
 	return idx, nil
 }
 
 // callResolver turns the type checker's answers into edges between the nodes of
 // the code index.
 type callResolver struct {
-	ci  *codeIndex
-	idx *callIndex
+	ci   *codeIndex
+	idx  *callIndex
+	mods *moduleTable
+	ext  map[extCall]bool // calls out of the module, once each
 
 	// byPkg are the module's named, non-interface, non-generic types by package
 	// path: the candidates for the other end of an interface call.
@@ -309,12 +383,45 @@ func (r *callResolver) call(info *types.Info, caller quad.IRI, call *ast.CallExp
 	fn = fn.Origin()
 
 	if iface := abstractReceiver(fn, sel); iface != nil {
+		if _, ours := moduleDir(r.ci.module, fn.Pkg().Path()); !ours {
+			r.external(caller, fn) // an interface the framework or a library declares: not ours to expand
+			return
+		}
 		r.dispatch(caller, fn, iface)
 		return
 	}
 	if to, ok := r.nodeOf(fn); ok {
 		r.add(caller, to, "", 100, "")
+		return
 	}
+	r.external(caller, fn)
+}
+
+// external records a call out of the module, when it is to something worth a leaf: the
+// framework (a function of its public API, or the one leaf for its internals) or a
+// library. The standard library is not recorded.
+func (r *callResolver) external(caller quad.IRI, fn *types.Func) {
+	if fn.Pkg() == nil {
+		return
+	}
+	path := fn.Pkg().Path()
+	if r.mods.moduleOf(path) == "" {
+		return // the standard library, or a package no module of the build explains
+	}
+	name := fn.Name()
+	if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() != nil {
+		t := sig.Recv().Type()
+		if p, ok := t.(*types.Pointer); ok {
+			t = p.Elem()
+		}
+		if named, ok := t.(*types.Named); ok {
+			name = named.Obj().Name() + "." + name
+		}
+	}
+	if !r.mods.isFramework(path) {
+		name = "" // a library is one leaf per package
+	}
+	r.ext[extCall{from: caller, importPath: path, name: name}] = true
 }
 
 // abstractReceiver is the interface a method call goes through, or nil when it

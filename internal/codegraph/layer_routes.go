@@ -39,8 +39,8 @@ type routeTable struct {
 func (w *world) routeTable() (*routeTable, error) {
 	return w.routesV.get(func() (*routeTable, error) {
 		switch {
-		case w.x.opts.routeSource != nil:
-			rs, err := w.x.opts.routeSource()
+		case w.x.opts.RouteSource != nil:
+			rs, err := w.x.opts.RouteSource()
 			if err != nil {
 				return nil, err
 			}
@@ -93,8 +93,10 @@ func (routesLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 		return nil, fmt.Errorf("code index: %w", err)
 	}
 
+	facts, mods := w.x.opts.Build, w.modules()
 	set := newQuadSet("routes")
 	mwSeen := map[quad.IRI]bool{}
+	fwMW := frameworkMiddleware(rt.routes, facts)
 	for _, r := range rt.routes {
 		id := routeID(r.Method, r.Path)
 		set.add(id, PredType, KindRoute)
@@ -102,12 +104,19 @@ func (routesLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 		set.str(id, PredMethod, r.Method)
 		set.str(id, PredPath, r.Path)
 		set.flag(id, PredDevOnly, r.Path == "/dev" || strings.HasPrefix(r.Path, "/dev/"))
+		// Whose route it is: who registered it, not whose function serves it (an app can
+		// mount a framework handler, and the framework mounts stdlib ones).
+		set.str(id, PredOrigin, routeOrigin(facts, r))
 		if fi := w.resolveFunc(ci, r.Handler); fi != nil {
 			set.add(id, PredHandledBy, fi.id)
 		} else if sym := externalSymbol(ci, r.Handler); sym != "" {
 			// Not application code (a stdlib or library handler, or a wrapper):
-			// say what the runtime sees instead of inventing a link.
+			// say what the runtime sees instead of inventing a link, and point at the
+			// external node when the symbol belongs to a module of the build.
 			set.str(id, PredHandler, sym)
+			if path, name, ok := externalSpec(mods, sym); ok {
+				set.add(id, PredHandledByExt, mods.leafRef(path, name))
+			}
 		}
 		used := map[quad.IRI]bool{}
 		for _, m := range r.MW {
@@ -121,6 +130,7 @@ func (routesLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 				mwSeen[mid] = true
 				set.add(mid, PredType, KindMiddleware)
 				set.str(mid, PredName, name)
+				set.str(mid, PredOrigin, w.middlewareOrigin(ci, mods, m, fi, fwMW))
 				if fi != nil {
 					set.add(mid, PredImplementedBy, fi.id)
 				}
@@ -128,6 +138,54 @@ func (routesLayer) build(ctx context.Context, w *world) (*layerOutput, error) {
 		}
 	}
 	return &layerOutput{quads: set.quads}, nil
+}
+
+// mwKey identifies a middleware function as the runtime describes it.
+func mwKey(ref handlerRef) string { return fmt.Sprintf("%s|%s:%d", ref.Symbol, ref.File, ref.Line) }
+
+// frameworkMiddleware is the set of middleware the framework itself runs: those on the
+// chain of a route the framework registered. The application cannot add middleware to
+// the framework's routes, so whatever they run is the standard stack.
+func frameworkMiddleware(routes []runtimeRoute, facts BuildFacts) map[string]bool {
+	out := map[string]bool{}
+	for _, r := range routes {
+		if routeOrigin(facts, r) != OriginFramework {
+			continue
+		}
+		for _, m := range r.MW {
+			out[mwKey(m)] = true
+		}
+	}
+	return out
+}
+
+// middlewareOrigin says whose a middleware is: the framework's when it is on the
+// framework's own routes or lives in the framework's module, the application's
+// otherwise (its own function, or a library it chose to apply).
+func (w *world) middlewareOrigin(ci *codeIndex, mods *moduleTable, ref handlerRef, fi *funcInfo, fwMW map[string]bool) string {
+	if fi != nil {
+		return OriginApp
+	}
+	if fwMW[mwKey(ref)] {
+		return OriginFramework
+	}
+	if pkgPath, _, _, ok := parseRuntimeSymbol(externalSymbol(ci, ref)); ok && mods.isFramework(pkgPath) {
+		return OriginFramework
+	}
+	return OriginApp
+}
+
+// externalSpec is the package and function (`Name` or `Recv.Name`) of a symbol the runtime
+// reports, when it belongs to a module the build knows; the standard library has none.
+func externalSpec(mods *moduleTable, sym string) (importPath, name string, ok bool) {
+	pkgPath, recv, name, ok := parseRuntimeSymbol(sym)
+	if !ok || mods.moduleOf(pkgPath) == "" {
+		return "", "", false
+	}
+	if recv != "" {
+		name = recv + "." + name
+	}
+	return pkgPath, name, true
 }
 
 // resolveFunc maps a runtime function onto a declared function of the code

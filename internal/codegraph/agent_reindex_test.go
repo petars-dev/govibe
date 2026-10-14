@@ -30,7 +30,7 @@ func TestRunLayersRebuildsOnlyWhatWasAskedFor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := strings.Join(ix.LayerNames(), ","); got != "code,routes,templates,config,mcp,db,docs,calls,git,findings" {
+	if got := strings.Join(ix.LayerNames(), ","); got != "code,routes,templates,config,mcp,db,docs,calls,git,externals,findings" {
 		t.Errorf("layer names: %s", got)
 	}
 
@@ -53,20 +53,20 @@ func TestRunLayersRebuildsOnlyWhatWasAskedFor(t *testing.T) {
 		t.Errorf("%v %v", layersRan(rep), err)
 	}
 	rep, err = ix.RunLayers(ctx, []string{" mcp ", "templates"})
-	if err != nil || strings.Join(layersRan(rep), ",") != "templates,mcp,docs,findings" {
+	if err != nil || strings.Join(layersRan(rep), ",") != "templates,mcp,docs,externals,findings" {
 		t.Errorf("two named: %v %v", layersRan(rep), err)
 	}
 
 	// a layer that is stale because its input changed comes along, with what was named
 	writeFile(t, root, "docs/public/GUIDE.md", "# Guide\n\nChanged.\n")
 	rep, err = ix.RunLayers(ctx, []string{"templates"})
-	if err != nil || strings.Join(layersRan(rep), ",") != "templates,docs,findings" {
+	if err != nil || strings.Join(layersRan(rep), ",") != "templates,docs,externals,findings" {
 		t.Errorf("a stale layer follows: %v %v", layersRan(rep), err)
 	}
 
 	// no names is a full run
 	rep, err = ix.RunLayers(ctx, nil)
-	if err != nil || len(layersRan(rep)) != 8 {
+	if err != nil || len(layersRan(rep)) != 9 {
 		t.Errorf("all: %v %v", layersRan(rep), err)
 	}
 

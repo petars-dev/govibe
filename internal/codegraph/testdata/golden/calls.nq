@@ -7,12 +7,14 @@
 <ann:2a5c929ada29> <via> <typ:business/services/orders.Lister> <layer:calls> .
 <func:..main> <calls> <func:config.Load> <layer:calls> .
 <func:..main> <calls> <func:routes.New> <layer:calls> .
+<func:..main> <calls_external> <ext:example.com/stubfw.Main> <layer:calls> .
 <func:business/actions.Notify> <calls> <func:config.Get> <layer:calls> .
 <func:business/services/orders.Service.List> <calls> <func:storage/orderstore.Store.List> <layer:calls> .
 <func:controllers.GetOrder> <calls> <func:controllers.writeJSON> <layer:calls> .
 <func:controllers.GetOrder> <calls> <func:storage/orderstore.Store.Get> <layer:calls> .
 <func:controllers.HelloAPI> <calls> <func:business/actions.Hello> <layer:calls> .
 <func:controllers.HelloAPI> <calls> <func:controllers.writeJSON> <layer:calls> .
+<func:controllers.HomePage> <calls_external> <ext:example.com/stubfw/web.HTMXScript> <layer:calls> .
 <func:controllers.ListOrders> <calls> <func:business/services/orders.Service.List> <layer:calls> .
 <func:controllers.ListOrders> <calls> <func:controllers.writeJSON> <layer:calls> .
 <func:devmcp.NewHandler> <calls> <func:devmcp.registerTools> <layer:calls> .

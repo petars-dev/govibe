@@ -81,13 +81,14 @@ const devGraphPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"
 </head><body class="docs-body gv-body">
 <header class="site-header">
 <div class="brand"><a class="brand-link" href="/"><img class="brand-logo" src="/_govibe/static/govibe-logo.png" alt="GoVibe"></a><span class="brand-name">GoVibe Dev Graph</span></div>
-<nav class="top-tabs"><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a><a class="tab active" href="/dev/graph">Graph</a><a class="tab" href="/dev/db">DB</a></nav>
+<nav class="top-tabs"><a class="tab" href="/dev">Dev</a><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a><a class="tab active" href="/dev/graph">Graph</a><a class="tab" href="/dev/db">DB</a></nav>
 <div class="header-actions"><a class="btn btn-ghost" href="/">&larr; App</a><button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"><svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zm10.48 0l1.79-1.79 1.41 1.41-1.79 1.8-1.41-1.42zM12 4V1h-1v3h1zm0 19v-3h-1v3h1zm7-11h3v-1h-3v1zm-19 0h3v-1H0v1zm3.55 8.45l1.41 1.41 1.79-1.79-1.41-1.41-1.79 1.79zM18.24 18.24l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM12 7a5 5 0 100 10 5 5 0 000-10z"/></svg><svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button></div>
 </header>
 
 <section class="gv-banner" id="gv-banner" aria-live="polite"><span class="gv-muted">Loading the graph&hellip;</span></section>
 
 <section class="gv-toolbar">
+  <div class="gv-scope" id="gv-scope" role="radiogroup" aria-label="Scope: whose nodes the page shows"></div>
   <div class="gv-presets" id="gv-presets" role="tablist" aria-label="Views"></div>
   <div class="gv-search">
     <input id="gv-search" type="search" placeholder="Search nodes: a file, symbol, route, table&hellip;   ( / )" autocomplete="off" aria-label="Search the graph">

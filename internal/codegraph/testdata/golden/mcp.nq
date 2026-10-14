@@ -4,11 +4,13 @@
 <tool:fixture_echo> <input_schema> "{\"properties\":{\"message\":{\"description\":\"text to echo back\",\"type\":\"string\"},\"repeat\":{\"description\":\"how many times to repeat it\",\"type\":\"integer\"}},\"required\":[\"message\"],\"type\":\"object\"}" <layer:mcp> .
 <tool:fixture_echo> <line> "31"^^<schema:Integer> <layer:mcp> .
 <tool:fixture_echo> <name> "fixture_echo" <layer:mcp> .
+<tool:fixture_echo> <origin> "app" <layer:mcp> .
 <tool:fixture_echo> <path> "devmcp/devmcp.go" <layer:mcp> .
 <tool:fixture_echo> <type> <kind:mcp_tool> <layer:mcp> .
 <tool:fixture_ping> <description> "Check that the dev tooling is up." <layer:mcp> .
 <tool:fixture_ping> <input_schema> "{\"type\":\"object\"}" <layer:mcp> .
 <tool:fixture_ping> <line> "38"^^<schema:Integer> <layer:mcp> .
 <tool:fixture_ping> <name> "fixture_ping" <layer:mcp> .
+<tool:fixture_ping> <origin> "app" <layer:mcp> .
 <tool:fixture_ping> <path> "devmcp/devmcp.go" <layer:mcp> .
 <tool:fixture_ping> <type> <kind:mcp_tool> <layer:mcp> .

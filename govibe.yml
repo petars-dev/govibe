@@ -1,7 +1,13 @@
-# govibe.yml: the project manifest (docs/specs/SPEC_FRAMEWORK_EXTRACTION.md, "Project
-# profile"). The framework's own layout needs no overrides, so this is empty on purpose.
-#
-# Nothing reads keys from this file yet: the profile loader is Phase 3 (T3.1). Until
-# then the file only marks the project root (internal/kernel.FindRoot looks for it, then
-# for go.mod), and the framework's gate (`make graph-check`) runs on the default profile
-# with an empty baseline (docs/graph/baseline.json).
+# govibe.yml: the project profile of the framework's own repository (see
+# internal/profile and docs/specs/SPEC_FRAMEWORK_EXTRACTION.md, "Project profile").
+# Everything not named here is the default profile, the layout of a generated app.
+
+# The framework keeps its defaults in config/defaults.yml (embedded by package config);
+# it has no env.yml of its own, as an app does.
+config: [config/defaults.yml]
+
+layout:
+  # The packages that assemble the process: the root, the tool and the kernel that boots an app.
+  wiring: [".", cmd, internal/kernel]
+  # The dev tooling: hosted in the app process, never part of a default build.
+  dev: [internal/devtools, internal/devmcp]

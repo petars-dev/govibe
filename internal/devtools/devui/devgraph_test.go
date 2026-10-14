@@ -128,10 +128,15 @@ func TestDevGraphReindexReportsFailedLayers(t *testing.T) {
 			errs[l.Name] = l.Error
 		}
 	}
-	for _, name := range []string{"code", "templates", "config", "mcp", "docs"} {
+	for _, name := range []string{"code", "templates", "mcp", "docs"} {
 		if !strings.Contains(errs[name], "go.mod") {
 			t.Errorf("layer %s error = %q, want one naming go.mod (all: %v)", name, errs[name], errs)
 		}
+	}
+	// With no settings file the config layer has nothing to read: it says so (skipped)
+	// instead of failing on the code index it never needed.
+	if errs["config"] != "" {
+		t.Errorf("config layer failed: %v", errs["config"])
 	}
 }
 

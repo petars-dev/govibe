@@ -121,12 +121,12 @@ func TestRefreshRebuildsOnlyStaleLayers(t *testing.T) {
 	// A template edit: the templates layer, and docs, which mentions templates.
 	check("template edit", func() {
 		appendTo(t, root, "assets/templates/home.templ", "\ntempl Banner() {\n\t<p>hi</p>\n}\n")
-	}, "templates", "docs", "findings")
+	}, "templates", "docs", "externals", "findings")
 	wantIDs(t, "the new template", gizmoIDs(t, h, `g.V(g.IRI('tmpl:assets/templates.Banner')).Out(g.IRI('name')).All()`), "Banner")
 
 	// A config edit: config, and docs, which mentions keys.
 	check("env.yml edit", func() {
-		appendTo(t, root, "config/env.yml", "\ncache:\n  ttl: ${FIXTURE_CACHE_TTL:60}\n")
+		appendTo(t, root, "env.yml", "\ncache:\n  ttl: ${FIXTURE_CACHE_TTL:60}\n")
 	}, "config", "docs", "findings")
 	wantIDs(t, "the new key", gizmoIDs(t, h, `g.V(g.IRI('cfg:cache.ttl')).Out(g.IRI('default')).All()`), "60")
 
@@ -139,7 +139,7 @@ func TestRefreshRebuildsOnlyStaleLayers(t *testing.T) {
 	// A Go source edit: the code layer and everything that resolves against it.
 	check("go edit", func() {
 		appendTo(t, root, "business/actions/hello.go", "\n// Bye says goodbye.\nfunc Bye() string { return \"bye\" }\n")
-	}, "code", "routes", "templates", "config", "mcp", "db", "docs", "findings")
+	}, "code", "routes", "templates", "config", "mcp", "db", "docs", "externals", "findings")
 	wantIDs(t, "the new function", gizmoIDs(t, h, `g.V(g.IRI('func:business/actions.Bye')).Out(g.IRI('doc')).All()`), "Bye says goodbye.")
 
 	// The layers that did not run kept their own records.
@@ -201,7 +201,7 @@ func TestRefreshDoesNotRetryAFailedLayerUntilItsInputsChange(t *testing.T) {
 	}
 	good := nquads(t, storedLabel(t, h, "config"))
 
-	appendTo(t, root, "config/env.yml", "\nbroken: [unclosed\n")
+	appendTo(t, root, "env.yml", "\nbroken: [unclosed\n")
 	rep, err := ix.Refresh(ctx)
 	if err != nil || rep == nil {
 		t.Fatal(rep, err)
@@ -229,7 +229,7 @@ func TestRefreshDoesNotRetryAFailedLayerUntilItsInputsChange(t *testing.T) {
 	}
 
 	// Fixing the input heals it on the next Refresh.
-	if err := os.WriteFile(filepath.Join(root, "config/env.yml"), []byte("env: ${APP_ENV:local}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "env.yml"), []byte("env: ${APP_ENV:local}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rep, err = ix.Refresh(ctx)

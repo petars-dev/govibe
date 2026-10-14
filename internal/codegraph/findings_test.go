@@ -199,6 +199,7 @@ func TestLayerVerdict(t *testing.T) {
 		{"storage", "support"}, {"storage", "storage"},
 		{"wiring", "storage"}, {"wiring", "controllers"}, {"dev", "storage"}, {"dev", "business"},
 		{"middleware", "support"}, {"views", "views"},
+		{"commands", "business"}, {"commands", "support"}, {"wiring", "commands"},
 	}
 	for _, p := range allowed {
 		if why := layerVerdict(p[0], p[1]); why != "" {
@@ -209,6 +210,7 @@ func TestLayerVerdict(t *testing.T) {
 		{"controllers", "storage"}, {"middleware", "storage"}, {"views", "storage"}, {"support", "storage"},
 		{"storage", "business"}, {"storage", "controllers"}, {"storage", "wiring"},
 		{"business", "controllers"}, {"business", "middleware"}, {"business", "views"}, {"business", "wiring"}, {"business", "dev"},
+		{"commands", "storage"}, {"business", "commands"}, {"storage", "commands"},
 	}
 	for _, p := range forbidden {
 		if layerVerdict(p[0], p[1]) == "" {
@@ -229,7 +231,7 @@ func TestStaleReferenceClassification(t *testing.T) {
 	cx, _ := w.configIndex()
 	dm, _ := w.dbModel()
 	sc, _ := w.docScan()
-	rs := newResolver(w.root, sc, ci, rt, ti, cx, dm)
+	rs := newResolver(w.root, mustProfile(t, w), sc, ci, rt, ti, cx, dm)
 
 	for _, tok := range []string{
 		"legacy/handler.go",       // a removed directory
@@ -299,7 +301,7 @@ func readFile(t *testing.T, root, rel string) string {
 
 func TestFindingNodesAreWellFormed(t *testing.T) {
 	h, _ := fixtureStore(t)
-	graphcheck.Check(t, h, graphcheck.Options{Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "findings"}})
+	graphcheck.Check(t, h, graphcheck.Options{Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "externals", "findings"}})
 	for _, q := range storedLabel(t, h, "findings") {
 		if q.Label != quad.Value(LayerLabel("findings")) {
 			t.Errorf("a finding quad outside its layer: %v", q)

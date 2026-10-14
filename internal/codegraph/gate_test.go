@@ -106,7 +106,7 @@ func TestBaselineRoundTrip(t *testing.T) {
 	if err != nil || len(errs) != 1 {
 		t.Fatalf("%v %v", errs, err)
 	}
-	if n, err := WriteBaseline(path, append(errs, FindingRef{ID: "finding:a:b", Rule: "a", Severity: "high", Message: "m"})); err != nil || n != 2 {
+	if n, err := WriteBaseline(path, append(errs, FindingRef{ID: "finding:a:b", Rule: "a", Severity: "high", Message: "m"}), "known, fixed in the next release"); err != nil || n != 2 {
 		t.Fatalf("write: %d %v", n, err)
 	}
 	ids, err := ReadBaseline(path)
@@ -135,5 +135,98 @@ func TestBaselineRoundTrip(t *testing.T) {
 	}
 	if _, err := AtOrAbove(nil, "x"); err == nil {
 		t.Error("AtOrAbove checks the severity")
+	}
+}
+
+func TestBaselineEntriesSayWhy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline.json")
+	a := FindingRef{ID: "finding:a:one", Rule: "a", Severity: "error", Message: "m1"}
+	b := FindingRef{ID: "finding:a:two", Rule: "a", Severity: "error", Message: "m2"}
+
+	// A new entry needs a reason, and nothing is written without one.
+	if _, err := WriteBaseline(path, []FindingRef{a}, "  "); err == nil || !strings.Contains(err.Error(), "--reason") || !strings.Contains(err.Error(), a.ID) {
+		t.Fatalf("a finding with no reason: %v", err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("a refused write left a file behind")
+	}
+
+	if _, err := WriteBaseline(path, []FindingRef{a}, "legacy handler, being replaced"); err != nil {
+		t.Fatal(err)
+	}
+	bl, err := LoadBaseline(path)
+	if err != nil || len(bl.Entries) != 1 || bl.Entries[0].Reason != "legacy handler, being replaced" {
+		t.Fatalf("%+v %v", bl, err)
+	}
+	if d := bl.Entries[0].Date; len(d) != 10 || d[4] != '-' {
+		t.Errorf("date = %q, want YYYY-MM-DD", d)
+	}
+	first := bl.Entries[0]
+
+	// Accepting one more keeps the first one's reason and date; the new one takes the new reason.
+	if _, err := WriteBaseline(path, []FindingRef{a, b}, "accepted with the release plan"); err != nil {
+		t.Fatal(err)
+	}
+	bl, _ = LoadBaseline(path)
+	if len(bl.Entries) != 2 || bl.Entries[0] != first || bl.Entries[1].Reason != "accepted with the release plan" {
+		t.Errorf("an update rewrote what was already accepted: %+v", bl.Entries)
+	}
+	// Rewriting with nothing new needs no reason, and drops what was fixed.
+	if _, err := WriteBaseline(path, []FindingRef{b}, ""); err != nil {
+		t.Fatalf("nothing new, nothing to explain: %v", err)
+	}
+	if bl, _ = LoadBaseline(path); len(bl.Entries) != 1 || bl.Entries[0].ID != b.ID {
+		t.Errorf("fixed entries are dropped: %+v", bl.Entries)
+	}
+}
+
+func TestAnEntryWithoutAReasonFailsTheGate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline.json")
+	if err := os.WriteFile(path, []byte(`{"findings":[{"id":"`+fixtureViolation+`","reason":"x"},{"id":"finding:a:b"},{"id":"finding:c:d","reason":"  "}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bl, err := LoadBaseline(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(bl.WithoutReason(), ","); got != "finding:a:b,finding:c:d" {
+		t.Fatalf("without a reason: %s", got)
+	}
+	m := fixtureGraph(t)
+	res, err := m.Gate(GateOptions{FailOn: "error", Baseline: bl.Accepted(), NoReason: bl.WithoutReason()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.New) != 0 || !res.Failed() || len(res.NoReason) != 2 {
+		t.Errorf("the findings are all accepted, but two entries say no why: %+v", res)
+	}
+	// With every reason given the same baseline passes.
+	res, _ = m.Gate(GateOptions{FailOn: "error", Baseline: bl.Accepted()})
+	if res.Failed() {
+		t.Errorf("%+v", res)
+	}
+	// And a gate that is not gating does not look at reasons.
+	if res, _ = m.Gate(GateOptions{FailOn: "none", NoReason: bl.WithoutReason()}); res.Failed() {
+		t.Errorf("fail-on none never fails: %+v", res)
+	}
+}
+
+// An entry from before reasons were required has none: updating the baseline is how it gets one.
+func TestUpdatingTheBaselineFillsEntriesThatHaveNoReason(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline.json")
+	if err := os.WriteFile(path, []byte(`{"findings":[{"id":"finding:a:one","rule":"a","severity":"error","message":"m"},{"id":"finding:a:two","rule":"a","severity":"error","message":"m","reason":"kept","date":"2026-01-02"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := FindingRef{ID: "finding:a:one", Rule: "a", Severity: "error", Message: "m"}
+	b := FindingRef{ID: "finding:a:two", Rule: "a", Severity: "error", Message: "m"}
+	if _, err := WriteBaseline(path, []FindingRef{a, b}, ""); err == nil || !strings.Contains(err.Error(), a.ID) || strings.Contains(err.Error(), b.ID) {
+		t.Fatalf("the entry with no reason is the one that needs it: %v", err)
+	}
+	if _, err := WriteBaseline(path, []FindingRef{a, b}, "legacy, tracked in the backlog"); err != nil {
+		t.Fatal(err)
+	}
+	bl, _ := LoadBaseline(path)
+	if len(bl.WithoutReason()) != 0 || bl.Entries[0].Reason != "legacy, tracked in the backlog" || bl.Entries[1].Reason != "kept" || bl.Entries[1].Date != "2026-01-02" {
+		t.Errorf("%+v", bl.Entries)
 	}
 }

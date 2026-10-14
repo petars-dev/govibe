@@ -111,7 +111,8 @@ func TestDevGraphReportsOnThisRepo(t *testing.T) {
 	}
 
 	// routes: the route's row is the anchor Links() points at; its handler opens in the editor
-	_, body, _ := get(t, h, "/dev/graph/reports/routes")
+	// (the route is the framework's by its path, and this repository is both: ask for everything)
+	_, body, _ := get(t, h, "/dev/graph/reports/routes?scope=all")
 	for _, want := range []string{
 		`id="` + codegraph.Anchor("route:GET:/_govibe/static/htmx.min.js") + `"`, "web.ServeHTMX",
 	} {
@@ -166,7 +167,7 @@ func TestDevGraphReportsOnThisRepo(t *testing.T) {
 func TestDevGraphReportsOnTheFixtureEscapeAndNeverLeakSecrets(t *testing.T) {
 	root := copyTree(t, codegraphFixture)
 	// A default that would break out of the page if it were not escaped.
-	env := filepath.Join(root, "config/env.yml")
+	env := filepath.Join(root, "env.yml")
 	b, _ := os.ReadFile(env)
 	if err := os.WriteFile(env, append(b, []byte("\nweb:\n  banner: ${FIXTURE_BANNER:<b>bold</b><script>alert(1)</script>}\n")...), 0o644); err != nil {
 		t.Fatal(err)
@@ -245,7 +246,7 @@ func TestDevGraphReportsRefreshStaleLayers(t *testing.T) {
 	if _, body, _ := get(t, h, "/dev/graph/reports/config"); strings.Contains(body, "cache.ttl") {
 		t.Fatal("the key exists before it was written")
 	}
-	env := filepath.Join(root, "config/env.yml")
+	env := filepath.Join(root, "env.yml")
 	b, _ := os.ReadFile(env)
 	if err := os.WriteFile(env, append(b, []byte("\ncache:\n  ttl: ${FIXTURE_CACHE_TTL:60}\n")...), 0o644); err != nil {
 		t.Fatal(err)
@@ -273,7 +274,7 @@ func TestEditorHrefOnlyLetsEditorLinksThrough(t *testing.T) {
 // With the call graph on, the routes report lists the tables each route reaches.
 func TestRoutesReportShowsTablesWhenCallsAreIndexed(t *testing.T) {
 	h, _ := reportsRouter(t, thisRepo, codegraph.Options{Router: thisRepoRouter(), Calls: true}, true)
-	code, body, _ := get(t, h, "/dev/graph/reports/routes")
+	code, body, _ := get(t, h, "/dev/graph/reports/routes?scope=all")
 	if code != http.StatusOK || !strings.Contains(body, "<th>Tables reached</th>") {
 		t.Fatalf("%d: %.600s", code, mainOf(body))
 	}
@@ -281,7 +282,7 @@ func TestRoutesReportShowsTablesWhenCallsAreIndexed(t *testing.T) {
 		t.Errorf("the htmx route reaches no table: %.800s", mainOf(body))
 	}
 	h, _ = reportsRouter(t, thisRepo, codegraph.Options{Router: thisRepoRouter()}, true)
-	if _, body, _ := get(t, h, "/dev/graph/reports/routes"); strings.Contains(body, "Tables reached") {
+	if _, body, _ := get(t, h, "/dev/graph/reports/routes?scope=all"); strings.Contains(body, "Tables reached") {
 		t.Error("no call graph, no column")
 	}
 }

@@ -43,7 +43,7 @@ func TestRoutesResolveHandlersCompiledInAnotherCheckoutWithARootHint(t *testing.
 		}}, nil
 	}
 	handled := func(opts Options) bool {
-		opts.routeSource = routes
+		opts.RouteSource = routes
 		out := buildLayer(t, newTestWorld(t, fixtureRoot, opts), routesLayer{})
 		for _, q := range out.quads {
 			if hintIRI(q.Subject) == "route:GET:/api/hello" && hintIRI(q.Predicate) == "handled_by" {

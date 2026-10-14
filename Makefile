@@ -14,7 +14,7 @@ DEV_TAGS := govibe_dev
 AIR_BIN ?= $(shell go env GOPATH)/bin/air
 TEMPL_BIN ?= $(shell go env GOPATH)/bin/templ
 
-.PHONY: dev run build tidy templ test test-dev check cli cli-generate graph-index graph-check graph-check-app air air-build docs
+.PHONY: dev run build tidy templ test test-dev check cli cli-generate graph-index graph-check graph-check-app air air-build docs docs-embed
 
 tidy:
 	go mod tidy
@@ -82,3 +82,8 @@ air-build:
 	@[ -x "$(TEMPL_BIN)" ] || go install github.com/a-h/templ/cmd/templ@latest
 	cd $(APP_DIR) && "$(TEMPL_BIN)" generate
 	GO111MODULE=on go build -tags $(DEV_TAGS) -o tmp/hello-dev ./$(APP_DIR)
+
+# The framework docs an app serves under /dev/docs/govibe are copies of docs/public made for
+# go:embed; a test fails when one is stale.
+docs-embed:
+	go generate ./internal/frameworkdocs

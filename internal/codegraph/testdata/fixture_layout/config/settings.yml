@@ -1,0 +1,5 @@
+shop:
+  # Overrides the base file's default.
+  currency: ${SHOP_CURRENCY:BGN}
+  # Declared and never read: the profile switches config.unused off.
+  region: eu

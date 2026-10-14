@@ -35,6 +35,9 @@ type Inspector struct {
 	Findings []FindingRef `json:"findings"`
 	Links    []Link       `json:"links"`
 	AsOf     string       `json:"as_of"`
+	// Uses is one line of text for what the node connects to in the other scope,
+	// which the scope hides ("uses framework: web, config"): text, not nodes.
+	Uses string `json:"uses,omitempty"`
 }
 
 // maxGroupNodes bounds how many nodes of one predicate the inspector lists.
@@ -52,7 +55,7 @@ func (m *Model) Inspect(ref string, o LinkOptions) (*Inspector, error) {
 	in := &Inspector{
 		Node: m.Ref(n), Label: viewLabel(m, n), Summary: m.summary(n),
 		Attrs: []Attr{}, Out: []EdgeGroup{}, In: []EdgeGroup{}, Findings: []FindingRef{},
-		Links: m.Links(n, o), AsOf: m.AsOf(),
+		Links: m.Links(n, o), AsOf: m.AsOf(), Uses: m.usesText(n.ID),
 	}
 
 	names := make([]string, 0, len(n.Attrs))
@@ -154,12 +157,16 @@ type Status struct {
 	Freshness Freshness     `json:"freshness"`
 	Findings  FindingCounts `json:"findings"`
 	Notes     []string      `json:"notes,omitempty"`
+	// Scope is whose nodes the page shows, and Hidden what that leaves out: the banner
+	// always says both.
+	Scope  Scope  `json:"scope"`
+	Hidden Hidden `json:"hidden"`
 }
 
 // Status summarises how fresh the graph is and what its findings add up to. stale
 // is what the indexer reports as stale (the caller owns the indexer).
 func (m *Model) Status(stale []string) *Status {
-	s := &Status{Freshness: m.Freshness()}
+	s := &Status{Freshness: m.Freshness(), Scope: m.Scope(), Hidden: m.Hidden()}
 	s.Freshness.StaleLayers = stale
 	if !s.Freshness.Indexed {
 		s.Notes = append(s.Notes, "The graph has not been indexed yet: reindex, or retry in a few seconds after a boot.")
@@ -179,7 +186,7 @@ func (m *Model) Status(stale []string) *Status {
 			}
 		}
 		for _, r := range m.byKind["rule"] {
-			if !r.Bool("checked") {
+			if !r.Bool("checked") && !r.Bool("off") {
 				s.Findings.NotRun = append(s.Findings.NotRun, r.Str("name"))
 			}
 		}

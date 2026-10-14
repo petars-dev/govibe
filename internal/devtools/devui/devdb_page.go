@@ -63,7 +63,7 @@ table.db-grid td.null{color:var(--muted);font-style:italic}
 </head><body class="docs-body">
 <header class="site-header">
 <div class="brand"><a class="brand-link" href="/"><img class="brand-logo" src="/_govibe/static/govibe-logo.png" alt="GoVibe"></a><span class="brand-name">GoVibe Dev DB</span></div>
-<nav class="top-tabs"><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a><a class="tab" href="/dev/graph">Graph</a><a class="tab active" href="/dev/db">DB</a></nav>
+<nav class="top-tabs"><a class="tab" href="/dev">Dev</a><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a><a class="tab" href="/dev/graph">Graph</a><a class="tab active" href="/dev/db">DB</a></nav>
 <div class="header-actions"><a class="btn btn-ghost" href="/">&larr; App</a><button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"><svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zm10.48 0l1.79-1.79 1.41 1.41-1.79 1.8-1.41-1.42zM12 4V1h-1v3h1zm0 19v-3h-1v3h1zm7-11h3v-1h-3v1zm-19 0h3v-1H0v1zm3.55 8.45l1.41 1.41 1.79-1.79-1.41-1.41-1.79 1.79zM18.24 18.24l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM12 7a5 5 0 100 10 5 5 0 000-10z"/></svg><svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button></div>
 </header>
 <div class="db-layout">
@@ -483,7 +483,7 @@ async function runExplain(){
   }catch(e){ renderError(container, e); }
 }
 
-// /dev/db#table=orders opens that table (the graph explorer and its reports link here).
+// /dev/db#table=items opens that table (the graph explorer and its reports link here).
 function openFromHash(){
   var m = /(?:^|[#&])table=([^&]+)/.exec(location.hash || '');
   if(m){ try{ selectTable(decodeURIComponent(m[1].replace(/\+/g, ' '))); }catch(e){} }

@@ -57,7 +57,7 @@ jobs:
           trap 'kill $pid' EXIT
           for i in $(seq 1 50); do curl -fs localhost:18080/api/hello >/dev/null && break; sleep 0.2; done
           [ "$(curl -s localhost:18080/api/hello)" = '{"message":"Hello GoVibe!"}' ]
-          for p in /dev/graph /dev/docs/app /dev/db /dev/mcp /_govibe/static/graph.js /assets/static/graph.js; do
+          for p in /dev /dev/graph /dev/docs /dev/docs/app /dev/docs/govibe/guide /dev/db /dev/mcp /_govibe/static/graph.js /assets/static/graph.js; do
             code=$(curl -s -o /dev/null -w '%{http_code}' "localhost:18080$p")
             [ "$code" = 404 ] || { echo "$p answered $code, want 404"; exit 1; }
           done
@@ -100,3 +100,15 @@ jobs:
           [ "$handler" = "func:controllers.HelloAPI" ] || { echo "GET /api/hello did not resolve to func:controllers.HelloAPI (got '$handler')"; exit 1; }
           findings=$(curl -s localhost:18081/dev/graph/data/findings | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["findings"]))')
           [ "$findings" = 0 ] || { echo "the reference app has $findings finding(s) in its own panel"; curl -s localhost:18081/dev/graph/data/findings; exit 1; }
+          # The panel is about the app: the graph, the findings and the agent tools default to the app's own
+          # scope, and the framework is one switch away, labelled (acceptance A3, A8 and A10).
+          schema=$(ask graph_schema '{}')
+          echo "$schema" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["scope"]=="app" and d["app"]["name"]=="hello" and d["framework"]["version"], d["app"]'
+          app_mw=$(ask graph_context '{"route":"GET /api/hello"}' | python3 -c 'import sys,json; print(len(json.load(sys.stdin).get("middleware") or []))')
+          [ "$app_mw" = 0 ] || { echo "the app scope shows the framework middleware"; exit 1; }
+          ask graph_context '{"route":"GET /api/hello","scope":"all"}' | python3 -c 'import sys,json; d=json.load(sys.stdin); assert [m["origin"] for m in d["middleware"]] and all(m["origin"]=="framework" for m in d["middleware"]), d["middleware"]'
+          curl -s localhost:18081/dev/graph/data/view | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["preset"]=="app_map" and d["scope"]=="app"; assert not [n for n in d["nodes"] if n["origin"]!="app" or n["label"].startswith("GET /dev") or n["kind"]=="external"], d["nodes"]'
+          curl -s "localhost:18081/dev/graph/data/view?scope=all" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert [n for n in d["nodes"] if n["origin"]=="framework"]'
+          [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:18081/dev)" = 200 ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:18081/dev/docs/govibe/guide)" = 200 ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:18081/dev/docs/govibe-specs)" = 404 ] # the framework's specs are never in an app

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"go/ast"
 	goparser "go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	templparser "github.com/a-h/templ/parser/v2"
@@ -24,9 +26,10 @@ type templIndex struct {
 }
 
 type templFile struct {
-	rel   string
-	dir   string
-	lines int
+	rel     string
+	dir     string
+	lines   int
+	imports []string // import paths of the file: its generated Go imports them, and the code layer does not read that
 }
 
 type templInfo struct {
@@ -104,7 +107,8 @@ func buildTemplIndex(ctx context.Context, sc *scan) (*templIndex, error) {
 			continue
 		}
 		dir := pathDir(sf.rel)
-		ti.files = append(ti.files, &templFile{rel: sf.rel, dir: dir, lines: countLines(src)})
+		tfile := &templFile{rel: sf.rel, dir: dir, lines: countLines(src)}
+		ti.files = append(ti.files, tfile)
 		pkg := strings.TrimSpace(strings.TrimPrefix(tf.Package.Expression.Value, "package"))
 
 		var prevGo *templparser.TemplateFileGoExpression
@@ -112,6 +116,7 @@ func buildTemplIndex(ctx context.Context, sc *scan) (*templIndex, error) {
 			switch x := n.(type) {
 			case *templparser.TemplateFileGoExpression:
 				prevGo = x
+				tfile.imports = append(tfile.imports, goImports(x.Expression.Value)...)
 			case *templparser.HTMLTemplate:
 				name, sig, ok := templateName(x.Expression.Value)
 				if !ok {
@@ -141,6 +146,23 @@ func buildTemplIndex(ctx context.Context, sc *scan) (*templIndex, error) {
 		}
 	}
 	return ti, nil
+}
+
+// goImports lists the import paths in a fragment of Go that begins with import
+// declarations, as a .templ file's header does. Anything that is not an import
+// (a helper function, a comment) ends the list.
+func goImports(code string) []string {
+	f, err := goparser.ParseFile(token.NewFileSet(), "", "package p\n"+code, goparser.ImportsOnly)
+	if err != nil || f == nil {
+		return nil
+	}
+	var out []string
+	for _, imp := range f.Imports {
+		if path, err := strconv.Unquote(imp.Path.Value); err == nil {
+			out = append(out, path)
+		}
+	}
+	return out
 }
 
 // templateName splits a component declaration such as `Layout(title string)` or
@@ -255,12 +277,20 @@ func (templatesLayer) build(ctx context.Context, w *world) (*layerOutput, error)
 	}
 
 	set := newQuadSet("templates")
+	mods := w.modules()
 	for _, f := range ti.files {
 		id := fileID(f.rel)
 		set.add(id, PredType, KindFile)
 		set.str(id, PredName, filepath.Base(f.rel))
 		set.str(id, PredPath, f.rel)
 		set.num(id, PredLines, f.lines)
+		// The Go a template compiles to is not indexed, so what it takes from the
+		// framework (web.HTMXScript, web.IfDev) is read from its imports.
+		for _, imp := range f.imports {
+			if mods.isFramework(imp) {
+				set.add(id, PredImportsExt, mods.pkgRef(imp))
+			}
+		}
 	}
 	for _, t := range ti.templates {
 		set.add(t.id, PredType, KindTemplate)

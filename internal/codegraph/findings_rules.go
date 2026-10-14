@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/cayleygraph/quad"
+
+	"github.com/petars-dev/govibe/internal/rules"
 )
 
 // The rules. Each reads the model and lists what is wrong; the engine in
@@ -37,6 +39,68 @@ func checkLayering(e *ruleEnv) []finding {
 		}
 	}
 	return out
+}
+
+// --- framework imports ---
+
+// dependsOnFramework is the applicability of the rules about what a project takes from
+// the framework: they have nothing to look at in the framework's own repository, where
+// nothing is external to it.
+func dependsOnFramework(e *ruleEnv) string {
+	if e.ci != nil && e.ci.mods.app == e.ci.mods.framework {
+		return "this project is the framework itself, so nothing it imports is the framework's API"
+	}
+	return ""
+}
+
+// checkFrameworkImport judges every framework package a package, or a .templ file (whose
+// generated Go the code layer does not read), imports against the layer it is in.
+func checkFrameworkImport(e *ruleEnv) []finding {
+	fw := e.ci.mods.framework
+	var out []finding
+	judge := func(from *Node, layer, where string) {
+		for _, ext := range e.m.out(from, "imports_external") {
+			rel, ok := rules.RelativePath(fw, ext.Str("import_path"))
+			if !ok {
+				continue
+			}
+			why := rules.FrameworkImportVerdict(layer, rel, ext.Bool("internal"))
+			if why == "" {
+				continue
+			}
+			f := finding{subject: quad.IRI(from.ID), detail: ext.ID, path: where}
+			place := ""
+			if file, line := e.firstExtImport(from.Str("path"), ext.Str("import_path")); file != "" {
+				f.path, f.line = file, line
+				place = fmt.Sprintf("; imported at %s:%d", file, line)
+			}
+			f.message = fmt.Sprintf("%s imports %s, against the framework-import rule: %s. (%s layer%s.)", where, ext.Str("import_path"), why, layer, place)
+			out = append(out, f)
+		}
+	}
+	for _, p := range e.m.Kind("package") {
+		judge(p, p.Str("arch_layer"), p.Str("path"))
+	}
+	for _, f := range e.m.Kind("file") {
+		if strings.HasSuffix(f.Str("path"), ".templ") {
+			judge(f, e.prof.Classify(pathDir(f.Str("path"))), f.Str("path"))
+		}
+	}
+	return out
+}
+
+// firstExtImport is where a package in dir first imports the external package path.
+func (e *ruleEnv) firstExtImport(dir, importPath string) (string, int) {
+	file, line := "", 0
+	for _, r := range e.ci.extImports {
+		if r.dir != dir || r.name != importPath {
+			continue
+		}
+		if file == "" || r.file < file || (r.file == file && r.line < line) {
+			file, line = r.file, r.line
+		}
+	}
+	return file, line
 }
 
 // --- docs ---
@@ -93,7 +157,9 @@ func checkSpecMissing(e *ruleEnv) []finding {
 func checkRouteUndocumented(e *ruleEnv) []finding {
 	var out []finding
 	for _, r := range e.m.Kind("route") {
-		if r.Bool("dev_only") || len(r.In["mentions"])+len(r.In["covers"]) > 0 {
+		// The framework's routes (the dev panel, its static files) are documented by the
+		// framework, not by the project that happens to run it.
+		if r.Bool("dev_only") || r.Str("origin") == OriginFramework || len(r.In["mentions"])+len(r.In["covers"]) > 0 {
 			continue
 		}
 		f := finding{subject: quad.IRI(r.ID), message: fmt.Sprintf("No doc or spec mentions %s %s. Say what it is for in docs/public/ARCHITECTURE.md or the spec that owns it.", r.Str("method"), r.Str("path"))}
@@ -133,6 +199,15 @@ func readersOf(nodes []*Node) []*Node {
 	return nodes
 }
 
+// settingsFile names the project's own settings file, the last the profile lists: where an
+// undeclared setting should be declared.
+func (e *ruleEnv) settingsFile() string {
+	if e.prof != nil && len(e.prof.Config) > 0 {
+		return e.prof.Config[len(e.prof.Config)-1]
+	}
+	return "env.yml"
+}
+
 func checkConfigUndeclared(e *ruleEnv) []finding {
 	var out []finding
 	for _, n := range e.m.Kind("config_key") {
@@ -140,7 +215,7 @@ func checkConfigUndeclared(e *ruleEnv) []finding {
 			continue
 		}
 		readers := readersOf(e.m.in(n, "uses_config"))
-		f := finding{subject: quad.IRI(n.ID), message: fmt.Sprintf("Config key %s is read by %s but config/env.yml does not declare it. Declare it there as ${ENV:default} (SKILL.md), so it can be found and overridden.", n.Str("name"), e.names(readers, 3))}
+		f := finding{subject: quad.IRI(n.ID), message: fmt.Sprintf("Config key %s is read by %s but %s does not declare it. Declare it there as ${ENV:default} (SKILL.md), so it can be found and overridden.", n.Str("name"), e.names(readers, 3), e.settingsFile())}
 		if len(readers) > 0 {
 			f.path, f.line = e.where(readers[0])
 		}
@@ -151,7 +226,7 @@ func checkConfigUndeclared(e *ruleEnv) []finding {
 			continue
 		}
 		readers := readersOf(e.m.in(n, "reads_env"))
-		f := finding{subject: quad.IRI(n.ID), message: fmt.Sprintf("Environment variable %s is read by %s but config/env.yml does not declare it. Declare it there (SKILL.md prefers config over ad-hoc env lookups).", n.Str("name"), e.names(readers, 3))}
+		f := finding{subject: quad.IRI(n.ID), message: fmt.Sprintf("Environment variable %s is read by %s but %s does not declare it. Declare it there (SKILL.md prefers config over ad-hoc env lookups).", n.Str("name"), e.names(readers, 3), e.settingsFile())}
 		if len(readers) > 0 {
 			f.path, f.line = e.where(readers[0])
 		}
@@ -163,10 +238,10 @@ func checkConfigUndeclared(e *ruleEnv) []finding {
 func checkConfigUnused(e *ruleEnv) []finding {
 	var out []finding
 	for _, n := range e.m.Kind("config_key") {
-		if declaredFalse(n) || len(n.In["uses_config"]) > 0 {
-			continue
+		if declaredFalse(n) || len(n.In["uses_config"]) > 0 || n.Str("origin") == OriginFramework || n.Bool("framework_key") {
+			continue // a framework setting (or the application's override of one) is the framework's to read
 		}
-		msg := fmt.Sprintf("Config key %s is declared in config/env.yml but no code reads it", n.Str("name"))
+		msg := fmt.Sprintf("Config key %s is declared in %s but no code reads it", n.Str("name"), e.settingsFile())
 		if env := e.m.out(n, "reads_env"); len(env) > 0 {
 			msg += " (environment variable " + env[0].Str("name") + ")"
 		}

@@ -5,7 +5,12 @@ inserted, how nodes are named, and how to query them. The plan lives in
 [SPEC_GRAPH_INDEXER](/dev/docs/specs/graph-indexer); this file is the reference the indexer, its tests,
 and agents work from.
 
-> **Status: Phase 6 (depth).** Every boot, every `POST /dev/graph/reindex`, and
+> **Status: framework extraction, Phase 3 (the app's own graph), on top of Phase 6 (depth).** The graph is about the
+> project it indexes: its own nodes are the default, what it takes from the framework it is built on is labelled
+> (`origin`, [Origin and scope](#origin-and-scope)), and where the project keeps things comes from its
+> [profile](#the-project-profile) (`govibe.yml`), not from constants.
+>
+> **Phase 6 (depth).** Every boot, every `POST /dev/graph/reindex`, and
 > (for stale layers only) every `/dev/graph` page load, data call and `graph_query` call fills the store
 > with the `code`, `routes`, `templates`, `config`, `mcp`, `db`, `docs` and `findings` layers plus the
 > `meta` layer: packages, files, functions, types and imports; routes, middleware and their handlers; templ
@@ -95,7 +100,7 @@ run) and **opaque**: never parse one, follow edges and attributes instead.
 | Kind | `type` object | ID | Example | Owner layer | Phase |
 | --- | --- | --- | --- | --- | --- |
 | package | `kind:package` | `pkg:<dir>` | `pkg:business/actions` | code | 1 |
-| file | `kind:file` | `file:<path>` | `file:controllers/orders.go`, `file:assets/templates/home.templ` | code (`.go`), templates (`.templ`) | 1, 2 |
+| file | `kind:file` | `file:<path>` | `file:controllers/items.go`, `file:assets/templates/home.templ` | code (`.go`), templates (`.templ`) | 1, 2 |
 | function, method | `kind:func` | `func:<dir>.<Name>` or `func:<dir>.<Recv>.<Name>` | `func:controllers.HelloAPI` | code | 1 |
 | type | `kind:type` | `typ:<dir>.<Name>` | `typ:internal/dbexplorer.Explorer` | code | 1 |
 | build | `kind:build` | `build:latest` | `build:latest` | meta | 1 |
@@ -109,13 +114,14 @@ run) and **opaque**: never parse one, follow edges and attributes instead.
 | doc | `kind:doc` | `doc:<path>` | `doc:docs/public/ARCHITECTURE.md`, `doc:README.md` | docs | 2 |
 | spec | `kind:spec` | `spec:<slug>`: `docs/specs/SPEC_<NAME>.md` becomes the slug of `<NAME>`, the same slug `/dev/docs/specs/<slug>` uses | `spec:graph-indexer` | docs | 2 |
 | spec item | `kind:spec_item` | `item:<spec slug>/<slug of the Item cell>`, at most 60 characters, `-2`, `-3` on a repeat | `item:graph-indexer/indexer-core-code-layer` | docs | 2 |
-| table | `kind:table` | `table:<name>` | `table:orders` | db | 3 |
-| column | `kind:column` | `col:<table>.<column>` | `col:orders.user_id` | db | 3 |
-| index | `kind:index` | `idx:<table>.<name>`; the primary key is `idx:<table>.PRIMARY` | `idx:orders.ix_orders_user` | db | 3 |
+| table | `kind:table` | `table:<name>` | `table:items` | db | 3 |
+| column | `kind:column` | `col:<table>.<column>` | `col:items.owner_id` | db | 3 |
+| index | `kind:index` | `idx:<table>.<name>`; the primary key is `idx:<table>.PRIMARY` | `idx:items.ix_items_owner` | db | 3 |
 | migration | `kind:migration` | `mig:<file name without .sql>` (decided: the version alone, `0001`, is not what people call it) | `mig:0001_init` | db | 3 |
 | annotation | `kind:annotation` | `ann:<12 hex characters>`: a hash of the subject, predicate and object of the inferred edge it describes | `ann:31db341e624c` | db, calls, git | 3, 6 |
 | finding | `kind:finding` | `finding:<rule>:<subject id>`, and `#<detail>` when one rule finds several problems on one node (the detail is what tells them apart: the other package of a bad import, the line and text of a stale reference) | `finding:layering:pkg:controllers#pkg:storage/dbexplorer` | findings | 5 |
 | rule | `kind:rule` | `rule:<name>` | `rule:layering` | findings | 5 (new) |
+| external | `kind:external` | `ext:<import path>` for a package, `ext:<import path>.<Name>` for a function (`Recv.Name` for a method), `ext:<framework module>/internal` for everything in the framework's `internal/` | `ext:github.com/petars-dev/govibe/web`, `ext:github.com/petars-dev/govibe/web.JSON` | externals | 3 (framework extraction) |
 
 Go types use `typ:` rather than `type:` so the prefix, the `type` predicate and the `kind:type` object
 are three different IRIs.
@@ -180,6 +186,9 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `calls` | func → func. A plain call (the compiler resolves it) is a bare edge; a call through an interface the module declares is one edge per type that could implement it, each with an annotation (method `interface_dispatch`, `confidence` 80 down to 30, `via` the interface). Calls inside a closure belong to the declared function that contains it | calls | 6 | final |
 | `co_changed_with` | file, doc, spec → file, doc, spec: the other changed in commits that changed this one, in both directions as each end sees it. Always annotated (method `co_change`, `confidence` the percentage of the subject's commits that also touched the object, `together` the number of commits that touched both) | git | 6 | final (new) |
 | `about` | finding → the node at fault (exactly one) | findings | 5 | final |
+| `imports_external` | package, `.templ` file → external package it imports (the framework's public packages; libraries and the standard library are only counted in `external_imports`) | code, templates | 3 (framework extraction) | final |
+| `calls_external` | func → external function or package it calls (the calls layer: a function of the framework's public API, the one leaf for its `internal/`, a library package; never the standard library) | calls | 3 (framework extraction) | final |
+| `handled_by_external` | route → external function that serves it (absent when the handler is the project's own code, or in the standard library) | routes | 3 (framework extraction) | final |
 
 ### Attribute predicates
 
@@ -187,11 +196,16 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | --- | --- | --- | --- |
 | `name` | string: short display name: Go package name, file base name, symbol name (`Recv.Method` for a method), tool name, `latest` for the build | every node | 1 |
 | `doc` | string: first sentence of the godoc (for a template, of the `//` comment directly above it), at most 240 characters | package, func, type, template | 1, 2 |
-| `signature` | string, one line, at most 500 characters. A template is `templ Name(params)`. A func is its declaration without body (`func (s *Service) List(ctx context.Context) ([]Order, error)`); a type is `type Name`, plus `struct`, `interface`, or the underlying type (`type Handler func(string) error`, `type Set[T comparable] struct`) | func, type | 1 |
+| `signature` | string, one line, at most 500 characters. A template is `templ Name(params)`. A func is its declaration without body (`func (s *Service) List(ctx context.Context) ([]Item, error)`); a type is `type Name`, plus `struct`, `interface`, or the underlying type (`type Handler func(string) error`, `type Set[T comparable] struct`) | func, type | 1 |
 | `line` | int: for a func or type its declaration; template: the `templ` line; config key: its line in `env.yml`; MCP tool: the `mcp.AddTool` call; spec item: its row in the markdown | func, type, template, config key, MCP tool, spec item | 1, 2 |
 | `exported` | bool: the name starts with an upper-case letter (a method counts by its own name, not its receiver type's) | func, type | 1 |
 | `path` | string: repo-relative file or directory (for a route: the URL path; for a config key: the settings file that declares it; for a tool, template or spec item: the file that defines it) | package, file, route, template, config key, MCP tool, doc, spec, spec item | 1, 2 |
-| `import_path` | string | package | 1 |
+| `import_path` | string | package, external | 1, 3 |
+| `origin` | string, `app` or `framework`: whose a node is. Written on route (who registered it), middleware, config key, env var, MCP tool and external; every other node was indexed from the project's own tree and is the app's; a finding has the origin of the node it is about. See [Origin and scope](#origin-and-scope) | route, middleware, config key, env var, MCP tool, external | 3 (framework extraction) |
+| `module`, `module_version` | string: the module an external belongs to, and its version in the indexed build (`(devel)` for a local `replace`) | external | 3 (framework extraction) |
+| `internal` | bool: the external is inside the framework's `internal/`, not API | external | 3 (framework extraction) |
+| `off` | bool: the rule is switched off in `govibe.yml`, a choice and not a rule that could not look | rule | 3 (framework extraction) |
+| `app_name`, `app_module`, `framework_module`, `framework_version` | string: what was indexed, and the framework it is built on with its version in this build (`(this repository)` when the project is the framework) | build | 3 (framework extraction) |
 | `arch_layer` | string, see [Package classification](#package-classification) | package | 1 |
 | `lines` | int: number of lines (a final line without a newline counts) | file | 1 |
 | `external_imports` | int: distinct import paths with no package node: the standard library, third-party modules, and module packages the code layer does not index (a package holding only generated `*_templ.go`) | package | 1 |
@@ -236,19 +250,24 @@ are never read.
 
 ### Package classification
 
-`arch_layer` is the architecture layer of a package, from its directory; the first matching row wins.
-It is not an indexer layer despite the shared word.
+`arch_layer` is the architecture layer of a package, from its directory, by the project's [profile](#the-project-profile):
+the layer whose `layout` entry is the longest match (a directory and everything below it; `.` is the root package alone),
+and `support` for a package no entry claims. It is not an indexer layer despite the shared word. The default profile is
+a generated app's layout:
 
 | Directory | `arch_layer` |
 | --- | --- |
 | `controllers/**` | `controllers` |
+| `commands/**` | `commands` |
 | `business/**` | `business` |
 | `storage/**` | `storage` |
 | `middleware/**` | `middleware` |
-| `routes/**`, the module root `.`, `cmd/**`, `internal/kernel/**` | `wiring` |
-| `devmcp/**`, `internal/devtools/**`, `internal/devmcp/**` | `dev` |
+| `routes/**`, the module root `.`, `cmd/**` | `wiring` |
 | `assets/**` | `views` |
-| anything else (`config`, `web`, `internal/migrate`, `internal/codegraph`, …) | `support` |
+| anything else (`config`, packages under `internal/`, ...) | `support` |
+
+The framework's own repository overrides it in its `govibe.yml` (`internal/kernel` is `wiring`; `internal/devtools` and `internal/devmcp` are `dev`), and a
+project with another layout says so there. The rule itself is data (`internal/rules`).
 
 The layering rule (final since Phase 5, `layering.go`, and the one thing the `layering` findings, the
 architecture overview and the layers report all read): SKILL.md's two constraints written as data, plus what
@@ -256,10 +275,10 @@ they imply.
 
 | A package of layer | must not import | Because |
 | --- | --- | --- |
-| `controllers`, `middleware`, `views`, `support` | `storage` | only business actions and services may call storage |
-| `business` | `controllers`, `middleware`, `views`, `wiring`, `dev` | business logic does not depend on the HTTP layer or on wiring |
+| `controllers`, `commands`, `middleware`, `views`, `support` | `storage` | only business actions and services may call storage |
+| `business` | `controllers`, `commands`, `middleware`, `views`, `wiring`, `dev` | business logic does not depend on the HTTP layer, on commands (the CLI twin of a controller) or on wiring |
 | `storage` | everything but `storage` and `support` | storage is the lowest layer |
-| `wiring`, `dev` | nothing | they assemble the application: this is the allow-list (`routes`, `main`, `cmd`, `internal/kernel`, `devmcp`, `internal/devtools`) |
+| `wiring`, `dev` | nothing | they assemble the application: this is the allow-list (`routes`, `main`, `cmd`, and in the framework's repository `internal/kernel`, `internal/devmcp`, `internal/devtools`) |
 
 A package a controller (or a middleware) uses to reach storage is therefore a finding, whatever it is used
 for. (This repository has none: the dev stack's controllers live in `internal/devtools/devui`, a `dev` package, and the stores they read are `support` packages of the framework.)
@@ -272,10 +291,11 @@ for. (This repository has none: the dev stack's controllers live in `internal/de
 | meta | `layer:meta` | build, layer run | the indexer itself | 1 | **implemented** |
 | routes | `layer:routes` | route, middleware | the live chi router, walked at runtime | 2 | **implemented** |
 | templates | `layer:templates` | template, `.templ` file | `templ/parser/v2` | 2 | **implemented** |
-| config | `layer:config` | config key, env var | the settings files (`env.yml`, `config/defaults.yml`) and the code index | 2 | **implemented** |
-| mcp | `layer:mcp` | MCP tool | `mcp.AddTool` calls, from the code index | 2 | **implemented** |
-| docs | `layer:docs` | doc, spec, spec item | goldmark over `docs/public`, `docs/specs`, `README.md`, `SKILL.md` | 2 | **implemented** |
-| db | `layer:db` | table, column, index, migration, annotation | the migrations in `storage/migrations/sql`, merged with the live database's schema when one is configured | 3 | **implemented** |
+| config | `layer:config` | config key, env var | the settings files the profile lists (`env.yml` by default; the framework's repository lists `config/defaults.yml`), the framework's manifest (its settings, origin `framework`), and the code index. With no settings file the layer is `skipped`, not empty | 2, 3 | **implemented** |
+| mcp | `layer:mcp` | MCP tool | `mcp.AddTool` calls, from the code index, and the framework's own tools from its manifest (origin `framework`) | 2, 3 | **implemented** |
+| docs | `layer:docs` | doc, spec, spec item | goldmark over the profile's doc directories (`docs/public`, `docs/specs`) and root docs (`README.md`, `SKILL.md`) | 2 | **implemented** |
+| db | `layer:db` | table, column, index, migration, annotation | the migrations in the profile's migrations directory (`storage/migrations/sql`), merged with the live database's schema when one is configured | 3 | **implemented** |
+| externals | `layer:externals` | external | the indexes of the layers that point at externals: the project's imports of the framework (from Go and from `.templ` headers), what serves its routes, and, with `calls` on, what it calls. The module table comes from the running binary (`inspect --json`) or `go.mod` | 3 (framework extraction) | **implemented** |
 | findings | `layer:findings` | finding, rule | derived from the other layers (it reads what they wrote) | 5 | **implemented** |
 | calls | `layer:calls` | (`calls` edges, and the annotations of the ones through an interface) | `golang.org/x/tools/go/packages`: the module, type-checked | 6, opt-in | **implemented** |
 | git | `layer:git` | (file, doc and spec attributes, `co_changed_with` edges and their annotations) | `git log` | 6, opt-in | **implemented** |
@@ -298,15 +318,17 @@ calls), so nothing is parsed twice. A layer points only at nodes it can resolve 
 
 | Layer | Depends on | Own inputs (what its fingerprint covers) |
 | --- | --- | --- |
+| every layer | | `govibe.yml` (the profile) |
 | code | | every indexed `.go` file, and `go.mod` |
 | routes | code | the route table: method, path, handler and middleware identity of every route |
 | templates | code | every `.templ` file |
-| config | code | `env.yml`, `config/defaults.yml` |
+| config | code | the settings files the profile lists |
 | mcp | code | none (it reads the code index) |
-| db | code | every `.sql` under `storage/migrations/sql`, and the live schema (see below) |
+| db | code | every `.sql` under the profile's migrations directory, and the live schema (see below) |
 | docs | code, routes, templates, config, mcp, db | `README.md`, `SKILL.md`, every `.md` under `docs/public` and `docs/specs`, and whether each file those documents name is on disk (see below) |
 | calls (opt-in) | code | `go.sum` (type-checking reads the Go sources the code layer stands for, and the dependencies' checksums) |
 | git (opt-in) | code, templates, docs | the commit `HEAD` points at, and whether the clone is shallow (the work tree is not part of the history) |
+| externals | code, routes, templates, calls | none: it is built from those layers' indexes, so it is stale whenever one is |
 | findings | every layer above | none: the rules read what the other layers wrote, so it is stale whenever any of them is |
 
 A layer's fingerprint (16 hex characters, on `layer:<name>`) hashes its own inputs (path, mtime, size)
@@ -470,8 +492,8 @@ ones marked implemented.
     at 95, and below 50 nothing is emitted. The best candidate wins. It is emitted for the column and for
     its table.
   - `many_to_many` (method `junction_pk`, confidence 90): a table with two single-column foreign keys to two
-    different tables whose columns together are exactly its primary key, e.g. `order_items` between `orders`
-    and `products`; or (`junction_unique`, 70) exactly a unique index. Emitted in both directions, with
+    different tables whose columns together are exactly its primary key, e.g. `item_tags` between `items`
+    and `tags`; or (`junction_unique`, 70) exactly a unique index. Emitted in both directions, with
     `via` the junction table.
   - A foreign key's `cardinality` (not inferred; derived from the keys the schema declares).
 - *Code and schema:* `reads_table` and `writes_table` come from the SQL a function uses. The code layer
@@ -481,7 +503,7 @@ ones marked implemented.
   `TRUNCATE` write; `INSERT ... SELECT ... FROM` does both; comma joins, aliases, subqueries and
   `schema.table` work, and only names that are real tables count. `maps_to` joins a struct to the table
   whose columns include every `db:"col"` tag of its fields: the one table that fits, or, when several do,
-  the one the type's name points at (`Order` to `orders`, `OrderItem` to `order_items`); a struct that fits
+  the one the type's name points at (`Item` to `items`, `ItemTag` to `item_tags`); a struct that fits
   several tables and is named for none of them maps to nothing. Not seen: SQL built at run time
   (`"SELECT * FROM " + table`, `fmt.Sprintf`), SQL held in a package-level map or struct, and SQL outside
   `storage` and `business`. The route-to-table path needs the opt-in `calls` layer (see [the Phase 6
@@ -517,7 +539,7 @@ when both ends are functions the code layer indexed:
   Interfaces the module does not declare (`error`, `io.Reader`, `http.Handler`) are not expanded: nothing in
   the module is worth linking to.
 - A closure has no node, so a call inside one belongs to the declared function that contains it, as a
-  handler closure's route does. A handler factory `ListOrders(svc)` therefore calls whatever the handler
+  handler closure's route does. A handler factory `ListItems(svc)` therefore calls whatever the handler
   it returns calls.
 - A pair that is called both ways is stored once, as the surer evidence (the plain call). A function that
   calls itself has no edge to itself.
@@ -538,6 +560,57 @@ with the percentage and the commit count; the relation is directional (`a.go` ch
 of its commits does not mean the reverse). Authors' addresses are used to count people and are not stored, and
 a path git quotes is left out. In a shallow clone the layer is `partial` (the history is cut: CI needs
 `fetch-depth: 0`); outside a git work tree, or with no commit yet, it is `skipped` and removes what it wrote.
+
+## Origin and scope
+
+Whose a node is, and what a page or a tool shows by default.
+
+- **Origin.** `origin` (`app` or `framework`) is written on the kinds whose source is not always the project's tree: a route is the framework's when the framework
+  registered it (before the application's `Routes` ran, which only the running process knows: `inspect --json` reports it as `mounted_by`; a path under `/dev` or
+  `/_govibe` is the framework's too), a middleware is the framework's when it is on the framework's own routes or lives in its module, a config key or environment variable is
+  the framework's when only its defaults file (the manifest) declares it, an MCP tool is the framework's when it is served by its dev server, and every external is
+  non-app (the framework's, or a library's). Everything else (packages, files, functions, types, templates, tables, docs, specs) was indexed from the project's own tree and is the app's. A finding has the
+  origin of the node it is about; the build, layer and rule nodes have none and are in every scope. Because the origin is a quad on those kinds, a raw query can filter:
+  `g.V().Has(g.IRI('origin'), 'framework')`.
+- **Scope.** `codegraph.Load(ctx, qs, scope...)` returns the model for a scope, `app` (the default for every page and tool), `framework` or `all` (no scope given is `all`: the
+  findings layer, the gate and the baseline need everything). It is applied once, in the model: nodes of the other origin are dropped, and so is every edge that touches
+  one, so views, reports, findings and agent tools need no logic of their own. The model remembers what it dropped (`Hidden`: counts by origin and kind, and for each kept node the
+  framework nodes it was connected to), which gives the banner's "hides N nodes", the inspector's `uses` line, and the error a lookup of a hidden node returns (`it is a route of the
+  framework, which scope app hides; pass scope=all`). The gate refuses a scoped model. `graph_query`, the Cayley HTTP API and hand-added quads are not scoped: they read quads, not a model.
+- **Labels.** Every node a tool returns (`NodeRef`) carries its `origin`. `graph_schema` states the scope and what it hides, names the application and the framework
+  version, and, for a scope other than `all`, leaves out the run's quad counts (they are of the whole graph).
+- **Externals.** An external node is what the project reaches outside itself: a package of the framework's public API (`ext:<module>/web`), a function of it (`ext:<module>/web.JSON`,
+  `ext:<module>/config.Config.Get`), the one leaf for the framework's `internal/`, a library's package. A node's quads belong to one layer, so the `externals` layer writes every
+  external node and the layers that point at it write only the edge (`imports_external`, `calls_external`, `handled_by_external`). The calls layer is bounded the same way: one leaf per
+  public framework function, one per library package, none for the standard library. Versions come from the running binary's module table (`inspect --json`) when there is one,
+  else from `go.mod` (`(devel)` for a local `replace`).
+
+## The project profile
+
+`govibe.yml` in the project root tells the tools where things are (`internal/profile`). Every key is optional and overrides the default for that key alone; an unknown key, an
+absolute path or one that leaves the project is an error that names the file and the key (a run with an invalid profile fails; a typo must not leave the default in force).
+`govibe.yml` is an input of every layer's fingerprint.
+
+```yaml
+framework: github.com/petars-dev/govibe   # the module the project is built on (default: this one)
+config: [env.yml]                         # settings files, lowest first; a later declaration of a key replaces an earlier one
+migrations: storage/migrations/sql
+docs:
+  dirs: [docs/public]
+  specs: docs/specs
+  spec_prefix: SPEC_
+  root: [README.md, SKILL.md]
+graph:
+  dir: docs/graph
+  derived: [docs/graph/*.bolt]            # generated, git-ignored, absent from a clone: a doc that names one is not stale
+layout:                                   # layer -> directories; the longest match wins; a layer's entry replaces its default
+  controllers: [controllers]
+rules:
+  code.unreferenced: off                  # off, error, warning or info; a rule that does not exist is an error
+```
+
+A directory claimed by two layers is an error. The profile also changes the verdict of the layers: with no settings file the `config` layer is `skipped` ("no settings file found
+(looked for env.yml)"), so the config rules say they did not look instead of passing on nothing.
 
 ## Writer contract
 
@@ -614,20 +687,20 @@ g.V(g.IRI('spec:dev-db-explorer')).Out(g.IRI('has_item')).Has(g.IRI('status'), '
 ```js
 // Phase 3: the schema (an ER diagram is these edges), from the migrations alone or merged with the live database
 g.V().Has(g.IRI('type'), g.IRI('kind:table')).All()
-g.V(g.IRI('table:orders')).Out(g.IRI('has_column')).All()
-g.V(g.IRI('table:orders')).Out(g.IRI('fk_to')).All()               // tables it references
-g.V(g.IRI('table:users')).In(g.IRI('fk_to')).Has(g.IRI('type'), g.IRI('kind:table')).All()  // tables that reference it
-g.V(g.IRI('col:order_items.order_id')).Out(g.IRI('on_delete')).All()
+g.V(g.IRI('table:items')).Out(g.IRI('has_column')).All()
+g.V(g.IRI('table:items')).Out(g.IRI('fk_to')).All()               // tables it references
+g.V(g.IRI('table:owners')).In(g.IRI('fk_to')).Has(g.IRI('type'), g.IRI('kind:table')).All()  // tables that reference it
+g.V(g.IRI('col:item_tags.item_id')).Out(g.IRI('on_delete')).All()
 
 // which code touches a table, and which struct is its row
-g.V(g.IRI('table:orders')).In(g.IRI('reads_table')).All()
-g.V(g.IRI('table:orders')).In(g.IRI('writes_table')).All()
-g.V(g.IRI('table:orders')).In(g.IRI('maps_to')).All()
+g.V(g.IRI('table:items')).In(g.IRI('reads_table')).All()
+g.V(g.IRI('table:items')).In(g.IRI('writes_table')).All()
+g.V(g.IRI('table:items')).In(g.IRI('maps_to')).All()
 
 // relations the schema implies, and how sure we are
-g.V(g.IRI('table:orders')).Out(g.IRI('many_to_many')).All()
-g.V(g.IRI('col:orders.user_id')).Out(g.IRI('implicit_ref')).All()
-g.V().Has(g.IRI('type'), g.IRI('kind:annotation')).Has(g.IRI('subject'), g.IRI('col:orders.user_id')).Out(g.IRI('confidence')).All()
+g.V(g.IRI('table:items')).Out(g.IRI('many_to_many')).All()
+g.V(g.IRI('col:items.owner_id')).Out(g.IRI('implicit_ref')).All()
+g.V().Has(g.IRI('type'), g.IRI('kind:annotation')).Has(g.IRI('subject'), g.IRI('col:items.owner_id')).Out(g.IRI('confidence')).All()
 
 // drift between the migrations and the live database, and migrations not yet applied
 g.V().Has(g.IRI('source'), 'live').All()                           // made outside the migrations
@@ -636,18 +709,18 @@ g.V().Out(g.IRI('drift')).All()
 g.V().Has(g.IRI('applied'), false).All()
 
 // where a table came from
-g.V(g.IRI('table:orders')).Out(g.IRI('introduced_in')).All()
+g.V(g.IRI('table:items')).Out(g.IRI('introduced_in')).All()
 ```
 
 ```js
 // Phase 6 (the opt-in layers): who calls whom, from a route down to a table
-g.V(g.IRI('route:GET:/api/orders')).Out(g.IRI('handled_by')).Out(g.IRI('calls')).All()
-g.V(g.IRI('func:storage/orderstore.Store.List')).In(g.IRI('calls')).All()
-g.V(g.IRI('route:GET:/api/orders')).Out(g.IRI('handled_by')).Out(g.IRI('calls')).Out(g.IRI('calls')).Out(g.IRI('reads_table')).All()
+g.V(g.IRI('route:GET:/api/items')).Out(g.IRI('handled_by')).Out(g.IRI('calls')).All()
+g.V(g.IRI('func:storage/itemstore.Store.List')).In(g.IRI('calls')).All()
+g.V(g.IRI('route:GET:/api/items')).Out(g.IRI('handled_by')).Out(g.IRI('calls')).Out(g.IRI('calls')).Out(g.IRI('reads_table')).All()
 
 // the calls that go through an interface, how sure each is, and which interface
 g.V().Has(g.IRI('type'), g.IRI('kind:annotation')).Has(g.IRI('method'), 'interface_dispatch').Out(g.IRI('confidence')).All()
-g.V().Has(g.IRI('subject'), g.IRI('func:business/services/orders.Service.List')).Out(g.IRI('via')).All()
+g.V().Has(g.IRI('subject'), g.IRI('func:business/services/items.Service.List')).Out(g.IRI('via')).All()
 
 // the git layer: history of a file, and what changes with it
 g.V(g.IRI('file:business/actions/hello.go')).Out(g.IRI('commits')).All()
@@ -744,7 +817,7 @@ from SQL built at run time. Imports are known per package, not per file, so a ha
 holds a database-touching handler shows that table too.
 
 **With the calls layer on** reach is a walk over stored edges, and those false positives are gone (on the
-fixture, `GET /api/hello` no longer lists `orders`; on this repository a change to `actions.Hello` names the
+fixture, `GET /api/hello` no longer lists `items`; on this repository a change to `actions.Hello` names the
 two routes that call it, where the package-level estimate named 31):
 
 - `graph_impact` follows `calls` backwards. The default depth is 6 (maximum 10), since a route is typically
@@ -778,7 +851,7 @@ anything winning: a node ID (also in angle brackets); a route (`GET /api/hello`,
 path for all methods, or a concrete URL, matched against `{param}` and `*` patterns; a route registered for
 every method answers any method); a repository path (file, package directory, doc, spec or migration; a
 `:line` suffix, `./`, an absolute path inside the repo or a Go import path also work); a bare name with an ID
-prefix implied (`orders` is `table:orders`, `server.port` is `cfg:server.port`, `orders.user_id` is a column);
+prefix implied (`items` is `table:items`, `server.port` is `cfg:server.port`, `items.owner_id` is a column);
 a Go symbol (`pkg.Name`, `dir/pkg.Name`, `Type.Method`, or a bare function, type, method or component name);
 the same ignoring case. A reference that fits several nodes is an error that lists them; one that fits none
 comes back with the nearest names.
@@ -799,6 +872,7 @@ finding:<rule>:<subject id>[#<detail>]   type kind:finding
 rule:<name>                              type kind:rule
   name, title, severity, description     what it looks for
   checked                                it ran on this graph
+  off                                    switched off in govibe.yml (a choice, not a rule that could not look)
   note                                   when it did not: why
 ```
 
@@ -810,15 +884,16 @@ carries the `path` and `line` the rule knows (a layering finding: where the forb
 in an offline run with no router) is recorded with `checked=false` and the reason, and the layer is
 `partial`. A rule that has nothing to look at (`db.drift` and `db.unapplied` with no live database) is
 recorded the same way with `not applicable: ...` and does not make the layer partial. `graph_findings`
-returns every rule with its count and whether it ran, and says so in `note`, so "no findings" is never read
+returns every rule with its count and whether it ran (a rule the profile switches off is `off`, not a gap), and says so in `note`, so "no findings" is never read
 as "clean". When there is no findings layer at all it answers `available: false`.
 
 | Rule | Severity | About | Finds |
 | --- | --- | --- | --- |
 | `layering` | error | the importing package (detail: the imported one) | an import the [layering rule](#package-classification) forbids; `path` and `line` are where the import is first used (a call, or a type in a signature or struct) |
-| `docs.stale_ref` | warning | the doc (detail: `line:text`) | a doc names a file, symbol or page that does not exist |
+| `framework.import` | error | the importing package, or `.templ` file (detail: the framework package) | an import its architecture layer may not take from the framework: business and storage nothing; controllers, middleware and views `web`; commands the root `govibe` package; wiring `govibe`, `config` and `web`; nothing from `internal/`, and `govibetest` only in tests. `path` and `line` are where it is written. Not applicable in the framework's own repository (`internal/rules` holds the table) |
+| `docs.stale_ref` | warning | the doc (detail: `line:text`) | a doc names a file, symbol or page that does not exist; a path the profile lists as `derived` (generated, ignored by git, absent from a clone: `docs/graph/*.bolt`) is not judged |
 | `docs.spec_missing` | warning | the spec row (detail: `line:text`) | a row marked implemented names something that does not exist |
-| `docs.route_undocumented` | info | the route | an application route (not under `/dev`) that no doc or spec mentions |
+| `docs.route_undocumented` | info | the route | an application route that no doc or spec mentions (a route of the framework, `/dev/*`, `/_govibe/*` and `/assets/*`, is not the project's to document) |
 | `config.undeclared` | warning | the config key or environment variable | code reads it, no settings file declares it |
 | `config.unused` | info | the config key | declared, and no code reads it (a read through a variable name is not seen) |
 | `code.unreferenced` | info | the function | an exported package-level function no other indexed code references (tests are not indexed, methods are not checked, a name a `.templ` file uses counts) |
@@ -848,6 +923,8 @@ the store holds (a view is at most 300 nodes by default, 1,500 at most, and says
 server builds one in a few milliseconds from 90,000 quads). Data comes from `/dev/graph/data/*`, each call
 first bringing stale layers up to date:
 
+Every endpoint takes `scope=app|framework|all` (default `app`; any other value is a 400 that says what is valid).
+
 | Endpoint | Returns |
 | --- | --- |
 | `GET /dev/graph/data/status` | the freshness banner: when and at which git sha the graph was indexed, quads, `+added/-removed` against the previous run, each layer's status and which are stale, the finding counts and which rules did not run |
@@ -857,7 +934,14 @@ first bringing stale layers up to date:
 | `GET /dev/graph/data/findings?severity=&rule=&limit=` | `graph_findings` |
 | `GET /dev/graph/data/table?name=` | what refers to a table (code that reads or writes it, routes and tools that may reach it, docs): `graph_impact` of the table grouped for the database explorer, with the same confidence labels |
 
-Presets: **Architecture** (packages in columns by architecture layer, a red edge for each import that breaks
+The page opens on the **App map** (the first preset): each route, the handler that serves it, the actions, services and
+stores it reaches (through the calls layer, else estimated from package imports and drawn dashed), the tables, and the templates,
+config keys and docs on the way. The toolbar has the **scope switch** (My app, Framework, All): the URL carries `scope=`, the
+choice is remembered per browser, every data call passes it, and the banner always says which scope is showing and how many nodes it
+hides; in scope Framework or All the framework's nodes have a double outline and an `origin` badge in the inspector, and in the app's scope the
+inspector says what a node uses of the framework as one line of text (`uses framework: web, config`), not as nodes. Reports and their links carry the scope too.
+
+Other presets: **Architecture** (packages in columns by architecture layer, a red edge for each import that breaks
 the rule), **Request flow** (route, middleware, handler, what it renders), **Database ER** (tables; declared
 foreign keys solid, inferred relations dashed with their confidence), **Docs ↔ code** (which docs mention
 which packages, routes, tables and tools; an orange dashed outline means nothing mentions it), **Config →
@@ -894,13 +978,20 @@ make graph-check                                                # the same gate 
 | Flag | Meaning |
 | --- | --- |
 | `--root` | the repository root (the directory holding `go.mod`), default `.` |
-| `--dir` | the store's directory, default `docs/graph`. **Use a scratch directory** while a dev server runs: it holds the default store's lock, and the command then says so and points at `POST /dev/graph/reindex` |
+| `--dir` | the store's directory, default the profile's `graph.dir` under `--root` (`docs/graph`). **Use a scratch directory** while a dev server runs: it holds the default store's lock, and the command then says so and points at `POST /dev/graph/reindex` |
 | `--calls`, `--git` | switch on the opt-in layers (`--git` needs the full history: a shallow clone makes the layer `partial`) |
 | `--fail-on` | `error`, `warning`, `info` or `none` (default): exit 1 when a finding at or above that severity is not in the baseline |
 | `--baseline` | a JSON file of accepted findings (IDs, with their rule and message so a review shows what is accepted) |
-| `--update-baseline` | write the findings at or above `--fail-on` (`error` if none) to `--baseline` and exit 0 |
+| `--update-baseline` | write the findings at or above `--fail-on` (`error` if none) to `--baseline` and exit 0. Each entry records a `reason` and the date; an entry the file already has keeps both, and a finding new to it needs `--reason` |
+| `--reason` | with `--update-baseline`: why the findings new to the baseline are accepted instead of fixed |
+| `--no-inspect` | do not ask the application for its routes (see below): index without a route table |
 | `--format` | `text`, `json` (the report and the gate verdict), or `github` (text plus a workflow annotation, `::error file=...,line=...`, for each new finding) |
 | `--verbose` | log every layer as it is indexed (quiet by default: the report says it) |
+
+**Applications.** A project whose `go.mod` requires the framework is an application, and has a binary to ask: `govibe graph index` runs its own
+`go run -tags govibe_dev . inspect --json` (no database, no dev mount, no scheduler), and the route table, who registered each route and the modules of the build go
+to the indexer, so the route rules (`docs.route_undocumented`) run offline. The framework's own settings and tools come from this tool's manifest (the tool and the
+library are one version). This compiles and runs the project's own code (as `go run` does, with a scrubbed environment: the toolchain's and the path, no other variable), so a project that is not trusted is indexed with `--no-inspect`. A build that fails is status 2, with how to go on. Any other project has no router: the routes layer is skipped.
 
 **Exit status**: 0 on success, 1 when the gate finds a new finding, 2 when indexing itself failed (a layer
 ended in `error`, the store is locked, the baseline file is missing, a flag is wrong). A run in which a layer
@@ -912,7 +1003,8 @@ is an error.
 gate that fails on day one gets switched off. `docs/graph/baseline.json` is the known debt (the framework's own
 baseline is empty: a finding is fixed, or accepted with a reason), committed and reviewed like any
 other change. The gate keys on finding IDs, so a finding that moves to another line stays accepted, and a
-baseline entry that no finding matches any more is reported as paid debt (`--update-baseline` drops it). A
+baseline entry that no finding matches any more is reported as paid debt (`--update-baseline` drops it). Accepting a finding means saying why: an entry has a
+`reason` (required) and a `date`, and the gate fails, whatever the findings, while an entry has no reason. A
 finding whose ID carries a line (a stale reference in a doc) is a new finding when the line moves: gate on
 `error`, whose rule has stable IDs, and keep `warning` for the report.
 
@@ -922,10 +1014,14 @@ error --baseline docs/graph/baseline.json --format github`. The scratch `--dir` 
 server's lock; `--calls` makes the job also check that the module type-checks; each new finding shows up as an
 annotation on the line it is about. Add `--git` and `fetch-depth: 0` to index history too.
 
+<!-- framework-only:start -->
 ## Fixture
 
 `internal/codegraph/testdata/fixture/` is a miniature GoVibe-shaped app (module
-`example.com/fixture`, standard library only) that the indexer's golden tests run against. It
+`example.com/fixture`) built on a stub framework, `internal/codegraph/testdata/stubfw` (module `example.com/stubfw`: a root package with the `App` declaration, a `web` and a `config`
+package, an `internal` one; the fixture's `govibe.yml` says `framework: example.com/stubfw`, and its `go.mod` replaces the stub with the directory next to it), that the indexer's golden tests run against.
+`internal/codegraph/testdata/fixture_layout/` is a second app whose layout is not the default (everything under `internal/`, settings in `config/`, migrations in `db/`, docs in `doc/`,
+specs `SP_*.md`), described by its `govibe.yml`; it tests the profile. It
 compiles, is never run, and is invisible to the main module (`go list ./...` and `go vet ./...` skip
 `testdata`). Each layer's golden N-Quads are `testdata/golden/<layer>.nq`; regenerate them with
 `go test ./internal/codegraph -update` after an intended change and review the diff. The
@@ -937,10 +1033,12 @@ the `routes` layer is fed the runtime facts its router would report (`fixtureRou
 | --- | --- |
 | `internal/codegraph/testdata/fixture/main.go` | root package `pkg:.`, `arch_layer=wiring`, package doc; `cfg.Server.Port` and `cfg.Database.DSN` reads, and an `os.Getenv` of a variable `env.yml` does not declare |
 | `internal/codegraph/testdata/fixture/routes/routes.go` | wiring; imports every other layer; six routes (`GET /`, `GET /api/hello`, `GET /api/orders`, `GET /api/orders/{id}`, `/dev/mcp`, `/assets/`) and a middleware wrapper |
-| `internal/codegraph/testdata/fixture/config/env.yml`, `internal/codegraph/testdata/fixture/config/config.go` | placeholders with defaults, a default containing a colon, sensitive keys whose defaults must not appear, a static value, a key bound to a struct field that nothing reads, keys reachable only through the dynamic `Get` |
+| `internal/codegraph/testdata/fixture/env.yml`, `internal/codegraph/testdata/fixture/config/config.go` | placeholders with defaults, a default containing a colon, sensitive keys whose defaults must not appear, a static value, a key bound to a struct field that nothing reads, keys reachable only through the dynamic `Get` |
 | `internal/codegraph/testdata/fixture/business/actions/notify.go` | `config.Get("queue.broker")` of a whole group, and of an undeclared key |
 | `internal/codegraph/testdata/fixture/assets/templates/*.templ` | components, a `children...` layout, `@Layout(...)` and `@Footer()` calls, a doc comment, a component whose Go package has only generated output |
-| `internal/codegraph/testdata/fixture/controllers/home.go` | a handler that renders a templ component (`func --renders--> tmpl`) |
+| `internal/codegraph/testdata/fixture/controllers/home.go` | a handler that renders a templ component (`func --renders--> tmpl`), and calls the stub framework's `web.HTMXScript` (`imports_external` and `calls_external` edges, an `externals` node) |
+| `internal/codegraph/testdata/stubfw/**` | the stub framework: `stubfw.Main` (called by the fixture's `main.go`), the helpers of its `web` package, a `config` package, an `internal/kernel` the stub's own root calls |
+| `internal/codegraph/testdata/fixture_layout/**` | an app with a non-default layout and its `govibe.yml`: layers by directory, settings in two files (the later wins), migrations in `db/migrations`, specs by prefix `SP_`, a derived path a doc names, a rule switched off and one raised in severity, a layering violation |
 | `internal/codegraph/testdata/fixture/mcp/mcp.go` | a stand-in for the MCP SDK (the fixture is standard-library only) |
 | `internal/codegraph/testdata/fixture/docs/**`, `internal/codegraph/testdata/fixture/README.md` | an architecture page with every kind of mention (path, route, symbol, `Type.Method`, config key and group, environment variable, tool, template, links, a stale reference), a guide, and `SPEC_HELLO.md` whose status table has implemented, planned, partial and skipped rows, and one implemented row (`Audit trail`) that names a file that does not exist (`docs.spec_missing`) |
 | `internal/codegraph/testdata/fixture/controllers/hello.go` | acceptance query 1: `HelloAPI` calls `actions.Hello`, and no table is reachable |
@@ -958,6 +1056,7 @@ Edit the fixture only together with its goldens, in one commit. Facts asserted i
 golden (so a wrongly regenerated golden is still caught) live in `Test<Layer>LayerFixtureFacts`; the
 same invariants run over this repository in `TestRepoInvariants` and, for every layer at once,
 `TestWholeGraphInvariants`.
+<!-- framework-only:end -->
 
 ## Open decisions
 

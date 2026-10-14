@@ -25,6 +25,9 @@ type GateOptions struct {
 	FailOn string
 	// Baseline holds the IDs of findings that are accepted.
 	Baseline map[string]bool
+	// NoReason lists the baseline entries that say no reason: accepting a finding
+	// needs one, so a baseline that has such an entry fails the gate.
+	NoReason []string
 }
 
 // GateResult is the verdict.
@@ -43,11 +46,14 @@ type GateResult struct {
 	// NotRun are the rules that did not run on this graph, with why. A rule that
 	// did not run has not looked: no finding from it is not a clean bill.
 	NotRun []RuleInfo `json:"not_run,omitempty"`
+	// NoReason are the baseline entries that say no reason. "Accepted" without a
+	// reason is just "ignored": the gate fails until each has one.
+	NoReason []string `json:"no_reason,omitempty"`
 }
 
 // Failed reports whether the gate fails: a finding at or above the threshold that
-// nobody accepted.
-func (r *GateResult) Failed() bool { return len(r.New) > 0 }
+// nobody accepted, or an accepted one that nobody said why.
+func (r *GateResult) Failed() bool { return len(r.New) > 0 || len(r.NoReason) > 0 }
 
 // severityName is a finding's severity normalised to error, warning or info.
 func severityName(s string) string {
@@ -89,10 +95,19 @@ func (m *Model) Gate(o GateOptions) (*GateResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if m.Scope() != ScopeAll {
+		// A baseline lists findings by ID: a model that hides some of them would call
+		// every hidden baseline entry fixed, and a gate must see everything.
+		return nil, fmt.Errorf("the gate judges the whole graph, not scope %s: load the model with scope all", m.Scope())
+	}
 	if !m.layerBuilt("findings") {
 		return nil, errors.New("the findings layer is not built, so nothing was checked")
 	}
 	res := &GateResult{FailOn: strings.ToLower(strings.TrimSpace(o.FailOn)), BySeverity: map[string]int{}}
+	if rank >= 0 {
+		res.NoReason = append(res.NoReason, o.NoReason...)
+		sort.Strings(res.NoReason)
+	}
 	if res.FailOn == "" {
 		res.FailOn = "none"
 	}
@@ -116,39 +131,49 @@ func (m *Model) Gate(o GateOptions) (*GateResult, error) {
 	}
 	sort.Strings(res.Fixed)
 	for _, r := range m.ruleInfos(nil) {
-		if !r.Checked {
+		if !r.Checked && !r.Off {
 			res.NotRun = append(res.NotRun, r)
 		}
 	}
 	return res, nil
 }
 
-// baselineFile is the file format of a baseline. Only the IDs matter to the
-// gate; the rule and the message are there so that a review of the file shows what
-// is being accepted.
+// baselineFile is the file format of a baseline. The gate only matches the IDs; the
+// rule and the message are there so that a review of the file shows what is being
+// accepted, and the reason and the date say why and since when.
 type baselineFile struct {
 	Comment  string          `json:"comment"`
-	Findings []baselineEntry `json:"findings"`
+	Findings []BaselineEntry `json:"findings"`
 }
 
-type baselineEntry struct {
+// BaselineEntry is one accepted finding.
+type BaselineEntry struct {
 	ID       string `json:"id"`
 	Rule     string `json:"rule"`
 	Severity string `json:"severity"`
 	Message  string `json:"message"`
+	// Reason is why the finding is accepted instead of fixed. Required.
+	Reason string `json:"reason"`
+	// Date is when it was accepted, YYYY-MM-DD.
+	Date string `json:"date,omitempty"`
 }
 
 const baselineComment = "Findings accepted as known debt by `govibe graph index --baseline`. A finding listed here does not fail the gate; one that is not listed does. " +
-	"Regenerate with `govibe graph index --update-baseline` after fixing or deliberately accepting findings, and review the diff."
+	"Every entry says why it is accepted. Regenerate with `govibe graph index --update-baseline --reason \"...\"` after fixing or deliberately accepting findings, and review the diff."
 
-// ReadBaseline reads the IDs of a baseline file. A file that does not exist is an
-// error, not an empty baseline: a typo in the path must not accept nothing silently
-// and fail every finding, or (worse) the other way round.
-func ReadBaseline(path string) (map[string]bool, error) {
+// Baseline is a baseline file as read.
+type Baseline struct {
+	Entries []BaselineEntry
+}
+
+// LoadBaseline reads a baseline file. A file that does not exist is an error, not an
+// empty baseline: a typo in the path must not accept nothing silently and fail every
+// finding, or (worse) the other way round.
+func LoadBaseline(path string) (*Baseline, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("baseline %s does not exist (create it with --update-baseline)", path)
+			return nil, fmt.Errorf("baseline %s does not exist (create it with --update-baseline --reason ...)", path)
 		}
 		return nil, err
 	}
@@ -156,22 +181,75 @@ func ReadBaseline(path string) (map[string]bool, error) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("baseline %s: %w", path, err)
 	}
-	ids := make(map[string]bool, len(f.Findings))
 	for _, e := range f.Findings {
 		if e.ID == "" {
 			return nil, fmt.Errorf("baseline %s: an entry has no id", path)
 		}
+	}
+	return &Baseline{Entries: f.Findings}, nil
+}
+
+// Accepted is the set of IDs the baseline accepts.
+func (b *Baseline) Accepted() map[string]bool {
+	ids := make(map[string]bool, len(b.Entries))
+	for _, e := range b.Entries {
 		ids[e.ID] = true
 	}
-	return ids, nil
+	return ids
+}
+
+// WithoutReason lists the entries that say no reason (blank counts as none).
+func (b *Baseline) WithoutReason() []string {
+	var ids []string
+	for _, e := range b.Entries {
+		if strings.TrimSpace(e.Reason) == "" {
+			ids = append(ids, e.ID)
+		}
+	}
+	return ids
+}
+
+// ReadBaseline reads the IDs of a baseline file (see LoadBaseline).
+func ReadBaseline(path string) (map[string]bool, error) {
+	b, err := LoadBaseline(path)
+	if err != nil {
+		return nil, err
+	}
+	return b.Accepted(), nil
 }
 
 // WriteBaseline writes the findings as a baseline, sorted by ID so that the file
-// diffs cleanly, and returns how many it holds.
-func WriteBaseline(path string, findings []FindingRef) (int, error) {
-	f := baselineFile{Comment: baselineComment, Findings: []baselineEntry{}}
+// diffs cleanly, and returns how many it holds. An entry the file already has keeps
+// its reason and its date; one that is new, or has no reason yet, takes `reason` and today's
+// date, and with no reason given it is an error: accepting a finding means saying why.
+func WriteBaseline(path string, findings []FindingRef, reason string) (int, error) {
+	existing := map[string]BaselineEntry{}
+	if old, err := LoadBaseline(path); err == nil {
+		for _, e := range old.Entries {
+			existing[e.ID] = e
+		}
+	}
+	reason = strings.TrimSpace(reason)
+	f := baselineFile{Comment: baselineComment, Findings: []BaselineEntry{}}
+	var unexplained []string
 	for _, x := range findings {
-		f.Findings = append(f.Findings, baselineEntry{ID: x.ID, Rule: x.Rule, Severity: severityName(x.Severity), Message: x.Message})
+		e := BaselineEntry{ID: x.ID, Rule: x.Rule, Severity: severityName(x.Severity), Message: x.Message}
+		if old, ok := existing[x.ID]; ok && strings.TrimSpace(old.Reason) != "" {
+			e.Reason, e.Date = old.Reason, old.Date
+		} else {
+			// New to the baseline, or in it with no reason (an entry from before reasons were
+			// required): it takes the reason given now, and needs one.
+			e.Reason, e.Date = reason, now().Format("2006-01-02")
+			if reason == "" {
+				unexplained = append(unexplained, x.ID)
+			}
+		}
+		f.Findings = append(f.Findings, e)
+	}
+	if len(unexplained) > 0 {
+		sort.Strings(unexplained)
+		return 0, fmt.Errorf("%d %s new to the baseline, or have no reason yet: say why they are accepted instead of fixed with --reason (%s)",
+			len(unexplained), plural(len(unexplained), "finding is", "findings are"), strings.Join(unexplained, ", "))
 	}
 	sort.Slice(f.Findings, func(i, j int) bool { return f.Findings[i].ID < f.Findings[j].ID })
 	data, err := json.MarshalIndent(f, "", "  ")

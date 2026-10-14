@@ -65,6 +65,17 @@ func metaQuads(rep *Report, layers []LayerReport, git gitState) []quad.Quad {
 	set.add(buildID, PredIndexedAt, quad.Time(rep.Build.IndexedAt))
 	set.add(buildID, PredDurationMS, quad.Int(rep.Build.DurationMS))
 	set.str(buildID, PredIndexerVersion, rep.Build.IndexerVersion)
+	for _, a := range []struct {
+		pred quad.IRI
+		v    string
+	}{
+		{PredAppName, rep.Build.App}, {PredAppModule, rep.Build.AppModule},
+		{PredFrameworkModule, rep.Build.FrameworkModule}, {PredFrameworkVersion, rep.Build.FrameworkVersion},
+	} {
+		if a.v != "" {
+			set.str(buildID, a.pred, a.v)
+		}
+	}
 	set.num(buildID, PredQuads, rep.Quads)
 	set.num(buildID, PredAdded, rep.Added)
 	set.num(buildID, PredRemoved, rep.Removed)

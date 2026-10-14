@@ -20,6 +20,11 @@ var defaultsYAML []byte
 // File is the name of the application's settings file inside the fs.FS handed to Load.
 const File = "env.yml"
 
+// Defaults returns the framework's default settings file as it ships: the keys an
+// application's env.yml is merged over, with their ${ENV:default} placeholders. The
+// dev tools read it to tell the framework's settings from an application's own.
+func Defaults() []byte { return append([]byte(nil), defaultsYAML...) }
+
 // Config is the loaded configuration: the framework's typed keys, plus Get and
 // Unmarshal for the application's own. It is a value; nothing is global, so two
 // loads never interfere.
@@ -45,6 +50,9 @@ type Config struct {
 		DB struct {
 			AllowMutations bool `yaml:"allow_mutations"`
 		} `yaml:"db"`
+		// FrameworkSrc is a checkout of the framework (contributors only): the dev docs
+		// serve its docs from disk and list its development specs.
+		FrameworkSrc string `yaml:"framework_src"`
 		// Graph switches on the opt-in layers of the project graph.
 		Graph struct {
 			Calls bool `yaml:"calls"`

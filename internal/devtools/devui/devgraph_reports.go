@@ -32,7 +32,12 @@ func DevGraphReports(ix *codegraph.Indexer, dbUI bool) http.HandlerFunc {
 		if _, err := ix.Refresh(ctx); err != nil {
 			logrus.WithError(err).Warn("graph index: refresh before a report failed; serving the stored graph")
 		}
-		m, err := ix.Model(ctx)
+		scope, err := scopeOf(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		m, err := ix.Model(ctx, scope)
 		if err != nil {
 			logrus.WithError(err).Error("graph report: read the graph")
 			http.Error(w, "the graph could not be read: "+err.Error(), http.StatusInternalServerError)
@@ -41,6 +46,8 @@ func DevGraphReports(ix *codegraph.Indexer, dbUI bool) http.HandlerFunc {
 		opts := codegraph.LinkOptions{Root: ix.RootDir(), DB: dbUI}
 
 		page := reportPage{Name: name, Reports: codegraph.Reports(), AsOf: m.AsOf()}
+		page.ScopeID = string(m.Scope())
+		page.ScopeTitle, page.Hidden, page.HiddenOrigin, page.Scopes = scopeBar(m, r.URL.Path)
 		switch name {
 		case "":
 			page.Title = "Reports"
@@ -78,6 +85,34 @@ type reportPage struct {
 	Notes   []string
 	Reports []codegraph.ReportInfo
 	Data    any // the report: *codegraph.RoutesReport and so on
+
+	// The scope strip: whose nodes the page shows, what that leaves out, and the way
+	// to the other scopes. Every report says so, as every graph page does.
+	ScopeID      string // app, framework or all
+	ScopeTitle   string
+	Hidden       int
+	HiddenOrigin string
+	Scopes       []scopeLink
+}
+
+// scopeLink is one entry of the scope strip.
+type scopeLink struct {
+	Title   string
+	URL     string
+	Current bool
+}
+
+// scopeBar describes the scope of a model for the strip at the top of a report.
+func scopeBar(m *codegraph.Model, path string) (title string, hidden int, origin string, links []scopeLink) {
+	scope := m.Scope()
+	for _, sc := range []codegraph.Scope{codegraph.ScopeApp, codegraph.ScopeFramework, codegraph.ScopeAll} {
+		links = append(links, scopeLink{Title: sc.Title(), URL: path + "?scope=" + string(sc), Current: sc == scope})
+	}
+	origin = codegraph.OriginFramework
+	if scope == codegraph.ScopeFramework {
+		origin = codegraph.OriginApp
+	}
+	return scope.Title(), m.Hidden().Nodes, origin, links
 }
 
 var reportFuncs = template.FuncMap{
@@ -130,12 +165,14 @@ const reportsHTML = `
 </head><body class="docs-body">
 <header class="site-header">
 <div class="brand"><a class="brand-link" href="/"><img class="brand-logo" src="/_govibe/static/govibe-logo.png" alt="GoVibe"></a><span class="brand-name">GoVibe Dev Graph</span></div>
-<nav class="top-tabs"><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a><a class="tab active" href="/dev/graph">Graph</a><a class="tab" href="/dev/db">DB</a></nav>
+<nav class="top-tabs"><a class="tab" href="/dev">Dev</a><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a><a class="tab active" href="/dev/graph">Graph</a><a class="tab" href="/dev/db">DB</a></nav>
 <div class="header-actions"><a class="btn btn-ghost" href="/">&larr; App</a><button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"><svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zm10.48 0l1.79-1.79 1.41 1.41-1.79 1.8-1.41-1.42zM12 4V1h-1v3h1zm0 19v-3h-1v3h1zm7-11h3v-1h-3v1zm-19 0h3v-1H0v1zm3.55 8.45l1.41 1.41 1.79-1.79-1.41-1.41-1.79 1.79zM18.24 18.24l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM12 7a5 5 0 100 10 5 5 0 000-10z"/></svg><svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button></div>
 </header>
 <main class="rep">
 <nav class="rep-nav" aria-label="Reports"><a href="/dev/graph">&larr; Graph explorer</a><a href="/dev/graph/reports"{{if eq .Name ""}} class="current"{{end}}>Reports</a>{{$name := .Name}}{{range .Reports}}<a href="{{.URL}}"{{if eq .Name $name}} class="current"{{end}}>{{.Title}}</a>{{end}}</nav>
 <h1>{{.Title}}</h1>
+<div class="scopebar" role="group" aria-label="Scope: whose nodes this page shows"><span>Showing <strong>{{.ScopeTitle}}</strong>{{if .Hidden}} &middot; hides {{.Hidden}} {{.HiddenOrigin}} {{plural .Hidden "node" "nodes"}}{{end}}</span>{{range .Scopes}}<a href="{{.URL}}"{{if .Current}} class="current" aria-current="true"{{end}}>{{.Title}}</a>{{end}}</div>
+{{if and (eq .Name "config") (ne .ScopeID "framework")}}<p class="asof">This lists your app's settings. The framework's own are in <a href="/dev/docs/govibe/configuration">GoVibe: Configuration</a>{{if eq .ScopeID "app"}}, or switch the scope above to see them here{{end}}.</p>{{end}}
 {{if .Name}}<p class="asof">Generated from the project graph, as of <code>{{.AsOf}}</code>. The page is rebuilt on every load, so it cannot drift from the code.</p>{{end}}
 {{if .Notes}}<div class="notes" role="note"><strong>Not the whole picture:</strong><ul>{{range .Notes}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
 {{if eq .Name ""}}{{template "index" .}}
@@ -255,6 +292,10 @@ const reportsCSS = `
 .rep h3{margin:1.1em 0 .3em;font-size:1rem}
 .rep-nav{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:.9rem;padding-bottom:8px;border-bottom:1px solid var(--border)}
 .rep-nav a.current{color:var(--text);font-weight:650;text-decoration:none}
+.scopebar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:.4em 0;font-size:.9rem;color:var(--muted)}
+.scopebar strong{color:var(--text)}
+.scopebar a{padding:1px 9px;border:1px solid var(--border);border-radius:6px;text-decoration:none}
+.scopebar a.current{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 .asof,.count,.meta{color:var(--muted);margin:.3em 0 .8em}
 .asof code,.count code{font-size:.85em}
 .notes{border:1px solid rgba(210,153,34,.5);background:rgba(210,153,34,.12);border-radius:8px;padding:8px 14px;margin:10px 0}

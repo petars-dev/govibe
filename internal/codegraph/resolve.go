@@ -22,7 +22,7 @@ var routeRef = regexp.MustCompile(`(?i)^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|
 var lineSuffix = regexp.MustCompile(`:\d+(?::\d+)?$`)
 
 // impliedPrefixes are the ID prefixes tried, in order, when a reference is a
-// bare name: `orders` is `table:orders`, `server.port` is `cfg:server.port`.
+// bare name: `items` is `table:items`, `server.port` is `cfg:server.port`.
 var impliedPrefixes = []string{"table:", "col:", "idx:", "cfg:", "env:", "tool:", "spec:", "mig:", "pkg:", "file:", "doc:",
 	"func:", "typ:", "tmpl:", "mw:", "item:"}
 
@@ -35,7 +35,7 @@ var impliedPrefixes = []string{"table:", "col:", "idx:", "cfg:", "env:", "tool:"
 //     URL finds its route;
 //  3. a repository path of a file, package directory, doc or spec (also with a
 //     `:line` suffix, an absolute path inside the repo, or a Go import path);
-//  4. a bare name with an ID prefix implied (`orders` for `table:orders`);
+//  4. a bare name with an ID prefix implied (`items` for `table:items`);
 //  5. a Go symbol: `pkg.Name`, `dir/pkg.Name`, `pkg.Type.Method`, `Type.Method`
 //     or a bare name, for functions, types and templ components;
 //  6. any of the above ignoring case.
@@ -86,6 +86,9 @@ func (m *Model) notFound(ref string) error {
 		if w := m.warnings("routes"); len(w) > 0 {
 			msg += " (" + w[0] + ", so routes cannot be found)"
 		}
+	}
+	if e := m.elsewhere(ref); e != "" {
+		return fmt.Errorf("no node matches %q in scope %s: %s", ref, m.Scope(), e)
 	}
 	var near []string
 	for _, h := range m.Search(ref, nil, 5) {
@@ -244,7 +247,7 @@ func (m *Model) byImplied(ref string) []*Node {
 	if len(out) > 0 {
 		return out
 	}
-	// a package by its name (`orders` for business/services/orders)
+	// a package by its name (`items` for business/services/items)
 	for _, n := range m.byKind["package"] {
 		if n.Str("name") == ref {
 			out = append(out, n)
@@ -340,7 +343,7 @@ func uniqueNodes(in []*Node) []*Node {
 	return out
 }
 
-// ResolveTable finds a table by name (`orders` or `table:orders`).
+// ResolveTable finds a table by name (`items` or `table:items`).
 func (m *Model) ResolveTable(ref string) []*Node {
 	name := strings.TrimPrefix(strings.TrimSpace(ref), "table:")
 	if n := m.nodes["table:"+name]; n != nil && n.Kind == "table" {

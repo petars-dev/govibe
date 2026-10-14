@@ -191,7 +191,7 @@ func TestIndexerFollowsSourceChanges(t *testing.T) {
 		gizmoIDs(t, h, `g.V().Has(g.IRI('type'), g.IRI('kind:func')).Filter(like('func:business/actions.%')).All()`),
 		"<func:business/actions.Greet>", "<func:business/actions.Bye>", "<func:business/actions.Notify>")
 	wantIDs(t, "deleted file's package and function are gone",
-		gizmoIDs(t, h, `g.V().Filter(like('%middleware%')).All()`))
+		gizmoIDs(t, h, `g.V().Filter(like('%:middleware%')).All()`)) // IDs only: a rule's text may say "middleware"
 	// Quads of the unchanged files were not rewritten: only the delta moved.
 	if l := rep.Layers[0]; l.Added > 40 {
 		t.Errorf("a three-file change added %d quads; the diff should be small", l.Added)

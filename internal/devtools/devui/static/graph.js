@@ -24,6 +24,8 @@
 
   function api(path, params) {
     var q = new URLSearchParams();
+    // Every read says whose nodes it wants: the app's own by default (see the scope switch).
+    q.set('scope', S.scope);
     Object.keys(params || {}).forEach(function (k) { if (params[k] !== '' && params[k] != null) q.set(k, params[k]); });
     var url = '/dev/graph/data/' + path + (q.toString() ? '?' + q.toString() : '');
     return fetch(url, { headers: { Accept: 'application/json' } }).then(function (r) {
@@ -87,10 +89,55 @@
   }
 
   // ---------- state ----------
+  // The scope says whose nodes the page shows: the app's own connections by default; the framework
+  // it runs on is one switch away and always labelled. It rides in the URL (?scope=) and is remembered per browser.
+  var SCOPES = [['app', 'My app'], ['framework', 'Framework'], ['all', 'All']];
+  function validScope(v) { return v === 'app' || v === 'framework' || v === 'all'; }
+  function initialScope() {
+    var q = new URLSearchParams(location.search).get('scope');
+    if (validScope(q)) return q;
+    try { var v = localStorage.getItem('gv.scope'); if (validScope(v)) return v; } catch (_e) { /* private window: the default */ }
+    return 'app';
+  }
   var S = {
-    preset: 'architecture', focus: '', view: null, hidden: {}, cy: null, selected: '', seq: 0,
+    scope: initialScope(), preset: 'app_map', focus: '', view: null, hidden: {}, cy: null, selected: '', seq: 0,
     status: null, lastIndexedAt: '', presets: [], tab: 'inspector', fsev: '', frule: '', findings: null, expanded: {}
   };
+
+  function renderScope() {
+    var box = clear($('gv-scope'));
+    SCOPES.forEach(function (sc) {
+      var on = S.scope === sc[0];
+      box.appendChild(el('button', { class: 'gv-scope-btn' + (on ? ' active' : ''), role: 'radio', 'aria-checked': on ? 'true' : 'false',
+        title: sc[0] === 'app' ? 'The app\'s own routes, code, tables and docs' : sc[0] === 'framework' ? 'What the framework contributes: its routes, middleware, settings, tools' : 'Both, the framework\'s nodes labelled',
+        text: sc[1], onclick: function () { setScope(sc[0]); } }));
+    });
+  }
+  function setScope(scope) {
+    if (scope === S.scope) return;
+    S.scope = scope; S.focus = ''; S.selected = ''; S.hidden = {}; S.expanded = {}; S.findings = null;
+    try { localStorage.setItem('gv.scope', scope); } catch (_e) { /* not remembered */ }
+    var u = new URL(location.href); u.searchParams.set('scope', scope);
+    history.replaceState(null, '', u.pathname + u.search + (location.hash.indexOf('#node=') === 0 ? '' : location.hash));
+    renderScope();
+    clear($('gv-inspector')).appendChild(el('p', { class: 'gv-muted', text: 'Pick a node to see what the graph knows about it.' }));
+    return Promise.all([loadStatus(), loadView(), loadFindings()]);
+  }
+  // What the scope shows, and what it leaves out: the banner always says both.
+  function scopeInfo(st) {
+    var title = (SCOPES.filter(function (x) { return x[0] === st.scope; })[0] || ['', st.scope])[1];
+    var h = st.hidden || {}, by = h.by_origin || {}, kids = ['Showing ', el('strong', { text: title })];
+    if (h.nodes) {
+      var other = st.scope === 'framework' ? 'app' : 'framework';
+      kids.push(' · hides ' + num(h.nodes) + ' ' + other + ' nodes');
+      kids.push(' (');
+      kids.push(el('button', { class: 'gv-node-link', text: 'show all', onclick: function () { setScope('all'); } }));
+      kids.push(')');
+    } else if (st.scope === 'all') {
+      kids.push(' · each node is labelled app or framework (a double outline is the framework\'s)');
+    }
+    return el('span', { class: 'gv-scopeinfo', title: 'The scope is applied once, in the graph model: every view, report, finding and agent tool shows the same nodes.' }, kids);
+  }
 
   // ---------- the freshness banner ----------
   function renderBanner(st) {
@@ -106,6 +153,7 @@
     left.appendChild(document.createTextNode('indexed '));
     left.appendChild(el('span', { id: 'gv-ago', 'data-t': f.indexed_at, text: ago(f.indexed_at) }));
     b.appendChild(left);
+    if (st.scope) b.appendChild(scopeInfo(st));
     if (f.git_sha) b.appendChild(el('span', {}, ['@ ', el('code', { text: f.git_sha + (f.dirty ? '+dirty' : '') })]));
     b.appendChild(el('span', { text: num(f.quads) + ' quads' }));
     b.appendChild(el('span', { class: 'gv-muted', title: 'quads written by the last run, relative to the one before', text: '+' + num(f.added) + '/−' + num(f.removed) + ' vs previous' }));
@@ -229,9 +277,11 @@
     if (n.flag === 'uncovered') { bw = 3; bc = '#e0793b'; bs = 'dashed'; }
     else if (n.flag === 'undeclared') { bw = 3; bc = '#e5534b'; bs = 'dashed'; }
     else if (n.flag === 'sensitive') { bw = Math.max(bw, 2); bc = bc === 'transparent' ? '#a173ff' : bc; bs = 'dotted'; }
+    // The framework's nodes (shown in scope Framework or All) are always marked: a double outline.
+    if (n.origin === 'framework') { bw = Math.max(bw, 3); bc = bc === 'transparent' ? cssVar('--muted', '#9fb1c3') : bc; bs = 'double'; }
     return {
       id: n.id, label: n.label, kind: n.kind, color: st.color, shape: st.shape, size: SIZE[n.kind] || 16,
-      bw: bw, bc: bc, bs: bs, flag: n.flag || '', worst: n.worst || '', findings: n.findings || 0, col: n.col, dist: n.dist || 0, degree: n.degree || 0, more: n.more || 0, group: n.group || ''
+      bw: bw, bc: bc, bs: bs, origin: n.origin || '', flag: n.flag || '', worst: n.worst || '', findings: n.findings || 0, col: n.col, dist: n.dist || 0, degree: n.degree || 0, more: n.more || 0, group: n.group || ''
     };
   }
   function edgeData(e, i) {
@@ -477,8 +527,11 @@
     return api('node', { id: id }).then(function (d) {
       if (S.selected !== id && S.selected) return;
       clear(box);
-      box.appendChild(el('div', { class: 'gv-node-title' }, [el('span', { class: 'gv-kindbadge', text: d.node.kind }), d.label]));
+      var title = [el('span', { class: 'gv-kindbadge', text: d.node.kind }), d.label];
+      if (d.node.origin) title.push(el('span', { class: 'gv-originbadge ' + d.node.origin, title: d.node.origin === 'framework' ? 'Part of the framework this app runs on' : 'Part of this app', text: d.node.origin }));
+      box.appendChild(el('div', { class: 'gv-node-title' }, title));
       box.appendChild(el('div', { class: 'gv-id', text: d.node.id }));
+      if (d.uses) box.appendChild(el('div', { class: 'gv-uses', text: d.uses }));
       if (d.node.path) box.appendChild(el('div', { class: 'gv-id', text: d.node.path + (d.node.line ? ':' + d.node.line : '') }));
       if (d.summary) box.appendChild(el('div', { class: 'gv-summary', text: d.summary }));
       var links = el('div', { class: 'gv-links' });
@@ -641,6 +694,7 @@
 
   // ---------- start ----------
   function start() {
+    renderScope();
     var h = decodeURIComponent((location.hash || '').replace(/^#/, ''));
     var node = /^node=(.+)$/.exec(h), preset = /^preset=(.+)$/.exec(h);
     if (node) { S.focus = node[1]; S.selected = node[1]; }
