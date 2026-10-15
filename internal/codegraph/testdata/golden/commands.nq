@@ -1,0 +1,26 @@
+<command:cache:warm> <description> "Warm the cache" <layer:commands> .
+<command:cache:warm> <name> "cache:warm" <layer:commands> .
+<command:cache:warm> <origin> "app" <layer:commands> .
+<command:cache:warm> <run_by> <func:commands.WarmCache> <layer:commands> .
+<command:cache:warm> <scheduled> "False"^^<schema:Boolean> <layer:commands> .
+<command:cache:warm> <type> <kind:command> <layer:commands> .
+<command:orders:export> <description> "Export yesterday's orders" <layer:commands> .
+<command:orders:export> <name> "orders:export" <layer:commands> .
+<command:orders:export> <origin> "app" <layer:commands> .
+<command:orders:export> <overlap> "skip" <layer:commands> .
+<command:orders:export> <run_by> <func:commands.ExportOrders> <layer:commands> .
+<command:orders:export> <schedule> "0 2 * * *" <layer:commands> .
+<command:orders:export> <scheduled> "True"^^<schema:Boolean> <layer:commands> .
+<command:orders:export> <timeout> "10m0s" <layer:commands> .
+<command:orders:export> <timezone> "UTC" <layer:commands> .
+<command:orders:export> <type> <kind:command> <layer:commands> .
+<command:reports:digest> <description> "Send the digest" <layer:commands> .
+<command:reports:digest> <every> "6h0m0s" <layer:commands> .
+<command:reports:digest> <name> "reports:digest" <layer:commands> .
+<command:reports:digest> <origin> "app" <layer:commands> .
+<command:reports:digest> <overlap> "allow" <layer:commands> .
+<command:reports:digest> <run_by> <func:commands.Digest> <layer:commands> .
+<command:reports:digest> <schedule> "@every 6h" <layer:commands> .
+<command:reports:digest> <scheduled> "True"^^<schema:Boolean> <layer:commands> .
+<command:reports:digest> <timezone> "UTC" <layer:commands> .
+<command:reports:digest> <type> <kind:command> <layer:commands> .
