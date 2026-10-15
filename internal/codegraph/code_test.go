@@ -85,7 +85,7 @@ func TestCodeLayerFixtureFacts(t *testing.T) {
 	t.Run("packages", func(t *testing.T) {
 		got := f.subjects(KindPackage)
 		want := []string{
-			"pkg:.", "pkg:business/actions", "pkg:business/services/orders", "pkg:config", "pkg:controllers", "pkg:devmcp",
+			"pkg:.", "pkg:business/actions", "pkg:business/services/orders", "pkg:commands", "pkg:config", "pkg:controllers", "pkg:devmcp",
 			"pkg:mcp", "pkg:middleware", "pkg:routes", "pkg:storage/orderstore",
 		}
 		if strings.Join(got, " ") != strings.Join(want, " ") {
@@ -99,7 +99,7 @@ func TestCodeLayerFixtureFacts(t *testing.T) {
 	t.Run("classification", func(t *testing.T) {
 		for pkg, want := range map[string]string{
 			"pkg:.": "wiring", "pkg:routes": "wiring", "pkg:controllers": "controllers",
-			"pkg:business/actions": "business", "pkg:business/services/orders": "business",
+			"pkg:business/actions": "business", "pkg:business/services/orders": "business", "pkg:commands": "commands",
 			"pkg:storage/orderstore": "storage", "pkg:middleware": "middleware", "pkg:devmcp": "dev",
 		} {
 			if got := f.one(t, pkg, "arch_layer"); got != quad.Value(quad.String(want)) {

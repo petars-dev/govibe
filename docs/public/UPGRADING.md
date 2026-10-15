@@ -22,5 +22,14 @@ are never touched.
 - The graph is about your app by default (`scope=app`); pass `scope=framework` or `scope=all` to the graph tools, or use the switch on `/dev/graph`.
 - `govibe.yml` is the project profile (see `GoVibe: Configuration`). Baseline entries need a `reason`: add one to each entry of `docs/graph/baseline.json`, or
   regenerate it with `--update-baseline --reason`.
+- Commands can be scheduled: `govibe.Command` has a `Schedule` field (`govibe.Cron`, `govibe.Every`, `govibe.Schedule`, `govibe.Skip` and `govibe.Allow`), `serve` runs the scheduler (`serve --no-schedule` and
+  `scheduler.enabled` turn it off), and `./app schedule list|run` are runtime commands. A command named `schedule` is now refused, as are the other built-in names. New settings `scheduler.enabled`,
+  `scheduler.timezone`, `scheduler.shutdown_timeout` (a Go duration or a number of seconds) and `scheduler.lock` (see `GoVibe: Configuration`); an invalid schedule or setting fails the boot and names what is wrong. Nothing to do unless an app already has a
+  command called `schedule`.
+- `govibetest.Boot` takes options (`WithTime`, `WithSettle`) and starts the scheduler on a fake clock: `srv.Clock.AdvanceTo(...)` and `srv.Runs("name")` test a scheduled command. Existing calls compile unchanged.
+- `inspect --json` carries each command's schedule and the scheduler's settings (new fields; the schema number is unchanged), and the project graph has a `commands` layer, a `command` kind, a commands report and the info rule
+  `docs.command_undocumented`: name each command in a doc (in backticks; a name with no colon needs the typed form, `./app cleanup`) or accept the finding with a reason. A graph that lists the rule files (`rules:` in `govibe.yml`) can switch it off.
+- A migration that fails on the second boot because the DSN has no `parseTime=true` (goose reads its version table's timestamps) now says so, instead of "table goose_db_version already exists".
+- The database explorer's "Referenced by" panel lists the routes and tools that reach a table through call chains again when the calls layer is on (it listed none), and lists the commands that reach it.
 - New rule `framework.import` (error): business logic and storage import nothing from the framework; controllers, middleware and views import only the framework's `web` package;
   commands import the root `govibe` package; wiring imports the root package, `config` and `web`.

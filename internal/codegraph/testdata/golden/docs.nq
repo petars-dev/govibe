@@ -9,6 +9,8 @@
 <doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:queue.broker.port> <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <mentions> <cfg:server.port> <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <mentions> <col:orders.user_id> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <command:orders:export> <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <mentions> <command:reports:digest> <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <mentions> <doc:README.md> <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <mentions> <doc:docs/public/GUIDE.md> <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <mentions> <env:FIXTURE_DEBUG> <layer:docs> .
@@ -39,7 +41,7 @@
 <doc:docs/public/ARCHITECTURE.md> <path> "docs/public/ARCHITECTURE.md" <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <title> "Fixture Architecture" <layer:docs> .
 <doc:docs/public/ARCHITECTURE.md> <type> <kind:doc> <layer:docs> .
-<doc:docs/public/ARCHITECTURE.md> <unresolved_ref> "13:legacy/handler.go" <layer:docs> .
+<doc:docs/public/ARCHITECTURE.md> <unresolved_ref> "14:legacy/handler.go" <layer:docs> .
 <doc:docs/public/GUIDE.md> <mentions> <doc:docs/public/ARCHITECTURE.md> <layer:docs> .
 <doc:docs/public/GUIDE.md> <mentions> <file:main.go> <layer:docs> .
 <doc:docs/public/GUIDE.md> <mentions> <file:routes/routes.go> <layer:docs> .

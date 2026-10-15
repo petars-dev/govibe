@@ -171,6 +171,30 @@ func checkRouteUndocumented(e *ruleEnv) []finding {
 	return out
 }
 
+func checkCommandUndocumented(e *ruleEnv) []finding {
+	var out []finding
+	for _, c := range e.m.Kind("command") {
+		if len(c.In["mentions"])+len(c.In["covers"]) > 0 {
+			continue
+		}
+		what := "No doc or spec mentions the command `" + c.Str("name") + "`."
+		if sched := c.Str("schedule"); sched != "" {
+			what = fmt.Sprintf("No doc or spec mentions the scheduled command `%s` (%s).", c.Str("name"), sched)
+		}
+		how := "naming it in backticks"
+		if !strings.Contains(c.Str("name"), ":") {
+			// A plain word in backticks is a word, not a command: the typed form is the one that counts.
+			how = "writing it as typed, in backticks: `./app " + c.Str("name") + "`"
+		}
+		f := finding{subject: quad.IRI(c.ID), message: what + " Say what it is for in docs/public/ARCHITECTURE.md or the spec that owns it, " + how + "."}
+		if h := e.m.nodes[c.first("run_by")]; h != nil {
+			f.path, f.line = e.where(h)
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
 // --- config ---
 
 // declared is false only when the indexer said so: a node with no `declared`
@@ -273,7 +297,7 @@ func checkUnreferenced(e *ruleEnv) []finding {
 		if file := e.m.nodes[fn.first("defined_in")]; file != nil && file.Bool("generated") {
 			continue
 		}
-		if len(fn.In["handled_by"]) > 0 || len(fn.Out["registers"]) > 0 {
+		if len(fn.In["handled_by"]) > 0 || len(fn.In["run_by"]) > 0 || len(fn.Out["registers"]) > 0 {
 			continue
 		}
 		dir := pkg.Str("path")

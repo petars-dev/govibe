@@ -159,11 +159,11 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "graph_context",
-		Description: "One-call briefing on a file, package, function, type, route, table, template, config key, spec or any node: where it lives (package, arch layer), " +
-			"what it defines, the routes it serves, the tables it touches, the config it reads, the docs and specs that mention it, findings about it, " +
-			"and its neighbours. For a route or function: its handler, middleware, what it calls and is called by, and the tables it reaches (through the chain of calls when the calls layer is on; " +
+		Description: "One-call briefing on a file, package, function, type, route, command, table, template, config key, spec or any node: where it lives (package, arch layer), " +
+			"what it defines, the routes it serves, the commands it runs, the tables it touches, the config it reads, the docs and specs that mention it, findings about it, " +
+			"and its neighbours. For a route, command or function: its handler (the function that runs a command, with its schedule), middleware, what it calls and is called by, and the tables it reaches (through the chain of calls when the calls layer is on; " +
 			"otherwise estimated from package imports and labelled possible, not proven); for a file, doc or function, its git history (last commit, churn, what changes with it) when the git layer is on. " +
-			"For a table: columns, keys, relations (declared and implied, with confidence), readers, writers and migrations. " +
+			"For a table: columns, keys, relations (declared and implied, with confidence), readers, writers, migrations, and the commands that reach it (scheduled ones first). " +
 			"Give exactly one of path, symbol, route, table or node.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in contextIn) (*mcp.CallToolResult, codegraph.Context, error) {
@@ -258,7 +258,7 @@ func registerGraphTools(srv *mcp.Server, qs graph.QuadStore, ix GraphIndexer) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "graph_findings",
 		Description: "What is stale, broken or against the rules: layering violations, docs that mention code that is gone, config keys declared and never read, " +
-			"tables without a primary key, a route no doc mentions. Each finding has a rule, a severity (error, warning, info), a message that says what to do, " +
+			"tables without a primary key, a route or command no doc mentions. Each finding has a rule, a severity (error, warning, info), a message that says what to do, " +
 			"and the node it is about; filter by `severity` or `rule` (a trailing * matches a prefix, e.g. `docs.*`). `rules` lists every rule and whether it ran on this graph: " +
 			"a rule that did not run (a layer it reads is not built, or there is no live database to compare with) has not looked, so no findings from it is not a clean bill; " +
 			"`available` is false when the whole findings layer is missing.",
@@ -315,7 +315,7 @@ func registerGraphResources(srv *mcp.Server, g *graphTools) {
 		URI:         overviewURI,
 		Name:        "graph-overview",
 		Title:       "Project architecture overview",
-		Description: "The architecture of this project rendered from the graph: layers and their packages, imports between layers, routes with handlers, MCP tools, database tables, config, specs, and what is not covered. Always as fresh as the graph.",
+		Description: "The architecture of this project rendered from the graph: layers and their packages, imports between layers, routes with handlers, commands with their schedules, MCP tools, database tables, config, specs, and what is not covered. Always as fresh as the graph.",
 		MIMEType:    "text/markdown",
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		m, err := g.model(ctx, "")
@@ -403,10 +403,10 @@ type contextIn struct {
 
 type impactIn struct {
 	Scope string   `json:"scope,omitempty" jsonschema:"whose nodes to answer from: app (the default: the project's own code, docs and connections), framework (what the framework it runs on contributes) or all (both, each labelled with its origin)"`
-	Node  string   `json:"node" jsonschema:"what changes: a node ID or any reference graph_context takes (a file, package, symbol, route, table, config key, migration)"`
+	Node  string   `json:"node" jsonschema:"what changes: a node ID or any reference graph_context takes (a file, package, symbol, route, command, table, config key, migration)"`
 	Depth int      `json:"depth,omitempty" jsonschema:"hops of exact dependencies to follow (default 3, max 6; with the calls layer on, default 6, max 10)"`
 	Limit int      `json:"limit,omitempty" jsonschema:"max affected nodes returned, weakest evidence dropped first (default 100, max 500)"`
-	Kinds []string `json:"kinds,omitempty" jsonschema:"only return these kinds, e.g. route, mcp_tool, func, package, table (by_kind still counts everything)"`
+	Kinds []string `json:"kinds,omitempty" jsonschema:"only return these kinds, e.g. route, command, mcp_tool, func, package, table (by_kind still counts everything)"`
 }
 
 type pathIn struct {
@@ -440,7 +440,7 @@ type findingsIn struct {
 }
 
 type reindexIn struct {
-	Layers []string `json:"layers,omitempty" jsonschema:"layers to rebuild: code, routes, templates, config, mcp, db, docs, findings, and the opt-in calls and git (naming one switches it on); omit for every layer that is on"`
+	Layers []string `json:"layers,omitempty" jsonschema:"layers to rebuild: code, routes, commands, templates, config, mcp, db, docs, externals, findings, and the opt-in calls and git (naming one switches it on); omit for every layer that is on"`
 }
 
 type reindexOut struct {

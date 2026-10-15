@@ -18,7 +18,7 @@ type findingsLayer struct{}
 func (findingsLayer) name() string { return "findings" }
 
 func (findingsLayer) deps() []string {
-	return []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "externals"}
+	return []string{"code", "routes", "commands", "templates", "config", "mcp", "db", "docs", "externals"}
 }
 
 // fingerprint is a constant: nothing but the other layers feeds the rules. A

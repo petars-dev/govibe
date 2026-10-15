@@ -9,6 +9,7 @@ import (
 
 	"github.com/petars-dev/govibe/internal/codegraph/internal/graphcheck"
 	"github.com/petars-dev/govibe/internal/dbexplorer"
+	"github.com/petars-dev/govibe/internal/routeinfo"
 )
 
 // fixtureRoutes is what the fixture's router would report at runtime, as the Go
@@ -41,8 +42,26 @@ func fixtureRoutes() []runtimeRoute {
 	}
 }
 
+// fixtureCommands is what the fixture's binary would report for its commands (`inspect
+// --json`): where each Run function was declared, and the schedule each one declares.
+func fixtureCommands() []routeinfo.InspectCmd {
+	return []routeinfo.InspectCmd{
+		{Name: "orders:export", Short: "Export yesterday's orders",
+			Handler:  routeinfo.InspectRef{Symbol: "example.com/fixture/commands.ExportOrders.func1", File: "commands/export.go", Line: 15},
+			Schedule: &routeinfo.InspectSchedule{Spec: "0 2 * * *", Timezone: "UTC", Overlap: "skip", Timeout: "10m0s"}},
+		{Name: "reports:digest", Short: "Send the digest",
+			Handler:  routeinfo.InspectRef{Symbol: "example.com/fixture/commands.Digest.func1", File: "commands/export.go", Line: 23},
+			Schedule: &routeinfo.InspectSchedule{Spec: "@every 6h", Timezone: "UTC", Overlap: "allow", Every: "6h0m0s"}},
+		{Name: "cache:warm", Short: "Warm the cache",
+			Handler: routeinfo.InspectRef{Symbol: "example.com/fixture/commands.WarmCache", File: "commands/export.go", Line: 31}},
+	}
+}
+
 func fixtureOptions() Options {
-	return Options{RouteSource: func() ([]runtimeRoute, error) { return sortRoutes(fixtureRoutes()), nil }}
+	return Options{
+		RouteSource:   func() ([]runtimeRoute, error) { return sortRoutes(fixtureRoutes()), nil },
+		CommandSource: func() ([]routeinfo.InspectCmd, error) { return fixtureCommands(), nil },
+	}
 }
 
 func fixtureWorld(t *testing.T) *world { return newTestWorld(t, fixtureRoot, fixtureOptions()) }
@@ -52,6 +71,10 @@ func iri(s string) quad.Value { return quad.IRI(s) }
 
 func TestRoutesLayerGolden(t *testing.T) {
 	checkGolden(t, "routes", buildLayer(t, fixtureWorld(t), routesLayer{}).quads)
+}
+
+func TestCommandsLayerGolden(t *testing.T) {
+	checkGolden(t, "commands", buildLayer(t, fixtureWorld(t), commandsLayer{}).quads)
 }
 
 func TestTemplatesLayerGolden(t *testing.T) {
@@ -359,6 +382,8 @@ func TestDocsLayerFixtureFacts(t *testing.T) {
 		"func:storage/orderstore.Store.List",         // Store.List             (Type.Method)
 		"route:GET:/api/orders",                      //
 		"route:ANY:/dev/mcp",                         // GET /dev/mcp: an ANY route serves GET
+		"command:orders:export",                      // `orders:export`: a command by the name it is run with
+		"command:reports:digest",                     // `./fixture reports:digest`: as it is written when run by hand
 		"tool:fixture_echo", "tool:fixture_ping",     //
 		"func:controllers.GetOrder",    //
 		"typ:storage/orderstore.Store", // orderstore.Store
@@ -452,16 +477,24 @@ func TestDocsLayerFixtureFacts(t *testing.T) {
 	}
 }
 
-// With no router wired (an offline run) route mentions cannot be resolved; the
-// docs layer says so instead of silently dropping them.
+// With no router wired and no command table (an offline run) route and command mentions
+// cannot be resolved; the docs layer says so, for each, instead of silently dropping them.
 func TestDocsLayerWithoutRouter(t *testing.T) {
 	out := buildLayer(t, newTestWorld(t, fixtureRoot, Options{}), docsLayer{})
-	if len(out.warnings) != 1 || !strings.Contains(out.warnings[0], "route") {
+	if len(out.warnings) != 2 || !strings.Contains(out.warnings[0], "route") || !strings.Contains(out.warnings[1], "command") {
 		t.Errorf("warnings = %v", out.warnings)
 	}
 	f := facts{out.quads}
 	if f.has("doc:docs/public/ARCHITECTURE.md", "mentions", iri("route:GET:/api/hello")) {
 		t.Error("no router, so no route to mention")
+	}
+	if f.has("doc:docs/public/ARCHITECTURE.md", "mentions", iri("command:orders:export")) {
+		t.Error("no command table, so no command to mention")
+	}
+	// With the command table and no router, only the routes are missing.
+	only := buildLayer(t, newTestWorld(t, fixtureRoot, Options{CommandSource: fixtureOptions().CommandSource}), docsLayer{})
+	if len(only.warnings) != 1 || !strings.Contains(only.warnings[0], "route") {
+		t.Errorf("with a command table only the routes are missing: %v", only.warnings)
 	}
 	if !f.has("doc:docs/public/ARCHITECTURE.md", "mentions", iri("func:controllers.HelloAPI")) {
 		t.Error("the rest of the mentions still resolve")
@@ -803,7 +836,7 @@ func TestFixtureGraphInvariants(t *testing.T) {
 		}
 	}
 	res := graphcheck.Check(t, h, graphcheck.Options{
-		Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "externals", "findings"},
+		Layers: []string{"code", "routes", "commands", "templates", "config", "mcp", "db", "docs", "externals", "findings"},
 		RequireEdges: []string{"handled_by", "uses_mw", "renders", "uses_config", "reads_env", "registers", "has_item", "mentions", "covers",
 			"has_column", "has_index", "fk_to", "implicit_ref", "many_to_many", "introduced_in", "reads_table", "writes_table", "maps_to",
 			"subject", "object", "via"},

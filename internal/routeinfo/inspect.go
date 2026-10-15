@@ -12,7 +12,8 @@ const InspectSchema = "govibe.inspect/1"
 // Inspect is the offline facts of an app: its routes and commands as the running
 // binary reports them, plus what a reader needs to place a handler's source file
 // (the module table, the build flags, a hint to the compile-time root). It holds
-// nothing resolved from the environment: no config values, no database schema. The
+// nothing else resolved from the environment: no config values (but the scheduler's
+// own, below), no database schema. The
 // app binary writes it; the tool reads it (internal/codegraph turns it into what the
 // indexer takes).
 type Inspect struct {
@@ -23,6 +24,18 @@ type Inspect struct {
 	Build     InspectBuild   `json:"build"`
 	Routes    []InspectRoute `json:"routes"`
 	Commands  []InspectCmd   `json:"commands"`
+	// Scheduler is the scheduler's own settings: whether it runs, in which zone a
+	// schedule is read, and how instances are kept from running a task twice. The one
+	// part of the app's configuration the document carries, because a command's next
+	// run depends on it.
+	Scheduler InspectScheduler `json:"scheduler"`
+}
+
+// InspectScheduler is the scheduler.* configuration as the binary read it.
+type InspectScheduler struct {
+	Enabled  bool   `json:"enabled"`
+	Timezone string `json:"timezone"`
+	Lock     string `json:"lock"`
 }
 
 // InspectContributes says which fields of its App declaration an application filled in:
@@ -98,6 +111,18 @@ type InspectCmd struct {
 	Name    string     `json:"name"`
 	Short   string     `json:"short"`
 	Handler InspectRef `json:"handler"`
+	// Schedule is set when the command declares one.
+	Schedule *InspectSchedule `json:"schedule,omitempty"`
+}
+
+// InspectSchedule is a command's Schedule, validated, with the zone it is read in.
+type InspectSchedule struct {
+	Spec     string `json:"spec"`
+	Timezone string `json:"timezone"`
+	Overlap  string `json:"overlap"` // "skip" or "allow"
+	Timeout  string `json:"timeout,omitempty"`
+	// Every is the interval of an "@every" spec.
+	Every string `json:"every,omitempty"`
 }
 
 // ParseInspect reads the document `inspect --json` printed, refusing one whose schema

@@ -78,7 +78,7 @@ const (
 
 // dependencyPredicates: a stored edge subject --p--> object means the subject
 // depends on the object.
-var dependencyPredicates = []string{"handled_by", "uses_mw", "implemented_by", "calls", "renders", "reads_table", "writes_table",
+var dependencyPredicates = []string{"handled_by", "run_by", "uses_mw", "implemented_by", "calls", "renders", "reads_table", "writes_table",
 	"uses_config", "reads_env", "maps_to", "fk_to", "implicit_ref", "imports"}
 
 // pathNeighbors lists the steps from n. forward follows dependencies (n depends
@@ -213,7 +213,7 @@ func packageLevelPath(steps []PathStep) bool {
 
 // dependencyKinds are the kinds that take part in dependency flow; a doc or a
 // build node is not on any path.
-var dependencyKinds = map[string]bool{"route": true, "middleware": true, "func": true, "type": true, "template": true, "file": true,
+var dependencyKinds = map[string]bool{"route": true, "command": true, "middleware": true, "func": true, "type": true, "template": true, "file": true,
 	"package": true, "mcp_tool": true, "config_key": true, "env_var": true, "table": true, "column": true, "index": true}
 
 // Path is graph_path.
@@ -235,7 +235,7 @@ func (m *Model) Path(q PathQuery) (*PathResult, error) {
 	}
 	res := &PathResult{From: m.Ref(from), To: m.Ref(to), AsOf: m.AsOf()}
 	if bad := firstNot(dependencyKinds, from, to); bad != nil {
-		res.Note = fmt.Sprintf("%s is a %s, and %s nodes are not part of dependency flow (routes, code, packages, config and tables are); "+
+		res.Note = fmt.Sprintf("%s is a %s, and %s nodes are not part of dependency flow (routes, commands, code, packages, config and tables are); "+
 			"use graph_neighbors to see what it is connected to.", bad.ID, bad.Kind, bad.Kind)
 		return res, nil
 	}
@@ -317,7 +317,7 @@ func firstNot(set map[string]bool, ns ...*Node) *Node {
 }
 
 // callGraphKinds are the kinds the call graph connects exactly.
-var callGraphKinds = map[string]bool{"route": true, "mcp_tool": true, "func": true, "table": true}
+var callGraphKinds = map[string]bool{"route": true, "command": true, "mcp_tool": true, "func": true, "table": true}
 
 // pathFloors are the confidences a search tries, surest first. Without call edges
 // every stored edge is 90 or more except an inferred relation, so one search

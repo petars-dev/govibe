@@ -28,7 +28,7 @@ func scopedHandler(t *testing.T, opt Options) http.Handler {
 	t.Cleanup(func() { store.Close() })
 	r := chi.NewRouter()
 	r.Get(web.HTMXPath, web.ServeHTMX)
-	ix := codegraph.New(store.QuadStore, codegraph.Options{Root: "../..", Router: r, Build: codegraph.BuildFacts{AppName: "shop"}})
+	ix := codegraph.New(store.QuadStore, codegraph.Options{Root: "../..", Router: r, CommandSource: noCommands, Build: codegraph.BuildFacts{AppName: "shop"}})
 	if _, err := ix.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}

@@ -1,3 +1,17 @@
+<ext:example.com/stubfw.Cron> <import_path> "example.com/stubfw" <layer:externals> .
+<ext:example.com/stubfw.Cron> <internal> "False"^^<schema:Boolean> <layer:externals> .
+<ext:example.com/stubfw.Cron> <module> "example.com/stubfw" <layer:externals> .
+<ext:example.com/stubfw.Cron> <module_version> "(devel)" <layer:externals> .
+<ext:example.com/stubfw.Cron> <name> "stubfw.Cron" <layer:externals> .
+<ext:example.com/stubfw.Cron> <origin> "framework" <layer:externals> .
+<ext:example.com/stubfw.Cron> <type> <kind:external> <layer:externals> .
+<ext:example.com/stubfw.Every> <import_path> "example.com/stubfw" <layer:externals> .
+<ext:example.com/stubfw.Every> <internal> "False"^^<schema:Boolean> <layer:externals> .
+<ext:example.com/stubfw.Every> <module> "example.com/stubfw" <layer:externals> .
+<ext:example.com/stubfw.Every> <module_version> "(devel)" <layer:externals> .
+<ext:example.com/stubfw.Every> <name> "stubfw.Every" <layer:externals> .
+<ext:example.com/stubfw.Every> <origin> "framework" <layer:externals> .
+<ext:example.com/stubfw.Every> <type> <kind:external> <layer:externals> .
 <ext:example.com/stubfw.Main> <import_path> "example.com/stubfw" <layer:externals> .
 <ext:example.com/stubfw.Main> <internal> "False"^^<schema:Boolean> <layer:externals> .
 <ext:example.com/stubfw.Main> <module> "example.com/stubfw" <layer:externals> .

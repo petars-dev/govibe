@@ -139,7 +139,7 @@ func TestRefreshRebuildsOnlyStaleLayers(t *testing.T) {
 	// A Go source edit: the code layer and everything that resolves against it.
 	check("go edit", func() {
 		appendTo(t, root, "business/actions/hello.go", "\n// Bye says goodbye.\nfunc Bye() string { return \"bye\" }\n")
-	}, "code", "routes", "templates", "config", "mcp", "db", "docs", "externals", "findings")
+	}, "code", "routes", "commands", "templates", "config", "mcp", "db", "docs", "externals", "findings")
 	wantIDs(t, "the new function", gizmoIDs(t, h, `g.V(g.IRI('func:business/actions.Bye')).Out(g.IRI('doc')).All()`), "Bye says goodbye.")
 
 	// The layers that did not run kept their own records.

@@ -154,6 +154,39 @@ func (m *Model) Overview(stale []string) string {
 		b.WriteString("## Routes\n\nNot available: the routes layer is " + orNone(st, "not built") + ".\n\n")
 	}
 
+	// commands
+	if cmds := m.byKind["command"]; len(cmds) > 0 {
+		sorted := append([]*Node(nil), cmds...)
+		sort.SliceStable(sorted, func(i, j int) bool {
+			a, c := sorted[i], sorted[j]
+			if a.Bool("scheduled") != c.Bool("scheduled") {
+				return a.Bool("scheduled")
+			}
+			return a.Str("name") < c.Str("name")
+		})
+		b.WriteString("## Commands\n\n| Command | Schedule | Zone | Overlap | Runs |\n| --- | --- | --- | --- | --- |\n")
+		for _, c := range sorted {
+			runs := c.Str("handler")
+			if h := m.nodes[c.first("run_by")]; h != nil {
+				ref := m.Ref(h)
+				runs = fmt.Sprintf("`%s` (%s:%d)", strings.TrimPrefix(h.ID, "func:"), ref.Path, ref.Line)
+			} else if runs != "" {
+				runs = "(" + runs + ")"
+			}
+			sched, zone, overlap := "CLI only", "", ""
+			if c.Bool("scheduled") {
+				sched, zone, overlap = "`"+c.Str("schedule")+"`", c.Str("timezone"), c.Str("overlap")
+				if t := c.Str("timeout"); t != "" {
+					overlap += ", timeout " + t
+				}
+			}
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s |\n", c.Str("name"), sched, zone, overlap, runs)
+		}
+		b.WriteString("\n")
+	} else if st := m.layerStatus("commands"); st != statusOK && st != statusPartial {
+		b.WriteString("## Commands\n\nNot available: the commands layer is " + orNone(st, "not built") + ".\n\n")
+	}
+
 	// MCP tools
 	if tools := m.byKind["mcp_tool"]; len(tools) > 0 {
 		b.WriteString("## MCP tools\n\n")
@@ -233,7 +266,7 @@ func (m *Model) Overview(stale []string) string {
 			notes = append(notes, fmt.Sprintf("the %s layer is off: %s", ol.name, ol.enable))
 		}
 	}
-	notes = append(notes, m.warnings("code", "routes", "templates", "config", "mcp", "db", "docs", "findings")...)
+	notes = append(notes, m.warnings("code", "routes", "commands", "templates", "config", "mcp", "db", "docs", "findings")...)
 	if len(notes) > 0 {
 		b.WriteString("## Not covered\n\n")
 		for _, n := range notes {
@@ -507,7 +540,7 @@ func (m *Model) explainOne(b *strings.Builder, p string, n *Node, hits map[strin
 			by[a.Kind] = append(by[a.Kind], shortID(a.ID))
 		}
 		var parts []string
-		for _, k := range []string{"route", "mcp_tool", "func", "type", "template", "middleware", "table", "column", "config_key", "env_var", "package"} {
+		for _, k := range []string{"route", "command", "mcp_tool", "func", "type", "template", "middleware", "table", "column", "config_key", "env_var", "package"} {
 			if l := by[k]; len(l) > 0 {
 				parts = append(parts, fmt.Sprintf("%s: %s", k, listCapped(l, 8)))
 			}

@@ -29,11 +29,11 @@ type PresetInfo struct {
 // ViewPresets are the views the graph page offers, in the order it lists them.
 // "manual" (quads added by hand) is not drawn from the model: see ManualView.
 var ViewPresets = []PresetInfo{
-	{"app_map", "App map", "The app's own connections: each route, the handler that serves it, the actions, services and stores it reaches, the tables at the end, and the templates, config keys and docs on the way. Estimated from package imports where the calls layer is off (dashed). In scope Framework or All it maps the framework's routes too, each labelled."},
+	{"app_map", "App map", "The app's own connections: each route and each command (a scheduled one shows its schedule), the function that serves or runs it, the actions, services and stores it reaches, the tables at the end, and the templates, config keys and docs on the way. Estimated from package imports where the calls layer is off (dashed). In scope Framework or All it maps the framework's routes too, each labelled."},
 	{"architecture", "Architecture", "Packages in their architecture layers, and who imports whom. A red edge is an import that breaks the layering rule."},
 	{"request_flow", "Request flow", "Each route, the middleware it runs, the function that handles it, and what that renders. With the calls layer, also the calls down to the tables it reads and writes (dashed: a call through an interface)."},
 	{"db_er", "Database ER", "Tables and the relations between them: declared foreign keys (solid), and relations the schema implies (dashed)."},
-	{"docs_coverage", "Docs ↔ code", "Which docs and specs mention which packages, routes, tables and tools. An orange outline means no doc mentions it."},
+	{"docs_coverage", "Docs ↔ code", "Which docs and specs mention which packages, routes, commands, tables and tools. An orange outline means no doc mentions it."},
 	{"config_usage", "Config → usage", "Config keys, the environment variables behind them, and the packages that read them."},
 	{"findings", "Findings", "Every finding and the node it is about, worst first."},
 	{"manual", "Hand-added quads", "Quads added with the form below or the HTTP API: not part of the indexed graph."},
@@ -66,7 +66,7 @@ type ViewNode struct {
 	Degree   int    `json:"degree"`          // edges to other nodes of the view
 	Findings int    `json:"findings,omitempty"`
 	Worst    string `json:"worst,omitempty"`  // severity of the worst finding about it
-	Flag     string `json:"flag,omitempty"`   // uncovered, sensitive, undeclared, dev
+	Flag     string `json:"flag,omitempty"`   // uncovered, sensitive, undeclared, dev, scheduled
 	More     int    `json:"more,omitempty"`   // focus view: edges at this node that the view leaves out
 	Origin   string `json:"origin,omitempty"` // app or framework: whose node it is, so a view of both can label the framework's
 }
@@ -212,6 +212,10 @@ func (b *viewBuilder) add(n *Node, col int) *ViewNode {
 		if n.Bool("dev_only") {
 			vn.Flag = "dev"
 		}
+	case "command":
+		if n.Bool("scheduled") {
+			vn.Flag = "scheduled"
+		}
 	case "config_key", "env_var":
 		switch {
 		case n.Bool("sensitive"):
@@ -323,6 +327,13 @@ func viewLabel(m *Model, n *Node) string {
 		return name
 	case "route":
 		return n.Str("method") + " " + n.Str("path")
+	case "command":
+		// The schedule is what makes a command worth a place on the map: it runs unwatched. One
+		// line, because the canvas ellipsises a label and does not break it (hovering shows it whole).
+		if s := n.Str("schedule"); s != "" {
+			return n.Str("name") + " · " + s
+		}
+		return n.Str("name")
 	case "file", "doc", "spec":
 		if p := n.Str("path"); p != "" {
 			return p
@@ -425,10 +436,18 @@ func (b *viewBuilder) architecture() {
 func (b *viewBuilder) appMap() {
 	m := b.m
 	routes := append([]*Node(nil), m.byKind["route"]...)
-	if len(routes) == 0 {
-		b.notes = append(b.notes, "No routes: the routes layer is not built (an offline run of a project that is not an application has no router), or the scope shows none.")
+	commands := append([]*Node(nil), m.byKind["command"]...)
+	if len(routes) == 0 && len(commands) == 0 {
+		b.notes = append(b.notes, "No routes or commands: the routes and commands layers are not built (an offline run of a project that is not an application has no router), or the scope shows none.")
 		return
 	}
+	sort.SliceStable(commands, func(i, j int) bool {
+		a, c := commands[i], commands[j]
+		if a.Bool("scheduled") != c.Bool("scheduled") {
+			return a.Bool("scheduled")
+		}
+		return a.Str("name") < c.Str("name")
+	})
 	sort.SliceStable(routes, func(i, j int) bool {
 		a, c := routes[i], routes[j]
 		if (m.originOf(a) == OriginFramework) != (m.originOf(c) == OriginFramework) {
@@ -440,11 +459,13 @@ func (b *viewBuilder) appMap() {
 		return a.ID < c.ID
 	})
 	calls := m.hasCalls()
-	b.cols = []string{"route", "handler", "actions, services, stores", "tables", "templates, settings, docs"}
+	b.cols = []string{"route, command", "handler", "actions, services, stores", "tables", "templates, settings, docs"}
 	const (
 		colRoute, colHandler, colReach, colTables, colAside = 0, 1, 2, 3, 4
 	)
-	for _, r := range routes {
+	// entry adds an entry point (a route, or a command) with the docs that mention it, the
+	// function that serves or runs it, and what that function reaches.
+	entry := func(r *Node, handledBy string) {
 		b.add(r, colRoute)
 		for _, d := range append(m.in(r, "mentions"), m.in(r, "covers")...) {
 			if d.Kind == "doc" || d.Kind == "spec" || d.Kind == "spec_item" {
@@ -452,12 +473,12 @@ func (b *viewBuilder) appMap() {
 				b.link(d, r, "mentions")
 			}
 		}
-		h := m.nodes[r.first("handled_by")]
+		h := m.nodes[r.first(handledBy)]
 		if h == nil {
-			continue
+			return
 		}
 		b.add(h, colHandler)
-		b.link(r, h, "handled_by")
+		b.link(r, h, handledBy)
 		for _, t := range m.out(h, "renders") {
 			b.add(t, colAside)
 			b.link(h, t, "renders")
@@ -471,6 +492,34 @@ func (b *viewBuilder) appMap() {
 		} else if p := m.pkgOf(h); p != nil {
 			b.reachByImports(p, h, colReach, colTables)
 		}
+	}
+	// What runs with nobody watching comes first, so a view cut at its node limit (which keeps
+	// nodes in the order they were added) drops routes before it drops a scheduled command.
+	// Every entry point is placed before any of them is expanded, so one command's reach
+	// cannot crowd the next command out.
+	type ep struct {
+		n         *Node
+		handledBy string
+	}
+	var order []ep
+	for _, c := range commands {
+		if c.Bool("scheduled") {
+			order = append(order, ep{c, "run_by"})
+		}
+	}
+	for _, r := range routes {
+		order = append(order, ep{r, "handled_by"})
+	}
+	for _, c := range commands {
+		if !c.Bool("scheduled") {
+			order = append(order, ep{c, "run_by"})
+		}
+	}
+	for _, e := range order {
+		b.add(e.n, colRoute)
+	}
+	for _, e := range order {
+		entry(e.n, e.handledBy)
 	}
 }
 
@@ -690,7 +739,7 @@ func (b *viewBuilder) dbER() {
 // (for a column or index), or a tool. Anything else is not judged.
 func (m *Model) coverTarget(n *Node) *Node {
 	switch n.Kind {
-	case "package", "route", "table", "mcp_tool":
+	case "package", "route", "command", "table", "mcp_tool":
 		return n
 	case "file", "func", "type":
 		return m.pkgOf(n)
@@ -742,7 +791,7 @@ func (b *viewBuilder) docsCoverage() {
 	}
 	// What nothing mentions comes first: it is what the view is for.
 	var judged []*Node
-	for _, k := range []string{"package", "route", "table", "mcp_tool"} {
+	for _, k := range []string{"package", "route", "command", "table", "mcp_tool"} {
 		for _, n := range m.byKind[k] {
 			if n.Kind == "route" && n.Bool("dev_only") {
 				continue // dev tooling is documented as a whole, not route by route

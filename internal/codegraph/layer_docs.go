@@ -140,6 +140,10 @@ func (w *world) docs() (*docsIndex, error) {
 		if err != nil {
 			return nil, fmt.Errorf("route table: %w", err)
 		}
+		ct, err := w.commandTable()
+		if err != nil {
+			return nil, fmt.Errorf("command table: %w", err)
+		}
 		ti, err := w.templates()
 		if err != nil {
 			return nil, fmt.Errorf("templates: %w", err)
@@ -156,7 +160,9 @@ func (w *world) docs() (*docsIndex, error) {
 		if err != nil {
 			return nil, err
 		}
-		return buildDocsIndex(w.ctx, sc, newResolver(w.root, prof, sc, ci, rt, ti, cx, dm))
+		rs := newResolver(w.root, prof, sc, ci, rt, ct, ti, cx, dm)
+		rs.appName = w.x.opts.Build.AppName
+		return buildDocsIndex(w.ctx, sc, rs)
 	})
 }
 
@@ -164,6 +170,9 @@ func buildDocsIndex(ctx context.Context, sc *scan, rs *resolver) (*docsIndex, er
 	di := &docsIndex{warnings: append([]string(nil), sc.warnings...)}
 	if rs.noRoutes {
 		di.warnings = append(di.warnings, "no router is wired: mentions of routes were not resolved")
+	}
+	if rs.noCommands {
+		di.warnings = append(di.warnings, "no command table is available: mentions of commands were not resolved")
 	}
 	md := goldmark.New(goldmark.WithExtensions(extension.GFM))
 	for _, sf := range sc.files {
@@ -436,28 +445,32 @@ type resolver struct {
 	probe         map[string]bool // paths looked for on disk, and whether they were there
 	externalNames map[string]bool // names of the libraries the module imports
 
-	noRoutes bool
-	ids      map[string]quad.IRI   // every node ID, as text
-	routes   map[string][]quad.IRI // by path
-	routeIDs map[string]quad.IRI   // by "METHOD path"
-	docPath  map[string]quad.IRI   // markdown file -> doc or spec
-	docSlug  map[string]quad.IRI   // /dev/docs/app slug -> doc
-	specSlug map[string]quad.IRI   // /dev/docs/specs slug -> spec
-	tools    map[string]quad.IRI
-	typesBy  map[string][]*typeInfo // type name -> types
-	filesBy  map[string][]string    // base name -> .go files
-	tables   map[string]quad.IRI    // lower-case table name
-	columns  map[string]quad.IRI    // lower-case "table.column"
-	migPath  map[string]quad.IRI    // migration file path, and its base name when unambiguous
+	noRoutes   bool
+	noCommands bool
+	ids        map[string]quad.IRI   // every node ID, as text
+	routes     map[string][]quad.IRI // by path
+	routeIDs   map[string]quad.IRI   // by "METHOD path"
+	docPath    map[string]quad.IRI   // markdown file -> doc or spec
+	docSlug    map[string]quad.IRI   // /dev/docs/app slug -> doc
+	specSlug   map[string]quad.IRI   // /dev/docs/specs slug -> spec
+	tools      map[string]quad.IRI
+	commands   map[string]quad.IRI    // by the name a command is run with
+	appName    string                 // the application's name, as `./name command` spells it
+	typesBy    map[string][]*typeInfo // type name -> types
+	filesBy    map[string][]string    // base name -> .go files
+	tables     map[string]quad.IRI    // lower-case table name
+	columns    map[string]quad.IRI    // lower-case "table.column"
+	migPath    map[string]quad.IRI    // migration file path, and its base name when unambiguous
 }
 
-func newResolver(root string, prof *profile.Profile, sc *scan, ci *codeIndex, rt *routeTable, ti *templIndex, cx *configIndex, dm *dbModel) *resolver {
+func newResolver(root string, prof *profile.Profile, sc *scan, ci *codeIndex, rt *routeTable, ct *commandTable, ti *templIndex, cx *configIndex, dm *dbModel) *resolver {
 	rs := &resolver{
 		root: root, prof: prof,
 		ci: ci, rt: rt, ti: ti, cx: cx,
 		probe:         map[string]bool{},
 		externalNames: externalPackageNames(ci),
 		noRoutes:      rt.absent,
+		noCommands:    ct == nil || ct.absent,
 		ids:           map[string]quad.IRI{},
 		routes:        map[string][]quad.IRI{},
 		routeIDs:      map[string]quad.IRI{},
@@ -465,6 +478,7 @@ func newResolver(root string, prof *profile.Profile, sc *scan, ci *codeIndex, rt
 		docSlug:       map[string]quad.IRI{},
 		specSlug:      map[string]quad.IRI{},
 		tools:         map[string]quad.IRI{},
+		commands:      map[string]quad.IRI{},
 		typesBy:       map[string][]*typeInfo{},
 		tables:        map[string]quad.IRI{},
 		columns:       map[string]quad.IRI{},
@@ -508,6 +522,13 @@ func newResolver(root string, prof *profile.Profile, sc *scan, ci *codeIndex, rt
 		id := toolID(t.name)
 		add(id)
 		rs.tools[t.name] = id
+	}
+	if ct != nil {
+		for _, c := range ct.commands {
+			id := commandID(c.Name)
+			add(id)
+			rs.commands[c.Name] = id
+		}
 	}
 	for _, t := range dm.tables {
 		tid := tableID(t.name)
@@ -596,6 +617,12 @@ func (rs *resolver) resolveToken(tok, docDir string) []quad.IRI {
 		}
 	}
 	if strings.ContainsAny(tok, " ") {
+		// `./app items:sync`: how a command is written when it is run by hand.
+		if f := strings.Fields(tok); len(f) == 2 && (strings.HasPrefix(f[0], "./") || f[0] == rs.appName) {
+			if id, ok := rs.commands[f[1]]; ok {
+				return []quad.IRI{id}
+			}
+		}
 		return nil
 	}
 	// A repository path.
@@ -619,6 +646,12 @@ func (rs *resolver) resolveToken(tok, docDir string) []quad.IRI {
 		if id, ok := rs.tools[tok]; ok {
 			return []quad.IRI{id}
 		}
+	}
+	// A command, by the name it is run with (`items:sync`). It comes after the rules above
+	// that read an unambiguous shape, and before the symbol and schema rules that would take
+	// a plain word for a type or a table.
+	if id, ok := rs.commands[tok]; ok && strings.Contains(tok, ":") {
+		return []quad.IRI{id}
 	}
 	// pkg.Name, Type.Method, pkg.Type.Method.
 	if ids := rs.resolveSymbol(strings.TrimSuffix(tok, "()")); len(ids) > 0 {
@@ -817,7 +850,7 @@ type docsLayer struct{}
 
 func (docsLayer) name() string { return "docs" }
 func (docsLayer) deps() []string {
-	return []string{"code", "routes", "templates", "config", "mcp", "db"}
+	return []string{"code", "routes", "commands", "templates", "config", "mcp", "db"}
 }
 
 func (docsLayer) settles() {}

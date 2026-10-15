@@ -44,7 +44,9 @@ Adding Features
 - New pages: add a .templ file under assets/templates, run `templ generate`, add a controller that renders it, then map the route in routes/routes.go.
 - New APIs: add an action/service in business/, call it from a controller in controllers/, add the route.
 - DB changes: add a new SQL file in storage/migrations/sql with goose directives; the framework runs it on start.
-- New CLI commands: declare a `govibe.Command` in `App.Commands` and keep its body thin (call a business action); run it as `./app <name>`.
+- New CLI commands: declare a `govibe.Command` in a new file beside `routes/routes.go` (by convention `console.go`) and wire it as `App.Commands` and keep its body thin (call a business action); run it as `./app <name>`. Name it `noun:verb`.
+  Put it on a schedule with `Schedule: govibe.Cron("0 3 * * *")` or `govibe.Every(10 * time.Minute)`: the same body then also runs from the framework's scheduler, `./app schedule list` shows when, and
+  a test proves it with `govibetest.Boot(...).Clock.AdvanceTo(...)`. See `GoVibe: Commands and Scheduler`. Name every command in a doc (in backticks) or the graph reports it.
 
 Testing
 - Add unit tests next to packages using _test.go files. `main_test.go` boots the app with `govibetest.Boot`, without a database and without the dev tools.

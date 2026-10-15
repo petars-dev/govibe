@@ -39,15 +39,16 @@ type world struct {
 	// build recorded instead of looking at the disk again.
 	settling bool
 
-	prof    memo[*profile.Profile]
-	modsV   memo[*moduleTable]
-	goFiles memo[*scan]
-	goFP    memo[string]
-	codeIdx memo[*codeIndex]
-	routesV memo[*routeTable]
-	callIdx memo[*callIndex]
-	gitHist memo[*gitHistory]
-	gitHead memo[gitHeadInfo]
+	prof      memo[*profile.Profile]
+	modsV     memo[*moduleTable]
+	goFiles   memo[*scan]
+	goFP      memo[string]
+	codeIdx   memo[*codeIndex]
+	routesV   memo[*routeTable]
+	commandsV memo[*commandTable]
+	callIdx   memo[*callIndex]
+	gitHist   memo[*gitHistory]
+	gitHead   memo[gitHeadInfo]
 
 	templFiles memo[*scan]
 	templIdx   memo[*templIndex]

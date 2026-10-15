@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -46,6 +47,17 @@ type Config struct {
 			DSN string `yaml:"dsn"`
 		} `yaml:"mariadb"`
 	} `yaml:"database"`
+	// Scheduler settles how the commands an app declares with a Schedule run.
+	Scheduler struct {
+		// Enabled lets `serve` start the scheduler.
+		Enabled bool `yaml:"enabled"`
+		// Timezone is the IANA zone schedules are read in unless they carry CRON_TZ=.
+		Timezone string `yaml:"timezone"`
+		// ShutdownTimeout is how long a stopping process waits for running tasks.
+		ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+		// Lock is "none" or "db" (one MariaDB lock per task, across instances).
+		Lock string `yaml:"lock"`
+	} `yaml:"scheduler"`
 	Dev struct {
 		DB struct {
 			AllowMutations bool `yaml:"allow_mutations"`
@@ -92,6 +104,9 @@ func Load(app fs.FS) (Config, error) {
 
 // fromTree types a resolved tree.
 func fromTree(tree map[string]any) (Config, error) {
+	if err := normalizeDuration(tree, "scheduler", "shutdown_timeout"); err != nil {
+		return Config{}, err
+	}
 	b, err := yaml.Marshal(tree)
 	if err != nil {
 		return Config{}, err
@@ -113,7 +128,59 @@ func fromTree(tree map[string]any) (Config, error) {
 	if cfg.Database.Type == "" {
 		cfg.Database.Type = "mysql"
 	}
+	if cfg.Scheduler.Timezone == "" {
+		cfg.Scheduler.Timezone = "UTC"
+	}
+	if cfg.Scheduler.Lock == "" {
+		cfg.Scheduler.Lock = "none"
+	}
 	return cfg, nil
+}
+
+// normalizeDuration makes the duration at path a string time.ParseDuration reads, so the
+// typed field is filled from one and an error names the key (the yaml decoder's own does
+// not, and reports a line of the merged tree). A Go duration is kept, a bare number is a
+// number of seconds ("30" is 30s, "0" does not wait). A key that is absent is left alone.
+func normalizeDuration(tree map[string]any, path ...string) error {
+	m := tree
+	for _, p := range path[:len(path)-1] {
+		next, ok := m[p].(map[string]any)
+		if !ok {
+			return nil
+		}
+		m = next
+	}
+	key, name := path[len(path)-1], strings.Join(path, ".")
+	v, ok := m[key]
+	if !ok {
+		return nil
+	}
+	switch x := v.(type) {
+	case string:
+		s := strings.TrimSpace(x)
+		if n, err := strconv.ParseFloat(s, 64); err == nil && n >= 0 {
+			m[key] = time.Duration(n * float64(time.Second)).String()
+			return nil
+		}
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return fmt.Errorf("%s: %q is not a duration (use 30s or 2m, or a number of seconds)", name, x)
+		}
+		if d < 0 {
+			return fmt.Errorf("%s: %q is negative", name, x)
+		}
+		m[key] = s
+	case int, int64, uint64, float64:
+		secs, _ := strconv.ParseFloat(fmt.Sprint(x), 64)
+		if secs < 0 {
+			return fmt.Errorf("%s: %v is negative", name, x)
+		}
+		m[key] = time.Duration(secs * float64(time.Second)).String()
+	default:
+		// An unquoted 0 or 1 reads as false or true.
+		return fmt.Errorf("%s: %v is not a duration (use 30s or 2m, or a number of seconds; quote a placeholder whose value is a bare 0 or 1)", name, x)
+	}
+	return nil
 }
 
 // parse reads one YAML document into a resolved tree. An empty document is an

@@ -257,7 +257,7 @@ func TestLayersReportOnTheFixture(t *testing.T) {
 		}
 	}
 	// the closed set's order, only layers that have packages
-	if got := strings.Join(layers, ","); got != "controllers,business,storage,middleware,wiring,dev,support" {
+	if got := strings.Join(layers, ","); got != "controllers,business,storage,middleware,commands,wiring,dev,support" {
 		t.Errorf("layers: %s", got)
 	}
 	if p := rows["controllers"]; p.Funcs == 0 || p.Package.Anchor != Anchor("pkg:controllers") || len(p.Imports) == 0 || p.Findings.Count != 1 || p.Findings.Worst != "error" {
@@ -372,7 +372,7 @@ func TestReportsSayWhichLayersAreMissing(t *testing.T) {
 
 func TestReportList(t *testing.T) {
 	rs := Reports()
-	if len(rs) != 4 || rs[0].Name != "routes" || rs[3].URL != "/dev/graph/reports/layers" {
+	if len(rs) != 5 || rs[0].Name != "routes" || rs[1].Name != "commands" || rs[4].URL != "/dev/graph/reports/layers" {
 		t.Errorf("%+v", rs)
 	}
 	if ReportTitle("Schema") != "Database schema" || ReportTitle("nope") != "" {

@@ -68,6 +68,14 @@
 <finding:db.missing_fk:col:orders.user_id#col:users.id> <rule> "db.missing_fk" <layer:findings> .
 <finding:db.missing_fk:col:orders.user_id#col:users.id> <severity> "info" <layer:findings> .
 <finding:db.missing_fk:col:orders.user_id#col:users.id> <type> <kind:finding> <layer:findings> .
+<finding:docs.command_undocumented:command:cache:warm> <about> <command:cache:warm> <layer:findings> .
+<finding:docs.command_undocumented:command:cache:warm> <line> "31"^^<schema:Integer> <layer:findings> .
+<finding:docs.command_undocumented:command:cache:warm> <message> "No doc or spec mentions the command `cache:warm`. Say what it is for in docs/public/ARCHITECTURE.md or the spec that owns it, naming it in backticks." <layer:findings> .
+<finding:docs.command_undocumented:command:cache:warm> <name> "Command no doc mentions" <layer:findings> .
+<finding:docs.command_undocumented:command:cache:warm> <path> "commands/export.go" <layer:findings> .
+<finding:docs.command_undocumented:command:cache:warm> <rule> "docs.command_undocumented" <layer:findings> .
+<finding:docs.command_undocumented:command:cache:warm> <severity> "info" <layer:findings> .
+<finding:docs.command_undocumented:command:cache:warm> <type> <kind:finding> <layer:findings> .
 <finding:docs.route_undocumented:route:ANY:/assets/> <about> <route:ANY:/assets/> <layer:findings> .
 <finding:docs.route_undocumented:route:ANY:/assets/> <message> "No doc or spec mentions ANY /assets/. Say what it is for in docs/public/ARCHITECTURE.md or the spec that owns it." <layer:findings> .
 <finding:docs.route_undocumented:route:ANY:/assets/> <name> "Route no doc mentions" <layer:findings> .
@@ -98,14 +106,14 @@
 <finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <rule> "docs.spec_missing" <layer:findings> .
 <finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <severity> "warning" <layer:findings> .
 <finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go> <type> <kind:finding> <layer:findings> .
-<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <about> <doc:docs/public/ARCHITECTURE.md> <layer:findings> .
-<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <line> "13"^^<schema:Integer> <layer:findings> .
-<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <message> "docs/public/ARCHITECTURE.md mentions `legacy/handler.go`, which does not exist: it was removed or renamed, or has a typo. Update the reference or drop it." <layer:findings> .
-<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <name> "Stale reference in a doc" <layer:findings> .
-<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <path> "docs/public/ARCHITECTURE.md" <layer:findings> .
-<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <rule> "docs.stale_ref" <layer:findings> .
-<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <severity> "warning" <layer:findings> .
-<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go> <type> <kind:finding> <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go> <about> <doc:docs/public/ARCHITECTURE.md> <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go> <line> "14"^^<schema:Integer> <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go> <message> "docs/public/ARCHITECTURE.md mentions `legacy/handler.go`, which does not exist: it was removed or renamed, or has a typo. Update the reference or drop it." <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go> <name> "Stale reference in a doc" <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go> <path> "docs/public/ARCHITECTURE.md" <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go> <rule> "docs.stale_ref" <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go> <severity> "warning" <layer:findings> .
+<finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go> <type> <kind:finding> <layer:findings> .
 <finding:layering:pkg:controllers#pkg:storage/orderstore> <about> <pkg:controllers> <layer:findings> .
 <finding:layering:pkg:controllers#pkg:storage/orderstore> <line> "27"^^<schema:Integer> <layer:findings> .
 <finding:layering:pkg:controllers#pkg:storage/orderstore> <message> "controllers imports storage/orderstore, against the layering rule: only business actions and services may call storage; controllers packages should go through them. (controllers layer into storage layer; first used at controllers/orders.go:27.)" <layer:findings> .
@@ -164,6 +172,12 @@
 <rule:db.unapplied> <severity> "warning" <layer:findings> .
 <rule:db.unapplied> <title> "Migration not applied" <layer:findings> .
 <rule:db.unapplied> <type> <kind:rule> <layer:findings> .
+<rule:docs.command_undocumented> <checked> "True"^^<schema:Boolean> <layer:findings> .
+<rule:docs.command_undocumented> <description> "A CLI command of the application that no doc or spec mentions. Name it in backticks as `items:sync`, or as typed (`./app items:sync`; a name with no colon needs the typed form), with what it is for and, if it is scheduled, why." <layer:findings> .
+<rule:docs.command_undocumented> <name> "docs.command_undocumented" <layer:findings> .
+<rule:docs.command_undocumented> <severity> "info" <layer:findings> .
+<rule:docs.command_undocumented> <title> "Command no doc mentions" <layer:findings> .
+<rule:docs.command_undocumented> <type> <kind:rule> <layer:findings> .
 <rule:docs.route_undocumented> <checked> "True"^^<schema:Boolean> <layer:findings> .
 <rule:docs.route_undocumented> <description> "An application route (not under /dev) that no doc or spec mentions." <layer:findings> .
 <rule:docs.route_undocumented> <name> "docs.route_undocumented" <layer:findings> .

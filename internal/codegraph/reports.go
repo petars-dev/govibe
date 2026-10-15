@@ -226,6 +226,74 @@ func (m *Model) RoutesReport(o LinkOptions) *RoutesReport {
 	return rep
 }
 
+// --- commands ---
+
+// CommandsReport is the command table.
+type CommandsReport struct {
+	AsOf      string       `json:"as_of"`
+	Notes     []string     `json:"notes,omitempty"`
+	Total     int          `json:"total"`
+	Scheduled int          `json:"scheduled"`
+	Commands  []CommandRow `json:"commands"` // scheduled commands first, then by name
+	Calls     bool         `json:"calls"`    // the call graph is indexed, so each command lists the tables it reaches
+}
+
+// CommandRow is one command.
+type CommandRow struct {
+	Command     ReportRef      `json:"command"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Scheduled   bool           `json:"scheduled"`
+	Schedule    string         `json:"schedule,omitempty"`
+	Timezone    string         `json:"timezone,omitempty"`
+	Overlap     string         `json:"overlap,omitempty"`
+	Timeout     string         `json:"timeout,omitempty"`
+	Every       string         `json:"every,omitempty"`
+	Handler     *ReportRef     `json:"handler,omitempty"`
+	LibHandler  string         `json:"lib_handler,omitempty"` // what runs it when that is not application code
+	Docs        []ReportRef    `json:"docs,omitempty"`
+	Tables      []RouteTable   `json:"tables,omitempty"` // with the calls layer: what the function that runs it reaches
+	Findings    FindingSummary `json:"findings"`
+}
+
+// CommandsReport builds the command table.
+func (m *Model) CommandsReport(o LinkOptions) *CommandsReport {
+	rep := &CommandsReport{AsOf: m.AsOf(), Notes: m.notesFor("commands", "code", "docs", "findings"), Commands: []CommandRow{}, Calls: m.hasCalls()}
+	for _, n := range m.byKind["command"] {
+		row := CommandRow{
+			Command: m.reportRef(n, o), Name: n.Str("name"), Description: n.Str("description"),
+			Scheduled: n.Bool("scheduled"), Schedule: n.Str("schedule"), Timezone: n.Str("timezone"),
+			Overlap: n.Str("overlap"), Timeout: n.Str("timeout"), Every: n.Str("every"),
+			Docs: m.docRefsOf(n, o), Findings: m.summaryOf(n),
+		}
+		if h := m.nodes[n.first("run_by")]; h != nil {
+			ref := m.reportRef(h, o)
+			row.Handler = &ref
+			if rep.Calls {
+				tables, _ := m.tablesByCalls(h, true)
+				for _, t := range tables {
+					row.Tables = append(row.Tables, RouteTable{Table: m.reportRef(m.nodes[t.Table.ID], o), Access: t.Access, Confidence: t.Confidence})
+				}
+			}
+		} else {
+			row.LibHandler = n.Str("handler")
+		}
+		rep.Total++
+		if row.Scheduled {
+			rep.Scheduled++
+		}
+		rep.Commands = append(rep.Commands, row)
+	}
+	sort.SliceStable(rep.Commands, func(i, j int) bool {
+		a, b := rep.Commands[i], rep.Commands[j]
+		if a.Scheduled != b.Scheduled {
+			return a.Scheduled
+		}
+		return a.Name < b.Name
+	})
+	return rep
+}
+
 // --- config ---
 
 // ConfigReport is the configuration reference: every key of the settings files and of
@@ -792,10 +860,11 @@ type ReportInfo struct {
 // Reports lists the generated reports.
 func Reports() []ReportInfo {
 	info := map[string][2]string{
-		"routes": {"Routes", "Every HTTP route the running router serves: method, path, handler, middleware, and the docs that mention it."},
-		"config": {"Config and environment", "Every config key and environment variable, with its default (never a secret), what reads it, and what is declared where."},
-		"schema": {"Database schema", "Tables, columns, indexes and foreign keys from the migrations (and the live database, when configured), who reads and writes each table, and the relations the schema implies."},
-		"layers": {"Package layers", "The packages of each architecture layer, how the layers import each other, and the layering rule with its violations."},
+		"routes":   {"Routes", "Every HTTP route the running router serves: method, path, handler, middleware, and the docs that mention it."},
+		"commands": {"Commands and schedules", "Every CLI command of the application: what runs it, how and when it is scheduled (cron spec, zone, overlap, timeout), the tables it reaches, and the docs that mention it."},
+		"config":   {"Config and environment", "Every config key and environment variable, with its default (never a secret), what reads it, and what is declared where."},
+		"schema":   {"Database schema", "Tables, columns, indexes and foreign keys from the migrations (and the live database, when configured), who reads and writes each table, and the relations the schema implies."},
+		"layers":   {"Package layers", "The packages of each architecture layer, how the layers import each other, and the layering rule with its violations."},
 	}
 	out := make([]ReportInfo, 0, len(ReportNames))
 	for _, n := range ReportNames {

@@ -17,6 +17,7 @@ import (
 	"github.com/petars-dev/govibe/internal/devmcp"
 	"github.com/petars-dev/govibe/internal/devtools/devui"
 	"github.com/petars-dev/govibe/internal/graphdb"
+	"github.com/petars-dev/govibe/internal/routeinfo"
 	"github.com/petars-dev/govibe/web"
 )
 
@@ -24,6 +25,10 @@ import (
 // framework's real handlers, so the routes layer is exercised on a runtime router
 // that resolves to this repository's source. (A booted kernel opens the dev graph
 // store and starts an indexer, so a test cannot call it.)
+// noCommands is the command table of a project that declares none: the framework's own
+// repository is not an application, and the layer still has to be built, with nothing in it.
+func noCommands() ([]routeinfo.InspectCmd, error) { return nil, nil }
+
 func miniRouter() chi.Router {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)

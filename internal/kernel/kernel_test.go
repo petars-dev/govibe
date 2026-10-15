@@ -605,13 +605,6 @@ func TestServeFailsWhenThePortIsTaken(t *testing.T) {
 	}
 }
 
-func TestServeTakesNoArguments(t *testing.T) {
-	isolate(t)
-	if err := Run(context.Background(), App{}, []string{"serve", "--no-schedule"}, io.Discard, io.Discard); err == nil {
-		t.Fatal("serve takes no arguments yet")
-	}
-}
-
 // A connection that will not finish must not hold the port, the pool or the exit code:
 // after the graceful window the server closes it and the stop still succeeds.
 func TestServeClosesStuckConnectionsAfterTheGracefulWindow(t *testing.T) {
@@ -701,11 +694,11 @@ func TestQualifyMain(t *testing.T) {
 // same thing the dev tools do.
 func TestRootHintOfARoutesFunction(t *testing.T) {
 	app := App{Routes: func(*Runtime, chi.Router) error { return nil }}
-	got := rootHint(app)
+	got := rootHint(app, nil)
 	if got.File == "" || !strings.Contains(got.Symbol, "kernel.TestRootHintOfARoutesFunction") {
 		t.Errorf("hint = %+v", got)
 	}
-	if rootHint(App{}) != (routeinfo.Ref{}) {
+	if rootHint(App{}, nil) != (routeinfo.Ref{}) {
 		t.Error("an app with no Routes has no hint")
 	}
 }

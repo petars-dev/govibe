@@ -67,7 +67,7 @@ func TestPresetViewsOfTheFixture(t *testing.T) {
 	m := fixtureGraph(t)
 
 	arch := viewOf(t, m, ViewQuery{Preset: "architecture"})
-	if arch.Preset != "architecture" || strings.Join(arch.Columns, ",") != "wiring,dev,controllers,middleware,business,storage,support" || len(arch.Nodes) != 10 {
+	if arch.Preset != "architecture" || strings.Join(arch.Columns, ",") != "wiring,dev,controllers,commands,middleware,business,storage,support" || len(arch.Nodes) != 11 {
 		t.Fatalf("architecture: %s %v %d", arch.Preset, arch.Columns, len(arch.Nodes))
 	}
 	if e := arch.edge("pkg:controllers", "imports", "pkg:storage/orderstore"); e == nil || !e.Violation {
@@ -392,7 +392,7 @@ func TestStatusSummarisesFreshnessAndFindings(t *testing.T) {
 		t.Errorf("freshness: %+v", s.Freshness)
 	}
 	f := s.Findings
-	if !f.Available || f.Error != 1 || f.Warning != 4 || f.Info != 10 || f.Total != 15 || strings.Join(f.NotRun, ",") != "db.drift,db.unapplied" {
+	if !f.Available || f.Error != 1 || f.Warning != 4 || f.Info != 11 || f.Total != 16 || strings.Join(f.NotRun, ",") != "db.drift,db.unapplied" {
 		t.Errorf("finding counts: %+v", f)
 	}
 	if len(s.Notes) != 1 || !strings.Contains(s.Notes[0], "Stale layers: docs") {
@@ -498,7 +498,7 @@ func TestTheAppMapIsTheDefaultViewAndShowsTheAppsOwnConnections(t *testing.T) {
 	if v.Preset != "app_map" || v.Title != "App map" || v.Scope != ScopeApp || v.Hidden.Nodes == 0 {
 		t.Fatalf("default view: %s %q scope=%s hidden=%+v", v.Preset, v.Title, v.Scope, v.Hidden)
 	}
-	if strings.Join(v.Columns, ",") != "route,handler,actions, services, stores,tables,templates, settings, docs" {
+	if strings.Join(v.Columns, ",") != "route, command,handler,actions, services, stores,tables,templates, settings, docs" {
 		t.Errorf("columns = %q", v.Columns)
 	}
 	if ViewPresets[0].ID != "app_map" {

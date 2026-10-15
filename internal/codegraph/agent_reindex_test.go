@@ -30,7 +30,7 @@ func TestRunLayersRebuildsOnlyWhatWasAskedFor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := strings.Join(ix.LayerNames(), ","); got != "code,routes,templates,config,mcp,db,docs,calls,git,externals,findings" {
+	if got := strings.Join(ix.LayerNames(), ","); got != "code,routes,commands,templates,config,mcp,db,docs,calls,git,externals,findings" {
 		t.Errorf("layer names: %s", got)
 	}
 
@@ -66,7 +66,7 @@ func TestRunLayersRebuildsOnlyWhatWasAskedFor(t *testing.T) {
 
 	// no names is a full run
 	rep, err = ix.RunLayers(ctx, nil)
-	if err != nil || len(layersRan(rep)) != 9 {
+	if err != nil || len(layersRan(rep)) != 10 {
 		t.Errorf("all: %v %v", layersRan(rep), err)
 	}
 

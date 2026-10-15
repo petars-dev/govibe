@@ -137,7 +137,7 @@ func TestGraphIndexFormats(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &rep); err != nil {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
-	if len(rep.Report.Layers) != 11 || rep.Report.Quads < 1000 || rep.Gate.FailOn != "error" || len(rep.Gate.New) != 1 || rep.Gate.New[0].Rule != "layering" || rep.Gate.New[0].Path != "controllers/orders.go" {
+	if len(rep.Report.Layers) != 12 || rep.Report.Quads < 1000 || rep.Gate.FailOn != "error" || len(rep.Gate.New) != 1 || rep.Gate.New[0].Rule != "layering" || rep.Gate.New[0].Path != "controllers/orders.go" {
 		t.Errorf("%+v", rep)
 	}
 }
@@ -204,8 +204,8 @@ func TestGraphIndexOfAnAppRunsTheRouteRulesFromItsOwnBinary(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"routes     ok", "routes: 5 from the application's own `inspect --json` (2 registered by the framework)",
-		"findings: 0 error, 0 warning, 0 info", "gate (fail on info): 0 new, 0 accepted",
+		"routes     ok", "routes: 5 from the application's own `inspect --json` (2 registered by the framework); commands: 0 (0 scheduled)",
+		"commands   ok", "findings: 0 error, 0 warning, 0 info", "gate (fail on info): 0 new, 0 accepted",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)

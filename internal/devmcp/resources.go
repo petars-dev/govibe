@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/petars-dev/govibe/internal/devtools/schedview"
 	"github.com/petars-dev/govibe/internal/frameworkdocs"
 	"github.com/petars-dev/govibe/internal/routeinfo"
 	"github.com/petars-dev/govibe/internal/rules"
@@ -26,6 +27,9 @@ type Options struct {
 	// Docs serves the framework's own reference docs as resources
 	// (govibe://docs/<slug>). Nil: none.
 	Docs frameworkdocs.Set
+	// Schedule reads the scheduler as it is now, for schedule_status. Nil: the process
+	// has none, and the tool says so.
+	Schedule func() schedview.Status
 }
 
 const (
@@ -107,7 +111,10 @@ type appManifest struct {
 	Contributes routeinfo.InspectContributes `json:"contributes"`
 	Routes      []appManifestRoute           `json:"routes"`
 	Commands    []appManifestCommand         `json:"commands"`
-	Build       struct {
+	// Scheduler is the scheduler's settings as the binary read them: whether it runs, the
+	// zone the schedules are read in, and how instances are kept from running a task twice.
+	Scheduler routeinfo.InspectScheduler `json:"scheduler"`
+	Build     struct {
 		Tags     string `json:"tags,omitempty"`
 		Trimpath bool   `json:"trimpath"`
 	} `json:"build"`
@@ -123,6 +130,9 @@ type appManifestCommand struct {
 	Name    string `json:"name"`
 	Short   string `json:"short"`
 	Handler string `json:"handler"`
+	// Schedule is set for a command that is on a schedule: the spec, the zone it is read in,
+	// the overlap policy and the timeout.
+	Schedule *routeinfo.InspectSchedule `json:"schedule,omitempty"`
 }
 
 func appManifestOf(doc *routeinfo.Inspect) appManifest {
@@ -144,7 +154,8 @@ func appManifestOf(doc *routeinfo.Inspect) appManifest {
 		return m.Routes[i].Method < m.Routes[j].Method
 	})
 	for _, c := range doc.Commands {
-		m.Commands = append(m.Commands, appManifestCommand{Name: c.Name, Short: c.Short, Handler: c.Handler.Symbol})
+		m.Commands = append(m.Commands, appManifestCommand{Name: c.Name, Short: c.Short, Handler: c.Handler.Symbol, Schedule: c.Schedule})
 	}
+	m.Scheduler = doc.Scheduler
 	return m
 }

@@ -410,6 +410,10 @@ func (m *Model) refineAccess(seeds []*Node, affected []*Affected) {
 				if h := n.first("handled_by"); h != "" && byID[h] != nil {
 					set(a.ID, acc[h])
 				}
+			case "command":
+				if h := n.first("run_by"); h != "" && byID[h] != nil {
+					set(a.ID, acc[h])
+				}
 			case "mcp_tool":
 				for _, f := range n.In["registers"] {
 					if byID[f] != nil {
@@ -421,7 +425,7 @@ func (m *Model) refineAccess(seeds []*Node, affected []*Affected) {
 	}
 	for _, a := range affected {
 		switch a.Kind {
-		case "func", "route", "mcp_tool":
+		case "func", "route", "command", "mcp_tool":
 			if bits, ok := acc[a.ID]; ok {
 				a.Access = accessString(bits)
 			}
@@ -437,7 +441,7 @@ const maxChain = 12
 // can open.
 func (m *Model) chainEntryPoints(affected []*Affected, seen map[string]*Affected, isSeed map[string]bool) {
 	for _, a := range affected {
-		if (a.Kind != "route" && a.Kind != "mcp_tool") || a.Through != nil {
+		if (a.Kind != "route" && a.Kind != "command" && a.Kind != "mcp_tool") || a.Through != nil {
 			continue
 		}
 		path := []string{a.ID}

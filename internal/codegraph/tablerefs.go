@@ -19,6 +19,7 @@ type RefItem struct {
 	Editor     string `json:"editor,omitempty"`   // vscode:// link to the file and line
 	Graph      string `json:"graph"`              // link to the node in the graph explorer
 	Spec       string `json:"spec,omitempty"`     // for a spec row: its spec
+	Schedule   string `json:"schedule,omitempty"` // for a scheduled command: how it is scheduled
 	Mentions   string `json:"mentions,omitempty"` // for a doc: what of the table it names
 }
 
@@ -28,6 +29,7 @@ type TableRefs struct {
 	Known    bool         `json:"known"` // the graph has this table
 	Code     []RefItem    `json:"code"`
 	Routes   []RefItem    `json:"routes"`
+	Commands []RefItem    `json:"commands"` // the application's commands that reach it; a scheduled one carries its schedule in Schedule
 	Tools    []RefItem    `json:"tools"`
 	Docs     []RefItem    `json:"docs"`
 	Findings []FindingRef `json:"findings"`
@@ -41,7 +43,7 @@ const maxRefsPerGroup = 30
 
 // TableRefs gathers what refers to a table (`items` or `table:items`).
 func (m *Model) TableRefs(table string, o LinkOptions) (*TableRefs, error) {
-	res := &TableRefs{Code: []RefItem{}, Routes: []RefItem{}, Tools: []RefItem{}, Docs: []RefItem{}, Findings: []FindingRef{}, Links: []Link{}, AsOf: m.AsOf()}
+	res := &TableRefs{Code: []RefItem{}, Routes: []RefItem{}, Commands: []RefItem{}, Tools: []RefItem{}, Docs: []RefItem{}, Findings: []FindingRef{}, Links: []Link{}, AsOf: m.AsOf()}
 	found := m.ResolveTable(table)
 	switch len(found) {
 	case 0:
@@ -68,6 +70,33 @@ func (m *Model) TableRefs(table string, o LinkOptions) (*TableRefs, error) {
 		return nil, err
 	}
 	res.Notes = append(res.Notes, imp.Notes...)
+	affected := imp.Affected
+	if m.hasCalls() {
+		// With call edges an entry point is several hops from the table (table, store,
+		// service, handler, route), so a walk of one hop finds the code that touches the
+		// table and none of what reaches it. Entry points come from the walk the calls layer
+		// makes possible; the code group keeps its one hop (what reads or writes the table
+		// itself, not everything that calls it).
+		var kinds []string
+		for _, k := range []string{"route", "command", "mcp_tool"} {
+			if len(m.byKind[k]) > 0 {
+				kinds = append(kinds, k)
+			}
+		}
+		if len(kinds) > 0 {
+			deep, err := m.Impact(ImpactQuery{Node: t.ID, Kinds: kinds, Limit: maxImpactLimit})
+			if err != nil {
+				return nil, err
+			}
+			kept := affected[:0:0]
+			for _, a := range affected {
+				if a.Kind != "route" && a.Kind != "command" && a.Kind != "mcp_tool" {
+					kept = append(kept, a)
+				}
+			}
+			affected = append(kept, deep.Affected...)
+		}
+	}
 	item := func(a NodeRef, conf int, method, access string) RefItem {
 		it := RefItem{NodeRef: a, Access: access, Confidence: conf, Method: method, Certain: conf >= 90, Graph: m.graphURL(a.ID)}
 		if a.Path != "" {
@@ -80,13 +109,18 @@ func (m *Model) TableRefs(table string, o LinkOptions) (*TableRefs, error) {
 			*list = append(*list, it)
 		}
 	}
-	for _, a := range imp.Affected {
+	for _, a := range affected {
 		it := item(a.NodeRef, a.Confidence, a.Method, a.Access)
 		switch a.Kind {
 		case "func", "type":
 			add(&res.Code, it)
 		case "route":
 			add(&res.Routes, it)
+		case "command":
+			if n := m.nodes[a.ID]; n != nil {
+				it.Schedule = n.Str("schedule")
+			}
+			add(&res.Commands, it)
 		case "mcp_tool":
 			add(&res.Tools, it)
 		}

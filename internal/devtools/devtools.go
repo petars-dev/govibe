@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/cayleygraph/cayley/graph"
 	cayleyhttp "github.com/cayleygraph/cayley/server/http"
@@ -25,6 +26,7 @@ import (
 	"github.com/petars-dev/govibe/internal/dbexplorer"
 	"github.com/petars-dev/govibe/internal/devmcp"
 	"github.com/petars-dev/govibe/internal/devtools/devui"
+	"github.com/petars-dev/govibe/internal/devtools/schedview"
 	"github.com/petars-dev/govibe/internal/frameworkdocs"
 	"github.com/petars-dev/govibe/internal/graphdb"
 	"github.com/petars-dev/govibe/internal/profile"
@@ -53,6 +55,10 @@ type Deps struct {
 	// when the application is a module of its own and the framework a dependency. Nil
 	// when there is none (the tools then fall back to go.mod and to each route's path).
 	Inspect *routeinfo.Inspect
+	// Scheduler is the app's scheduler (the commands that declare a Schedule): the
+	// /dev/schedule page, its "Run now" and the schedule_status tool read and drive it.
+	// Nil when no command is scheduled; the page then says so and how to declare one.
+	Scheduler schedview.Source
 }
 
 // Mount registers the dev tools and starts the indexer. It never fails the
@@ -62,6 +68,16 @@ type Deps struct {
 func Mount(d Deps) (stop func()) {
 	r := d.Router
 	cfg := d.Config
+
+	// The scheduler, as the page, the card on /dev and the MCP tool all read it. A nil
+	// pointer inside the interface (an app with no scheduled command, handed over
+	// carelessly) is no scheduler.
+	sched := schedview.Normalize(d.Scheduler)
+	commands := 0
+	if d.Inspect != nil {
+		commands = len(d.Inspect.Commands)
+	}
+	scheduleStatus := func() schedview.Status { return schedview.Build(sched, cfg, commands, time.Now()) }
 
 	// The panel's own files: stylesheets, scripts, the graph renderer, the logo.
 	r.Group(func(g chi.Router) {
@@ -172,6 +188,12 @@ func Mount(d Deps) (stop func()) {
 		r.Get("/dev/graph/reports/{name}", reports)
 	}
 
+	// The scheduler page: what is scheduled, when it runs next, how the last runs went,
+	// and "Run now", which goes through the scheduler's own code path.
+	r.Get("/dev/schedule", devui.DevSchedule(scheduleStatus))
+	r.Get("/dev/schedule/data", devui.DevScheduleData(scheduleStatus))
+	r.Post("/dev/schedule/run/{name}", devui.DevScheduleRun(sched))
+
 	// MCP server (streamable HTTP) exposing the db_* and graph_* tools to local
 	// agents, mounted only once at least one backing store exists.
 	if explorer != nil || quadStore != nil {
@@ -182,7 +204,7 @@ func Mount(d Deps) (stop func()) {
 		if indexer != nil {
 			graphIndexer = indexer
 		}
-		mcpOpts := devmcp.Options{Root: d.Root, Inspect: d.Inspect, Docs: docs.Framework}
+		mcpOpts := devmcp.Options{Root: d.Root, Inspect: d.Inspect, Docs: docs.Framework, Schedule: scheduleStatus}
 		if d.Inspect != nil {
 			mcpOpts.AppName = d.Inspect.App.Name
 		}
@@ -191,7 +213,7 @@ func Mount(d Deps) (stop func()) {
 	}
 
 	// The front door: what the app is, which tools are there, and what to do first.
-	info := devui.DevInfo{Env: cfg.Env, DB: explorer != nil, Graph: indexer != nil, MCP: explorer != nil || quadStore != nil, FrameworkDocs: docs.Framework != nil}
+	info := devui.DevInfo{Env: cfg.Env, DB: explorer != nil, Graph: indexer != nil, MCP: explorer != nil || quadStore != nil, FrameworkDocs: docs.Framework != nil, Schedule: scheduleStatus}
 	if d.Inspect != nil {
 		info.AppName, info.Module, info.FrameworkVersion = d.Inspect.App.Name, d.Inspect.App.Module, d.Inspect.Framework.Version
 		for _, c := range d.Inspect.Commands {

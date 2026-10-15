@@ -25,6 +25,25 @@ database:
     # DSN example: user:pass@tcp(127.0.0.1:3306)/traceloop?parseTime=true&multiStatements=true
     dsn: ${MARIADB_DSN:}
 
+# The scheduler runs the commands an app declares with a Schedule (see
+# COMMANDS_AND_SCHEDULER in the framework docs). `serve` starts it with the server and
+# `schedule run` runs it alone, as a worker process.
+scheduler:
+  # false: `serve` does not start the scheduler (`schedule run` refuses to start it).
+  # Nothing is caught up after downtime, so a task due while it was off is simply not run.
+  enabled: ${SCHEDULER_ENABLED:true}
+  # IANA zone the schedules are read in (UTC, Europe/Sofia, ...). A `CRON_TZ=<zone>` prefix
+  # on a schedule overrides it for that command.
+  timezone: ${SCHEDULER_TIMEZONE:UTC}
+  # How long a stopping process waits for running tasks before it cancels them: a Go
+  # duration (30s, 2m) or a number of seconds; 0 does not wait. Quoted, so a bare 0 or 1
+  # stays the number it is and is not read as false or true.
+  shutdown_timeout: "${SCHEDULER_SHUTDOWN_TIMEOUT:30s}"
+  # "none" (the default): every instance runs every due task, so run the scheduler on one
+  # instance (`serve --no-schedule` on the rest). "db": a named MariaDB lock per task for the
+  # duration of a run, so only one instance runs it. Never on by default.
+  lock: ${SCHEDULER_LOCK:none}
+
 # Dev-only tooling (see /dev/db, /dev/graph, /dev/mcp). Never mounted in production.
 dev:
   db:

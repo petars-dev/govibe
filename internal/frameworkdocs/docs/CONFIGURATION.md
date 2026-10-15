@@ -22,7 +22,11 @@
 | `server.port` | `PORT` | `8080` | HTTP port |
 | `server.log_level` | `LOG_LEVEL` | `info` | logrus level |
 | `database.type` | `DATABASE_TYPE` | `mysql` | goose dialect; always passed explicitly |
-| `database.mariadb.dsn` | `MARIADB_DSN` | (empty) | the one database pool; empty means no database |
+| `database.mariadb.dsn` | `MARIADB_DSN` | (empty) | the one database pool; empty means no database. Include `?parseTime=true`: goose reads the timestamps of its version table, and without it migrations fail on every boot after the first |
+| `scheduler.enabled` | `SCHEDULER_ENABLED` | `true` | `serve` starts the scheduler (`false` leaves scheduled commands to the CLI) |
+| `scheduler.timezone` | `SCHEDULER_TIMEZONE` | `UTC` | the IANA zone cron specs are read in; a `CRON_TZ=` prefix overrides it per command |
+| `scheduler.shutdown_timeout` | `SCHEDULER_SHUTDOWN_TIMEOUT` | `30s` | how long a stopping process waits for running scheduled tasks before cancelling them: a Go duration (`30s`, `2m`) or a number of seconds; `0` does not wait. A wrong value fails the boot and names the key |
+| `scheduler.lock` | `SCHEDULER_LOCK` | `none` | `none`, or `db`: one named MariaDB lock per task, so only one instance runs a task at a time. Never on by default |
 | `dev.db.allow_mutations` | `DEV_DB_ALLOW_MUTATIONS` | `false` | enables the test-data mutation tools; never effective in production |
 | `dev.framework_src` | `GOVIBE_FRAMEWORK_SRC` | (empty) | contributors only: a checkout of the framework, whose docs and specs the dev docs then serve |
 | `dev.graph.calls` | `GRAPH_CALLS` | `true` | index which function calls which (type-checks the module) |

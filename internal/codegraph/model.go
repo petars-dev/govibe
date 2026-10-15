@@ -339,7 +339,7 @@ func (m *Model) refs(ns []*Node) []NodeRef {
 // kindRank orders kinds by how interesting they usually are to someone asking
 // what a change touches: entry points first, bookkeeping last.
 var kindRank = func() map[string]int {
-	order := []string{"route", "mcp_tool", "func", "type", "template", "middleware", "package", "file",
+	order := []string{"route", "command", "mcp_tool", "func", "type", "template", "middleware", "package", "file",
 		"table", "column", "index", "migration", "config_key", "env_var", "spec_item", "spec", "doc", "finding"}
 	r := make(map[string]int, len(order))
 	for i, k := range order {

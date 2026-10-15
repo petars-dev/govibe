@@ -28,7 +28,7 @@ func includes(t *testing.T, what string, got []string, want ...string) {
 // agent relies on when it follows edges without checking each one (shared with
 // the fixture's, see graphcheck), and the paths the spec promises.
 func TestWholeGraphInvariants(t *testing.T) {
-	rep, q, h := indexRepoStore(t, codegraph.Options{Router: miniRouter()})
+	rep, q, h := indexRepoStore(t, codegraph.Options{Router: miniRouter(), CommandSource: noCommands})
 	for _, l := range rep.Layers {
 		t.Logf("%-10s %-8s %5d quads %4d ms", l.Name, l.Status, l.Quads, l.DurationMS)
 		if l.Status == "error" {
@@ -42,7 +42,7 @@ func TestWholeGraphInvariants(t *testing.T) {
 	// application), so the schema and render edges are exercised on the fixture
 	// instead (TestFixtureGraphInvariants).
 	res := graphcheck.Check(t, h, graphcheck.Options{
-		Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "externals", "findings"},
+		Layers: []string{"code", "routes", "commands", "templates", "config", "mcp", "db", "docs", "externals", "findings"},
 		RequireEdges: []string{"handled_by", "uses_mw", "implemented_by", "uses_config", "reads_env",
 			"registers", "has_item", "mentions", "covers", "imports"},
 	})
@@ -82,7 +82,7 @@ func TestWholeGraphInvariants(t *testing.T) {
 	equal(t, "the migrations", q(`g.V().Has(g.IRI('type'), g.IRI('kind:migration')).All()`))
 
 	// Idempotent: a second full run changes nothing.
-	again, err := codegraph.New(h.QuadStore, codegraph.Options{Root: "../..", Router: miniRouter()}).Run(context.Background())
+	again, err := codegraph.New(h.QuadStore, codegraph.Options{Root: "../..", Router: miniRouter(), CommandSource: noCommands}).Run(context.Background())
 	if err != nil || again.Added != 0 || again.Removed != 0 {
 		t.Errorf("second run: +%d -%d, %v", again.Added, again.Removed, err)
 	}

@@ -229,7 +229,7 @@ func TestDevGraphReportsHideTheExplorerLinkWithoutADatabase(t *testing.T) {
 func TestDevGraphReportsRejectUnknownReports(t *testing.T) {
 	h, _ := reportsRouter(t, codegraphFixture, codegraph.Options{}, false)
 	for _, path := range []string{"/dev/graph/reports/nope", "/dev/graph/reports/routes.json"} {
-		if code, body, _ := get(t, h, path); code != http.StatusNotFound || !strings.Contains(body, "routes, config, schema, layers") {
+		if code, body, _ := get(t, h, path); code != http.StatusNotFound || !strings.Contains(body, "routes, commands, config, schema, layers") {
 			t.Errorf("%s: %d %s", path, code, body)
 		}
 	}

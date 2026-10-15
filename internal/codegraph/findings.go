@@ -119,6 +119,11 @@ func ruleCatalog() []rule {
 			needs:       []string{"routes", "docs"}, check: checkRouteUndocumented,
 		},
 		{
+			name: "docs.command_undocumented", title: "Command no doc mentions", severity: sevInfo,
+			description: "A CLI command of the application that no doc or spec mentions. Name it in backticks as `items:sync`, or as typed (`./app items:sync`; a name with no colon needs the typed form), with what it is for and, if it is scheduled, why.",
+			needs:       []string{"commands", "docs"}, check: checkCommandUndocumented,
+		},
+		{
 			name: "config.undeclared", title: "Config read but not declared", severity: sevWarning,
 			description: "Code reads a config key or environment variable that the project's settings file (env.yml) does not declare.",
 			needs:       []string{"config"}, check: checkConfigUndeclared,

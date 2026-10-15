@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 // app is an fs.FS whose root holds an env.yml, as an app's `//go:embed env.yml` does.
@@ -209,5 +210,44 @@ func TestGetAndUnmarshal(t *testing.T) {
 	}
 	if err := cfg.Unmarshal("nope", &shop); err == nil {
 		t.Fatal("a missing path must be an error")
+	}
+}
+
+// The scheduler's shutdown timeout takes a Go duration or a number of seconds, and a mistake
+// names the key. 0 means "do not wait", and is not mistaken for unset.
+func TestShutdownTimeoutIsADurationOrSeconds(t *testing.T) {
+	for env, want := range map[string]time.Duration{
+		"":      30 * time.Second, // the default
+		"2m":    2 * time.Minute,
+		"45s":   45 * time.Second,
+		"30":    30 * time.Second, // seconds
+		"0":     0,                // do not wait
+		"0s":    0,
+		"1":     time.Second, // not read as true
+		"1.5":   1500 * time.Millisecond,
+		"1h30m": 90 * time.Minute,
+	} {
+		t.Setenv("SCHEDULER_SHUTDOWN_TIMEOUT", env)
+		cfg, err := Load(nil)
+		if err != nil || cfg.Scheduler.ShutdownTimeout != want {
+			t.Errorf("SCHEDULER_SHUTDOWN_TIMEOUT=%q: %v, %v; want %v", env, cfg.Scheduler.ShutdownTimeout, err, want)
+		}
+	}
+	for env, want := range map[string]string{
+		"soon": `scheduler.shutdown_timeout: "soon" is not a duration`,
+		"-5s":  `scheduler.shutdown_timeout: "-5s"`,
+	} {
+		t.Setenv("SCHEDULER_SHUTDOWN_TIMEOUT", env)
+		if _, err := Load(nil); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("SCHEDULER_SHUTDOWN_TIMEOUT=%q: %v, want an error containing %q", env, err, want)
+		}
+	}
+	// An app's own file: a bare number is seconds, an unquoted 0 (read as false) is an error that says to quote it.
+	t.Setenv("SCHEDULER_SHUTDOWN_TIMEOUT", "")
+	if cfg, err := Load(app("scheduler:\n  shutdown_timeout: 90\n")); err != nil || cfg.Scheduler.ShutdownTimeout != 90*time.Second {
+		t.Errorf("shutdown_timeout: 90 = %v, %v", cfg.Scheduler.ShutdownTimeout, err)
+	}
+	if _, err := Load(app("scheduler:\n  shutdown_timeout: ${X:0}\n")); err == nil || !strings.Contains(err.Error(), "scheduler.shutdown_timeout") || !strings.Contains(err.Error(), "quote") {
+		t.Errorf("an unquoted placeholder holding 0: %v", err)
 	}
 }

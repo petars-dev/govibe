@@ -46,6 +46,9 @@ const (
 	// Framework extraction: a package or symbol outside the indexed project, which the
 	// project imports or calls (the framework's public API, a library).
 	KindExternal = quad.IRI("kind:external")
+
+	// Commands and the scheduler: a CLI command of the application, which may be on a schedule.
+	KindCommand = quad.IRI("kind:command")
 )
 
 // Structural predicates: an IRI object, drawn as an edge by the explorer.
@@ -95,6 +98,9 @@ const (
 	PredImportsExt   = quad.IRI("imports_external")    // package -> external package it imports
 	PredCallsExt     = quad.IRI("calls_external")      // func -> external function or package it calls (the calls layer)
 	PredHandledByExt = quad.IRI("handled_by_external") // route -> external function that handles it
+
+	// Commands and the scheduler.
+	PredRunBy = quad.IRI("run_by") // command -> the function that runs it
 )
 
 // Attribute predicates: a literal object, which a viewer can hide.
@@ -118,6 +124,15 @@ const (
 	PredModule       = quad.IRI("module")         // external: the module the package belongs to
 	PredModuleVer    = quad.IRI("module_version") // external: that module's version in this build ("(devel)" for a local replace)
 	PredInternal     = quad.IRI("internal")       // external: inside the framework's internal/, collapsed to one leaf per package
+
+	// Commands and the scheduler: what a command declares about its schedule. A command
+	// with no schedule carries `scheduled` false and none of the others.
+	PredScheduled = quad.IRI("scheduled") // command: it is on a schedule
+	PredSchedule  = quad.IRI("schedule")  // command: the schedule as declared ("0 2 * * *", "@every 6h", "CRON_TZ=Europe/Sofia 0 9 * * *")
+	PredTimezone  = quad.IRI("timezone")  // command: the zone the schedule is read in
+	PredOverlap   = quad.IRI("overlap")   // command: skip or allow, when a run is due while the last one is going
+	PredTimeout   = quad.IRI("timeout")   // command: a run's deadline, as a Go duration (absent: none)
+	PredEvery     = quad.IRI("every")     // command: the interval of an "@every" schedule, as a Go duration
 
 	// Phase 2 layers.
 	PredMethod      = quad.IRI("method")
@@ -202,6 +217,7 @@ var structuralPredicates = []quad.IRI{
 	PredReadsTable, PredWritesTable, PredMapsTo, PredSubject, PredObject, PredVia,
 	PredAbout, PredCalls, PredCoChangedWith,
 	PredImportsExt, PredCallsExt, PredHandledByExt,
+	PredRunBy,
 }
 
 // archLayers is the closed set of `arch_layer` values.
@@ -263,6 +279,9 @@ func routeID(method, path string) quad.IRI {
 	return quad.IRI("route:" + idKey(method) + ":" + idKey(path))
 }
 func mwID(key string) quad.IRI { return quad.IRI("mw:" + idKey(key)) }
+
+// commandID names a CLI command by the name it is run with (`command:items:sync`).
+func commandID(name string) quad.IRI { return quad.IRI("command:" + idKey(name)) }
 func tmplID(dir, name string) quad.IRI {
 	return quad.IRI("tmpl:" + idKey(dir) + "." + idKey(name))
 }

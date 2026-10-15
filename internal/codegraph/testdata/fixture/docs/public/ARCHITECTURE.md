@@ -4,6 +4,7 @@ The fixture follows the GoVibe layering: handlers in `controllers/`, rules in `b
 
 - `GET /api/hello` is served by `controllers.HelloAPI` and never touches a table.
 - `GET /api/orders` goes through `orders.Service.List` down to `Store.List`.
+- `orders:export` runs every night at 02:00 UTC through `orders.Service.List`, and `./fixture reports:digest` sends the digest by hand.
 - `GET /dev/mcp` mounts the dev tooling; agents call `fixture_echo` or `fixture_ping` there.
 - `controllers.GetOrder` calls `orderstore.Store` directly, on purpose; the feature status is in [the hello spec](/dev/docs/specs/hello).
 - The port comes from `server.port` (`PORT`) and the database from `FIXTURE_DSN`; broker settings live under `queue.broker.*`.

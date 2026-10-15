@@ -57,7 +57,7 @@ jobs:
           trap 'kill $pid' EXIT
           for i in $(seq 1 50); do curl -fs localhost:18080/api/hello >/dev/null && break; sleep 0.2; done
           [ "$(curl -s localhost:18080/api/hello)" = '{"message":"Hello GoVibe!"}' ]
-          for p in /dev /dev/graph /dev/docs /dev/docs/app /dev/docs/govibe/guide /dev/db /dev/mcp /_govibe/static/graph.js /assets/static/graph.js; do
+          for p in /dev /dev/graph /dev/docs /dev/docs/app /dev/docs/govibe/guide /dev/db /dev/schedule /dev/schedule/data /dev/mcp /_govibe/static/graph.js /assets/static/graph.js; do
             code=$(curl -s -o /dev/null -w '%{http_code}' "localhost:18080$p")
             [ "$code" = 404 ] || { echo "$p answered $code, want 404"; exit 1; }
           done
@@ -65,7 +65,15 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' "localhost:18080$p")
             [ "$code" = 200 ] || { echo "$p answered $code, want 200 (is the embed complete?)"; exit 1; }
           done
-          ! curl -s localhost:18080/ | grep -q 'href="/dev'
+          if curl -s localhost:18080/ | grep -q 'href="/dev'; then echo "the page links to /dev in a build that has none"; exit 1; fi
+          # The scheduler is not dev tooling: its listing works in the production binary with no database,
+          # no server and no environment (A9). The reference app schedules nothing.
+          out=$("$RUNNER_TEMP/hello" schedule list)
+          echo "$out" | grep -q 'No command declares a Schedule' || { echo "schedule list: $out"; exit 1; }
+          "$RUNNER_TEMP/hello" schedule list --json | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["tasks"]==[] and d["scheduler"]["enabled"] is True, d'
+          # Nothing is scheduled: `schedule run` refuses (status 1) instead of idling (timeout's 124).
+          rc=0; timeout 10 "$RUNNER_TEMP/hello" schedule run >/dev/null 2>&1 || rc=$?
+          [ "$rc" = 1 ] || { echo "schedule run exited $rc, want 1 (the refusal); 124 means it idled"; exit 1; }
 
   devpanel:
     # The dev build of the reference app, judged through the panel's own agent surface:
@@ -112,3 +120,9 @@ jobs:
           [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:18081/dev)" = 200 ]
           [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:18081/dev/docs/govibe/guide)" = 200 ]
           [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:18081/dev/docs/govibe-specs)" = 404 ] # the framework's specs are never in an app
+          # The scheduler's page and agent tool answer even when nothing is scheduled, and say how to declare one (A9).
+          [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:18081/dev/schedule)" = 200 ]
+          curl -s localhost:18081/dev/schedule/data | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["state"]=="none" and d["tasks"]==[] and d["how_to_declare"], d'
+          ask schedule_status '{}' | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["state"]=="none" and d["how_to_declare"], d'
+          curl -s localhost:18081/dev/graph/data/status | python3 -c 'import sys,json; d=json.load(sys.stdin); assert "commands" in [l["name"] for l in d["freshness"]["layers"]], d'
+

@@ -43,7 +43,7 @@ var kindAliases = map[string]string{
 	"endpoint": "route", "url": "route", "tool": "mcp_tool", "mcp": "mcp_tool", "config": "config_key", "cfg": "config_key",
 	"env": "env_var", "environment": "env_var", "component": "template", "tmpl": "template", "templ": "template",
 	"col": "column", "idx": "index", "mw": "middleware", "typ": "type", "struct": "type", "interface": "type",
-	"item": "spec_item", "documentation": "doc",
+	"item": "spec_item", "documentation": "doc", "cmd": "command", "task": "command", "job": "command", "cron": "command",
 }
 
 // kindSet validates and normalizes kind names ("func", "kind:func", "function").

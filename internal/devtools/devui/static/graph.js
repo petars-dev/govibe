@@ -48,7 +48,7 @@
   // ---------- what a kind looks like ----------
   var KINDS = {
     package: ['#4f8cff', 'round-rectangle'], file: ['#8b95a5', 'rectangle'], func: ['#2fb7a3', 'ellipse'], type: ['#a173ff', 'hexagon'],
-    route: ['#f0883e', 'diamond'], middleware: ['#d4a72c', 'triangle'], template: ['#e26fb0', 'tag'], mcp_tool: ['#c86bfa', 'star'],
+    route: ['#f0883e', 'diamond'], command: ['#39c5cf', 'rhomboid'], middleware: ['#d4a72c', 'triangle'], template: ['#e26fb0', 'tag'], mcp_tool: ['#c86bfa', 'star'],
     config_key: ['#c9a227', 'barrel'], env_var: ['#b08a3e', 'round-tag'], doc: ['#3fb950', 'rectangle'], spec: ['#2ea043', 'round-rectangle'],
     spec_item: ['#56d364', 'ellipse'], table: ['#3b82f6', 'cut-rectangle'], column: ['#7aa7ff', 'ellipse'], index: ['#6c8ebf', 'vee'],
     migration: ['#a8794a', 'pentagon'], annotation: ['#8b95a5', 'ellipse'], finding: ['#e5534b', 'octagon'], rule: ['#8b95a5', 'octagon'],
@@ -57,7 +57,7 @@
   var ARCH = { wiring: '#8b95a5', dev: '#a173ff', controllers: '#f0883e', middleware: '#d4a72c', views: '#e26fb0', business: '#3fb950', storage: '#3b82f6', support: '#6c8ebf' };
   var SEV = { error: '#e5534b', warning: '#d29922', info: '#58a6ff' };
   var SEV_ORDER = ['error', 'warning', 'info'];
-  var SIZE = { package: 26, route: 22, table: 26, doc: 22, spec: 22, finding: 18, mcp_tool: 22 };
+  var SIZE = { package: 26, route: 22, command: 22, table: 26, doc: 22, spec: 22, finding: 18, mcp_tool: 22 };
 
   function kindStyle(n) {
     var k = KINDS[n.kind] || ['#8b95a5', 'ellipse'];
@@ -179,7 +179,7 @@
     b.appendChild(layers);
     b.appendChild(el('span', { class: 'gv-spacer' }));
     var reports = el('span', { class: 'gv-reports' }, [el('span', { class: 'gv-muted', text: 'Reports:' })]);
-    ['routes', 'config', 'schema', 'layers'].forEach(function (r) { reports.appendChild(el('a', { href: '/dev/graph/reports/' + r, text: r })); });
+    ['routes', 'commands', 'config', 'schema', 'layers'].forEach(function (r) { reports.appendChild(el('a', { href: '/dev/graph/reports/' + r, text: r })); });
     b.appendChild(reports);
     b.appendChild(el('button', { class: 'gv-btn', id: 'gv-reindex', text: 'Reindex', title: 'Rebuild every layer now', onclick: reindex }));
     (st.notes || []).forEach(function (n) { b.appendChild(el('div', { class: 'gv-muted', style: 'flex-basis:100%', text: n })); });
@@ -276,6 +276,7 @@
     if (n.worst) { bw = 3; bc = SEV[n.worst]; }
     if (n.flag === 'uncovered') { bw = 3; bc = '#e0793b'; bs = 'dashed'; }
     else if (n.flag === 'undeclared') { bw = 3; bc = '#e5534b'; bs = 'dashed'; }
+    else if (n.flag === 'scheduled') { bw = Math.max(bw, 2); bc = bc === 'transparent' ? '#39c5cf' : bc; bs = 'solid'; }
     else if (n.flag === 'sensitive') { bw = Math.max(bw, 2); bc = bc === 'transparent' ? '#a173ff' : bc; bs = 'dotted'; }
     // The framework's nodes (shown in scope Framework or All) are always marked: a double outline.
     if (n.origin === 'framework') { bw = Math.max(bw, 3); bc = bc === 'transparent' ? cssVar('--muted', '#9fb1c3') : bc; bs = 'double'; }

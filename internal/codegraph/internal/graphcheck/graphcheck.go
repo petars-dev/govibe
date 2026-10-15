@@ -57,7 +57,7 @@ var (
 	// sensitiveName is written out here on purpose, not shared with the code
 	// under test: it is the oracle.
 	sensitiveName = regexp.MustCompile(`(?i)key|secret|password|token|dsn`)
-	valueKinds    = []string{"package", "file", "func", "type", "route", "template", "config_key", "env_var", "mcp_tool", "doc", "spec", "table", "column", "index", "migration"}
+	valueKinds    = []string{"package", "file", "func", "type", "route", "command", "template", "config_key", "env_var", "mcp_tool", "doc", "spec", "table", "column", "index", "migration"}
 )
 
 // edge rules: predicate -> the kinds of subject and object it may join.
@@ -68,6 +68,7 @@ var edges = map[string][2][]string{
 	"imports":         {{"package"}, {"package"}},
 	"has_layer":       {{"build"}, {"layer"}},
 	"handled_by":      {{"route"}, {"func"}},
+	"run_by":          {{"command"}, {"func"}},
 	"uses_mw":         {{"route"}, {"middleware"}},
 	"implemented_by":  {{"middleware"}, {"func"}},
 	"renders":         {{"func", "template"}, {"template"}},

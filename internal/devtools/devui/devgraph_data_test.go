@@ -88,7 +88,7 @@ func TestGraphDataStatusAndViews(t *testing.T) {
 
 	st := getJSON(t, h, "/dev/graph/data/status", 200)
 	fr := st["freshness"].(map[string]any)
-	if fr["indexed"] != true || fr["quads"].(float64) < 1000 || fr["added"].(float64) == 0 || len(list(fr["layers"])) != 11 {
+	if fr["indexed"] != true || fr["quads"].(float64) < 1000 || fr["added"].(float64) == 0 || len(list(fr["layers"])) != 12 {
 		t.Errorf("freshness: %v", fr)
 	}
 	fc := st["findings"].(map[string]any)

@@ -26,6 +26,7 @@ package govibe
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/petars-dev/govibe/internal/kernel"
 )
@@ -37,7 +38,7 @@ import (
 //	Migrations fs.FS                                 // holds sql/*.sql (goose)
 //	Assets     fs.FS                                 // static files, served at /assets/*
 //	Routes     func(rt *Runtime, r chi.Router) error // the app's HTTP surface
-//	Commands   func(rt *Runtime) []Command           // the app's CLI commands
+//	Commands   func(rt *Runtime) []Command           // the app's CLI commands, some of them scheduled
 //	Shutdown   func(ctx context.Context) error       // called after the server has stopped
 //
 // Routes and Commands must not open connections or read secrets while they
@@ -53,12 +54,48 @@ type Runtime = kernel.Runtime
 // what is left after the command's flags.
 type RunFunc = kernel.RunFunc
 
-// Command is one CLI command of the app, run as `./app <Use> [flags] [args]`.
+// Command is one CLI command of the app, run as `./app <Use> [flags] [args]`. With a
+// Schedule it is also run by the scheduler.
+//
+//	Use, Short string                  // the name ("noun:verb") and a line of description
+//	Run        RunFunc                 // the body, for the CLI and the scheduler alike
+//	Flags      func(*flag.FlagSet)     // optional flags, on the standard library's flag set
+//	Schedule   *Schedule               // nil: CLI only
 type Command = kernel.Command
+
+// Schedule puts a Command on a schedule: the scheduler also runs it, with the flags'
+// defaults and no arguments, while the same Run still serves `./app <name>`.
+//
+//	Spec    string        // "*/5 * * * *", "@hourly", "@every 10m", "CRON_TZ=Europe/Sofia 0 9 * * *"
+//	Overlap Overlap       // Skip (the default) or Allow
+//	Timeout time.Duration // a context deadline for each run; 0 is none
+//
+// A schedule has five fields (no seconds), the descriptors @hourly, @daily, @weekly,
+// @monthly and @yearly, or "@every <duration>" of at least a minute. It is read in the
+// zone of scheduler.timezone (UTC by default) unless it carries a CRON_TZ= prefix. An
+// invalid one fails the boot and names the command.
+type Schedule = kernel.Schedule
+
+// Overlap says what happens when a scheduled command is due while its previous run is
+// still going: Skip (the default) drops the new run and logs it, Allow runs both.
+type Overlap = kernel.Overlap
+
+// The two Overlap policies.
+const (
+	Skip  = kernel.Skip
+	Allow = kernel.Allow
+)
+
+// Cron is a Schedule for a cron expression or a descriptor: `Schedule: govibe.Cron("0 2 * * *")`.
+func Cron(spec string) *Schedule { return kernel.Cron(spec) }
+
+// Every is a Schedule that runs the command every d (at least a minute), counted from
+// the moment the scheduler starts: `Schedule: govibe.Every(10 * time.Minute)`.
+func Every(d time.Duration) *Schedule { return kernel.Every(d) }
 
 // Main runs the app with the process arguments and exits non-zero on failure. With
 // no arguments it serves; otherwise the first argument is a built-in command
-// (serve, migrate, routes, version, inspect, help) or one of the app's own.
+// (serve, migrate, routes, schedule, version, inspect, help) or one of the app's own.
 func Main(app App) { kernel.Main(app) }
 
 // Run executes one command line against the app and returns its error. It is what

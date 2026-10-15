@@ -161,7 +161,7 @@ func TestFixtureGraphInvariantsWithOptInLayers(t *testing.T) {
 		}
 	}
 	res := graphcheck.Check(t, h, graphcheck.Options{
-		Layers:       []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "calls", "git", "externals", "findings"},
+		Layers:       []string{"code", "routes", "commands", "templates", "config", "mcp", "db", "docs", "calls", "git", "externals", "findings"},
 		RequireEdges: []string{"calls", "co_changed_with", "handled_by", "reads_table", "subject", "object", "via"},
 	})
 	t.Logf("%d quads in total", len(res.Quads))

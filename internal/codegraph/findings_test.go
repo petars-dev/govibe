@@ -34,14 +34,15 @@ func TestFindingsFixtureFacts(t *testing.T) {
 	m := fixtureGraph(t)
 	got := byRule(m)
 	want := map[string][]string{
-		"layering":                {"finding:layering:pkg:controllers#pkg:storage/orderstore"},
-		"docs.stale_ref":          {"finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go"},
-		"docs.spec_missing":       {"finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go"},
-		"config.undeclared":       {"finding:config.undeclared:cfg:feature.beta", "finding:config.undeclared:env:FIXTURE_DEBUG"},
-		"config.unused":           {"finding:config.unused:cfg:auth.api_key", "finding:config.unused:cfg:database.max_conns", "finding:config.unused:cfg:env", "finding:config.unused:cfg:region", "finding:config.unused:cfg:unused.flag"},
-		"db.missing_fk":           {"finding:db.missing_fk:col:orders.user_id#col:users.id"},
-		"docs.route_undocumented": {"finding:docs.route_undocumented:route:ANY:/assets/", "finding:docs.route_undocumented:route:GET:/", "finding:docs.route_undocumented:route:GET:/api/orders/{id}"},
-		"code.unreferenced":       {"finding:code.unreferenced:func:business/actions.Notify"},
+		"layering":                  {"finding:layering:pkg:controllers#pkg:storage/orderstore"},
+		"docs.stale_ref":            {"finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go"},
+		"docs.spec_missing":         {"finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go"},
+		"config.undeclared":         {"finding:config.undeclared:cfg:feature.beta", "finding:config.undeclared:env:FIXTURE_DEBUG"},
+		"config.unused":             {"finding:config.unused:cfg:auth.api_key", "finding:config.unused:cfg:database.max_conns", "finding:config.unused:cfg:env", "finding:config.unused:cfg:region", "finding:config.unused:cfg:unused.flag"},
+		"db.missing_fk":             {"finding:db.missing_fk:col:orders.user_id#col:users.id"},
+		"docs.command_undocumented": {"finding:docs.command_undocumented:command:cache:warm"},
+		"docs.route_undocumented":   {"finding:docs.route_undocumented:route:ANY:/assets/", "finding:docs.route_undocumented:route:GET:/", "finding:docs.route_undocumented:route:GET:/api/orders/{id}"},
+		"code.unreferenced":         {"finding:code.unreferenced:func:business/actions.Notify"},
 	}
 	for rule, ids := range want {
 		mustHave(t, rule, got[rule], ids...)
@@ -69,7 +70,7 @@ func TestFindingsFixtureFacts(t *testing.T) {
 		}
 	}
 	// A stale reference carries its line; the row claims what is not there.
-	if f := m.Node("finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go"); f.Int("line") != 13 || f.Str("path") != "docs/public/ARCHITECTURE.md" {
+	if f := m.Node("finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go"); f.Int("line") != 14 || f.Str("path") != "docs/public/ARCHITECTURE.md" {
 		t.Errorf("stale ref: %+v", f)
 	}
 	if f := m.Node("finding:docs.spec_missing:item:hello/audit-trail#16:business/actions/audit.go"); f.Str("severity") != "warning" || f.Str("path") != "docs/specs/SPEC_HELLO.md" || !strings.Contains(f.Str("message"), "marks \"Audit trail\" implemented") {
@@ -135,7 +136,7 @@ func TestRulesWhoseLayersAreMissingAreNotChecked(t *testing.T) {
 		t.Errorf("rule node: %+v", r)
 	}
 	res := m.Findings(FindingsQuery{})
-	if !res.Available || len(res.uncheckedRules()) != 3 || !strings.Contains(res.Note, "docs.route_undocumented") || !strings.Contains(res.Note, "did not run") {
+	if !res.Available || len(res.uncheckedRules()) != 4 || !strings.Contains(res.Note, "docs.route_undocumented") || !strings.Contains(res.Note, "docs.command_undocumented") || !strings.Contains(res.Note, "did not run") {
 		t.Errorf("an agent is told what was not checked: %+v", res)
 	}
 	if byRule(m)["docs.route_undocumented"] != nil {
@@ -157,7 +158,7 @@ func TestFindingsFollowTheSource(t *testing.T) {
 	if again, err := ix.Run(ctx); err != nil || again.Added != 0 || again.Removed != 0 {
 		t.Fatalf("second run: %+v %v", again, err)
 	}
-	stale := `g.V(g.IRI('finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#13:legacy/handler.go')).Out(g.IRI('about')).All()`
+	stale := `g.V(g.IRI('finding:docs.stale_ref:doc:docs/public/ARCHITECTURE.md#14:legacy/handler.go')).Out(g.IRI('about')).All()`
 	wantIDs(t, "the stale reference is a finding", gizmoIDs(t, h, stale), "<doc:docs/public/ARCHITECTURE.md>")
 
 	// Fixing the doc is a doc edit: docs and findings rebuild, and the finding is gone.
@@ -231,7 +232,7 @@ func TestStaleReferenceClassification(t *testing.T) {
 	cx, _ := w.configIndex()
 	dm, _ := w.dbModel()
 	sc, _ := w.docScan()
-	rs := newResolver(w.root, mustProfile(t, w), sc, ci, rt, ti, cx, dm)
+	rs := newResolver(w.root, mustProfile(t, w), sc, ci, rt, nil, ti, cx, dm)
 
 	for _, tok := range []string{
 		"legacy/handler.go",       // a removed directory
@@ -301,7 +302,7 @@ func readFile(t *testing.T, root, rel string) string {
 
 func TestFindingNodesAreWellFormed(t *testing.T) {
 	h, _ := fixtureStore(t)
-	graphcheck.Check(t, h, graphcheck.Options{Layers: []string{"code", "routes", "templates", "config", "mcp", "db", "docs", "externals", "findings"}})
+	graphcheck.Check(t, h, graphcheck.Options{Layers: []string{"code", "routes", "commands", "templates", "config", "mcp", "db", "docs", "externals", "findings"}})
 	for _, q := range storedLabel(t, h, "findings") {
 		if q.Label != quad.Value(LayerLabel("findings")) {
 			t.Errorf("a finding quad outside its layer: %v", q)

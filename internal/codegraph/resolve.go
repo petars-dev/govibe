@@ -24,7 +24,7 @@ var lineSuffix = regexp.MustCompile(`:\d+(?::\d+)?$`)
 // impliedPrefixes are the ID prefixes tried, in order, when a reference is a
 // bare name: `items` is `table:items`, `server.port` is `cfg:server.port`.
 var impliedPrefixes = []string{"table:", "col:", "idx:", "cfg:", "env:", "tool:", "spec:", "mig:", "pkg:", "file:", "doc:",
-	"func:", "typ:", "tmpl:", "mw:", "item:"}
+	"func:", "typ:", "tmpl:", "mw:", "item:", "command:"}
 
 // Resolve returns the nodes a reference names, sorted by kind then ID. It tries,
 // in order, and stops at the first rule that finds anything:

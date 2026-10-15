@@ -39,6 +39,24 @@ type RouteInfo struct {
 	Middleware []string `json:"middleware,omitempty"`
 }
 
+// CommandInfo is a CLI command of the application, with its schedule when it has one.
+type CommandInfo struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Handler     string `json:"handler,omitempty"` // the function that runs it
+	Scheduled   bool   `json:"scheduled"`
+	Schedule    string `json:"schedule,omitempty"`
+	Timezone    string `json:"timezone,omitempty"`
+	Overlap     string `json:"overlap,omitempty"`
+	Timeout     string `json:"timeout,omitempty"`
+	Every       string `json:"every,omitempty"` // an "@every" schedule's interval: it counts from the start of the process
+	// How a table is reached, for a command listed under a table.
+	Access     string `json:"access,omitempty"`
+	Confidence int    `json:"confidence,omitempty"`
+	Method     string `json:"method,omitempty"`
+}
+
 // ConfigUse is a config key or environment variable the code reads.
 type ConfigUse struct {
 	NodeRef
@@ -175,7 +193,8 @@ type Context struct {
 	Symbols      []Symbol             `json:"symbols,omitempty"`
 	SymbolCounts map[string]int       `json:"symbol_counts,omitempty"`
 	Routes       []RouteInfo          `json:"routes,omitempty"`
-	Handler      *NodeRef             `json:"handler,omitempty"`
+	Commands     []CommandInfo        `json:"commands,omitempty"` // the commands this code runs; for a table, the ones that reach it
+	Handler      *NodeRef             `json:"handler,omitempty"`  // what serves a route, or runs a command
 	Middleware   []NodeRef            `json:"middleware,omitempty"`
 	Renders      []NodeRef            `json:"renders,omitempty"`
 	RenderedBy   []NodeRef            `json:"rendered_by,omitempty"`
@@ -222,6 +241,8 @@ func (m *Model) Context(q ContextQuery) (*Context, error) {
 		m.templateContext(c, n)
 	case "route":
 		m.routeContext(c, n)
+	case "command":
+		m.commandContext(c, n)
 	case "table":
 		m.tableContext(c, n)
 	case "spec":
@@ -429,6 +450,7 @@ func (m *Model) codeContext(c *Context, n *Node) {
 	}
 
 	routes := map[string]*Node{}
+	commands := map[string]*Node{}
 	renders := map[string]*Node{}
 	cfg := map[string]*Node{}
 	tools := map[string]*Node{}
@@ -440,6 +462,7 @@ func (m *Model) codeContext(c *Context, n *Node) {
 	}
 	for _, f := range scope.funcs {
 		collect(routes, m.in(f, "handled_by"))
+		collect(commands, m.in(f, "run_by"))
 		collect(renders, m.out(f, "renders"))
 		collect(cfg, m.out(f, "uses_config"))
 		collect(cfg, m.out(f, "reads_env"))
@@ -454,6 +477,7 @@ func (m *Model) codeContext(c *Context, n *Node) {
 		collect(cfg, m.out(p, "uses_config"))
 	}
 	c.Routes = m.routeInfos(routes)
+	c.Commands = m.commandInfos(commands)
 	c.Renders = m.capRefs(valuesOf(renders), maxListed)
 	c.Tools = m.capRefs(valuesOf(tools), maxListed)
 	c.Config = m.configUses(cfg)
@@ -510,6 +534,35 @@ func (m *Model) routeInfos(routes map[string]*Node) []RouteInfo {
 	return out
 }
 
+// commandInfo describes one command node.
+func (m *Model) commandInfo(c *Node) CommandInfo {
+	return CommandInfo{
+		ID: c.ID, Name: c.Str("name"), Description: c.Str("description"), Handler: c.first("run_by"),
+		Scheduled: c.Bool("scheduled"), Schedule: c.Str("schedule"), Timezone: c.Str("timezone"),
+		Overlap: c.Str("overlap"), Timeout: c.Str("timeout"), Every: c.Str("every"),
+	}
+}
+
+// commandInfos describes commands, scheduled ones first, then by name.
+func (m *Model) commandInfos(commands map[string]*Node) []CommandInfo {
+	list := valuesOf(commands)
+	sort.Slice(list, func(i, j int) bool {
+		a, b := list[i], list[j]
+		if a.Bool("scheduled") != b.Bool("scheduled") {
+			return a.Bool("scheduled")
+		}
+		return a.Str("name") < b.Str("name")
+	})
+	if len(list) > maxListed {
+		list = list[:maxListed]
+	}
+	var out []CommandInfo
+	for _, n := range list {
+		out = append(out, m.commandInfo(n))
+	}
+	return out
+}
+
 func (m *Model) configUses(cfg map[string]*Node) []ConfigUse {
 	list := valuesOf(cfg)
 	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
@@ -555,6 +608,27 @@ func (m *Model) routeContext(c *Context, n *Node) {
 		}
 		return
 	}
+	m.entryContext(c, h)
+}
+
+// commandContext describes a command: its schedule, the function that runs it and,
+// from there, what it reaches, the way a route's handler is followed.
+func (m *Model) commandContext(c *Context, n *Node) {
+	c.Commands = []CommandInfo{m.commandInfo(n)}
+	h := m.nodes[n.first("run_by")]
+	if h == nil {
+		if s := n.Str("handler"); s != "" {
+			c.Notes = append(c.Notes, fmt.Sprintf("The function that runs it is not application code (%s), so nothing below it is traced.", s))
+		}
+		return
+	}
+	m.entryContext(c, h)
+}
+
+// entryContext fills in what a route's handler or a command's function leads to: its
+// file and package, the config it reads, the templates it renders, the tables it
+// touches, and what it calls.
+func (m *Model) entryContext(c *Context, h *Node) {
 	r := m.Ref(h)
 	c.Handler = &r
 	if f := m.nodes[h.first("defined_in")]; f != nil {
@@ -731,11 +805,48 @@ func (m *Model) tableContext(c *Context, n *Node) {
 	t.MappedBy = m.capRefs(m.in(n, "maps_to"), maxListed)
 	t.Migrations = m.capRefs(m.out(n, "introduced_in"), maxListed)
 	c.Table = t
+	m.tableCommands(c, n)
 	if len(t.Readers)+len(t.Writers) == 0 {
 		c.Notes = append(c.Notes, "No code reads or writes this table by an SQL string the indexer can see (SQL built at run time is not seen).")
 	}
 	if m.layerBuilt("db") {
-		c.Notes = append(c.Notes, "For the routes and tools that can reach this table, call graph_impact.")
+		c.Notes = append(c.Notes, "For the routes, commands and tools that can reach this table, call graph_impact.")
+	}
+}
+
+// tableCommands lists the commands that reach a table, scheduled ones first, each with how
+// sure the graph is and which way it touches the table. It is graph_impact of the table,
+// narrowed to commands: a scheduled command that writes a table is the thing someone who
+// changes that table most wants to hear about, because nobody is watching it run.
+func (m *Model) tableCommands(c *Context, table *Node) {
+	if !m.layerBuilt("commands") || len(m.byKind["command"]) == 0 {
+		return
+	}
+	imp, err := m.Impact(ImpactQuery{Node: table.ID, Kinds: []string{"command"}, Limit: maxImpactLimit})
+	if err != nil {
+		return
+	}
+	for _, a := range imp.Affected {
+		n := m.nodes[a.ID]
+		if n == nil {
+			continue
+		}
+		ci := m.commandInfo(n)
+		ci.Access, ci.Confidence, ci.Method = a.Access, a.Confidence, a.Method
+		c.Commands = append(c.Commands, ci)
+	}
+	sort.SliceStable(c.Commands, func(i, j int) bool {
+		a, b := c.Commands[i], c.Commands[j]
+		if a.Scheduled != b.Scheduled {
+			return a.Scheduled
+		}
+		if a.Confidence != b.Confidence {
+			return a.Confidence > b.Confidence
+		}
+		return a.Name < b.Name
+	})
+	if len(c.Commands) > maxListed {
+		c.Commands = c.Commands[:maxListed]
 	}
 }
 

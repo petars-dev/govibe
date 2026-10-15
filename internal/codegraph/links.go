@@ -14,7 +14,7 @@ import (
 
 // ReportNames are the generated reference pages under /dev/graph/reports, in the
 // order the index lists them.
-var ReportNames = []string{"routes", "config", "schema", "layers"}
+var ReportNames = []string{"routes", "commands", "config", "schema", "layers"}
 
 // Link is a place a node can be opened.
 type Link struct {
@@ -105,8 +105,13 @@ func (m *Model) Links(n *Node, o LinkOptions) []Link {
 
 	// the editor: the file and line of the thing itself, or of what handles it
 	target := n
-	if n.Kind == "route" {
+	switch n.Kind {
+	case "route":
 		if h := m.nodes[n.first("handled_by")]; h != nil {
+			target = h
+		}
+	case "command":
+		if h := m.nodes[n.first("run_by")]; h != nil {
 			target = h
 		}
 	}
@@ -141,6 +146,8 @@ func (m *Model) Links(n *Node, o LinkOptions) []Link {
 	switch n.Kind {
 	case "route":
 		add("Routes report", ReportURL("routes", n.ID), "report")
+	case "command":
+		add("Commands report", ReportURL("commands", n.ID), "report")
 	case "config_key", "env_var":
 		add("Config report", ReportURL("config", n.ID), "report")
 	case "table":

@@ -127,6 +127,9 @@ func TestExampleQueriesRun(t *testing.T) {
 		if strings.Contains(q.Query, "reads_table") || strings.Contains(q.Query, "Emit") {
 			continue
 		}
+		if strings.Contains(q.Query, "command:items:sync") {
+			continue // a stock name no fixture has: examples() swaps in a real command (TestCommandExampleUsesTheGraphsOwnCommand)
+		}
 		res, _ := gizmoRun(t, h, q.Query)
 		if len(res) == 0 {
 			t.Errorf("%q returns nothing on the fixture", q.Question)

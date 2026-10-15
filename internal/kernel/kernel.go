@@ -20,6 +20,7 @@ import (
 	"github.com/petars-dev/govibe/config"
 	"github.com/petars-dev/govibe/internal/migrate"
 	"github.com/petars-dev/govibe/internal/routeinfo"
+	"github.com/petars-dev/govibe/internal/scheduler"
 	"github.com/petars-dev/govibe/web"
 )
 
@@ -52,6 +53,9 @@ type Command struct {
 	// Flags declares the command's flags on the standard library's flag set; nil
 	// means none.
 	Flags func(*flag.FlagSet)
+	// Schedule, when set, puts the command on a schedule: the framework's scheduler
+	// also runs it, with the flags' defaults and no arguments. Nil: CLI only.
+	Schedule *Schedule
 }
 
 // Options say which parts of the boot sequence run.
@@ -61,6 +65,8 @@ type Options struct {
 	Dev     bool   // mount the dev tools, when they are compiled in and the environment is not production
 	Quiet   bool   // log warnings only: a command whose stdout carries data
 	Root    string // the application's root directory; "" finds it (see FindRoot)
+	// Clock drives the scheduler; nil is the wall clock. A test passes a fake one.
+	Clock scheduler.Clock
 }
 
 // Built is a booted process: everything Main, serve and the tests need.
@@ -79,6 +85,11 @@ type Built struct {
 	Assets string
 	// DevMounted is true when the dev tools are mounted on Router.
 	DevMounted bool
+	// Scheduler holds the commands that declare a Schedule, validated; nil when none
+	// does. Build never starts it: serve and `schedule run` call StartScheduler.
+	Scheduler *scheduler.Runner
+	// SchedulerSettings is the validated scheduler.* configuration.
+	SchedulerSettings schedulerSettings
 
 	closers []func() error
 }
@@ -96,7 +107,7 @@ func (b *Built) Close() error {
 }
 
 // Names the framework owns: an application cannot declare a command or a route there.
-var builtinCommands = []string{"serve", "migrate", "routes", "version", "inspect", "help"}
+var builtinCommands = []string{"serve", "migrate", "routes", "schedule", "version", "inspect", "help"}
 
 // Reserved URL namespaces: /dev is the dev panel, /_govibe is framework runtime.
 var reservedPrefixes = []string{"/dev", "/_govibe"}
@@ -135,7 +146,7 @@ func openRuntime(ctx context.Context, app App, opt Options) (*Runtime, []func() 
 			}
 			if err != nil {
 				_ = dbx.Close()
-				return nil, nil, fmt.Errorf("db migrate: %w", err)
+				return nil, nil, fmt.Errorf("db migrate: %w", migrateHint(cfg.Database.MariaDB.DSN, err))
 			}
 			logrus.Info("database connected and migrated")
 		} else {
@@ -199,6 +210,9 @@ func Build(ctx context.Context, app App, opt Options) (*Built, error) {
 		b.Commands = app.Commands(rt)
 	}
 	if err := checkCommands(b.Commands); err != nil {
+		return fail(err)
+	}
+	if err := b.buildScheduler(opt.Clock); err != nil {
 		return fail(err)
 	}
 

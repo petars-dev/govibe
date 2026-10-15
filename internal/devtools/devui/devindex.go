@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/petars-dev/govibe/internal/codegraph"
+	"github.com/petars-dev/govibe/internal/devtools/schedview"
 )
 
 // DevInfo is what the /dev index page shows about the running application.
@@ -24,6 +25,9 @@ type DevInfo struct {
 	DB, Graph, MCP bool
 	// FrameworkDocs says whether the framework's reference docs are served.
 	FrameworkDocs bool
+	// Schedule reads the scheduler as it is now, for the scheduler card; nil leaves the
+	// card out.
+	Schedule func() schedview.Status
 }
 
 // DevCommand is one command of the application.
@@ -43,6 +47,15 @@ func DevIndex(info DevInfo, ix *codegraph.Indexer) http.HandlerFunc {
 			page.AppName = "this app"
 		}
 		sort.Slice(page.Commands, func(i, j int) bool { return page.Commands[i].Name < page.Commands[j].Name })
+		if info.Schedule != nil {
+			st := info.Schedule()
+			page.Sched = &st
+			for i := range st.Tasks {
+				if t := &st.Tasks[i]; t.Next != nil && (page.SchedNext == nil || t.Next.Before(*page.SchedNext.Next)) {
+					page.SchedNext = t
+				}
+			}
+		}
 		if ix != nil {
 			ctx, cancel := context.WithTimeout(r.Context(), graphRefreshTimeout)
 			defer cancel()
@@ -81,6 +94,9 @@ type devIndexPage struct {
 	FindingsBuilt           bool
 	Errors, Warnings, Infos int
 	Hidden                  int // framework nodes the app's scope leaves out
+
+	Sched     *schedview.Status // the scheduler as of this request, nil when the page is not told
+	SchedNext *schedview.Task   // the scheduled command due first, nil when none has a date
 }
 
 // NoRoutes is true when the graph was read and the app registers none: the case the page explains.
@@ -127,7 +143,7 @@ const devIndexHTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"
 </head><body class="docs-body">
 <header class="site-header">
 <div class="brand"><a class="brand-link" href="/"><img class="brand-logo" src="/_govibe/static/govibe-logo.png" alt="GoVibe"></a><span class="brand-name">GoVibe Dev</span></div>
-<nav class="top-tabs"><a class="tab active" href="/dev">Dev</a><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a>{{if .Graph}}<a class="tab" href="/dev/graph">Graph</a>{{end}}{{if .DB}}<a class="tab" href="/dev/db">DB</a>{{end}}</nav>
+<nav class="top-tabs"><a class="tab active" href="/dev">Dev</a><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a>{{if .Graph}}<a class="tab" href="/dev/graph">Graph</a>{{end}}{{if .DB}}<a class="tab" href="/dev/db">DB</a>{{end}}<a class="tab" href="/dev/schedule">Schedule</a></nav>
 <div class="header-actions"><a class="btn btn-ghost" href="/">&larr; App</a><button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"><svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zm10.48 0l1.79-1.79 1.41 1.41-1.79 1.8-1.41-1.42zM12 4V1h-1v3h1zm0 19v-3h-1v3h1zm7-11h3v-1h-3v1zm-19 0h3v-1H0v1zm3.55 8.45l1.41 1.41 1.79-1.79-1.41-1.41-1.79 1.79zM18.24 18.24l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM12 7a5 5 0 100 10 5 5 0 000-10z"/></svg><svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button></div>
 </header>
 <main class="dev">
@@ -159,6 +175,7 @@ const devIndexHTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"
 {{if .DB}}<div class="card"><h2><a href="/dev/db">Database</a></h2><p>Browse tables and rows, run read-only queries and see explain plans.</p></div>
 {{else}}<div class="card off"><h2>Database</h2><p>No database is configured. Set <code>MARIADB_DSN</code> to enable the explorer.</p></div>{{end}}
 {{if .MCP}}<div class="card"><h2><a href="/dev/mcp">MCP server</a></h2><p>For local agents: <code>http://{{.Host}}/dev/mcp</code>. Start with the <code>graph_schema</code> tool.</p></div>{{end}}
+{{with .Sched}}<div class="card{{if eq .State "none"}} off{{end}}"><h2><a href="/dev/schedule">Scheduler</a></h2><p>{{if eq .State "none"}}No command is scheduled. Give one a <code>Schedule</code> in <code>routes/console.go</code>.{{else}}{{.Scheduled}} scheduled of {{.Commands}} {{plural .Commands "command" "commands"}}{{if eq .State "running"}}, running{{else if eq .State "disabled"}}, disabled (<code>scheduler.enabled</code> is false){{else}}, not started in this process{{end}}.{{with $.SchedNext}} Next: <code>{{.Name}}</code> {{.NextIn}}.{{end}}{{end}}</p></div>{{end}}
 {{if .Commands}}<div class="card"><h2>Commands</h2><p>Run with <code>./{{.AppName}} &lt;name&gt;</code>.</p><ul class="cmds">{{range .Commands}}<li><code>{{.Name}}</code>{{if .Short}}: {{.Short}}{{end}}</li>{{end}}</ul></div>{{end}}
 </div>
 </main></body></html>`

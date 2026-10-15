@@ -24,6 +24,7 @@ var kindDocs = []kindDoc{
 	{"route", "routes", "route:<METHOD>:<path>", "route:GET:/api/hello", "An HTTP route from the live router. Method ANY is a route registered for every method."},
 	{"middleware", "routes", "mw:<dir>.<Name> or mw:<import path>.<Name>", "mw:middleware.RequestLogger", "A middleware on one or more routes; implemented_by links it to application code."},
 	{"template", "templates", "tmpl:<dir>.<Name>", "tmpl:assets/templates.Home", "A templ component."},
+	{"command", "commands", "command:<name>", "command:items:sync", "A CLI command of the application (`./app <name>`), declared with govibe.Command; run_by links it to the function that runs it. A scheduled one carries its schedule, zone, overlap policy and timeout."},
 	{"mcp_tool", "mcp", "tool:<name>", "tool:graph_query", "An MCP tool registered with mcp.AddTool; the function that registers it `registers` it."},
 	{"config_key", "config", "cfg:<dotted.key>", "cfg:server.port", "A key of a settings file (env.yml), with its default, backing environment variable and every use in the code."},
 	{"env_var", "config", "env:<NAME>", "env:PORT", "An environment variable the config or the code reads."},
@@ -78,6 +79,7 @@ var predicateDocs = map[string]string{
 	"about":               "finding -> the node at fault.",
 	"imports_external":    "package or .templ file -> a package outside the project that it imports (the framework's public packages).",
 	"calls_external":      "func -> a function or package outside the project that it calls (the opt-in calls layer; bounded: one leaf per public framework function, one per library package, one for the framework's internals).",
+	"run_by":              "command -> the function that runs it (absent when that is not application code); a command factory's closure resolves to the factory.",
 	"handled_by_external": "route -> the function outside the project that serves it (a framework or library handler); the project's own handler is handled_by.",
 	// attributes
 	"name":              "Short display name.",
@@ -88,7 +90,7 @@ var predicateDocs = map[string]string{
 	"path":              "Repository-relative file or directory; for a route its URL path.",
 	"import_path":       "Go import path of a package.",
 	"arch_layer":        "Architecture layer of a package: controllers, business, storage, middleware, commands, wiring, dev, views, support.",
-	"origin":            "Whose a node is: app (the project's own) or framework. A route's is who registered it, a finding's is that of the node it is about. Written on routes, middleware, config keys, environment variables, MCP tools and externals; every other node is the project's.",
+	"origin":            "Whose a node is: app (the project's own) or framework. A route's is who registered it, a finding's is that of the node it is about. Written on routes, middleware, config keys, environment variables, MCP tools, commands and externals; every other node is the project's.",
 	"framework_key":     "On a config key: the framework's own defaults declare it too, so an application that overrides it is not the one that reads it.",
 	"module":            "On an external: the module its package belongs to.",
 	"module_version":    "On an external: that module's version in this build (\"(devel)\" for a local replace).",
@@ -99,8 +101,14 @@ var predicateDocs = map[string]string{
 	"generated":         "The file carries a `Code generated ... DO NOT EDIT.` marker.",
 	"method":            "HTTP method of a route (ANY: every method); on an annotation, how the edge was inferred.",
 	"dev_only":          "The route is /dev or under /dev/.",
-	"handler":           "What serves a route that is not application code.",
-	"description":       "An MCP tool's description.",
+	"handler":           "What serves a route, or runs a command, that is not application code.",
+	"scheduled":         "On a command: it is on a schedule (the scheduler runs it as well as `./app <name>`).",
+	"schedule":          "On a scheduled command: the schedule as declared (five-field cron, @hourly/@daily/@weekly/@monthly/@yearly, or @every <duration>, with an optional CRON_TZ= prefix).",
+	"timezone":          "On a scheduled command: the zone its schedule is read in (the CRON_TZ prefix, else scheduler.timezone).",
+	"overlap":           "On a scheduled command: skip (a run still going when it is due again drops the new one) or allow.",
+	"timeout":           "On a scheduled command: a run's deadline, as a Go duration; absent means none.",
+	"every":             "On a scheduled command with an @every schedule: its interval. Such a schedule counts from the start of the process, so it has no fixed clock time.",
+	"description":       "An MCP tool's description, or a command's one-line description.",
 	"input_schema":      "An MCP tool's input as a JSON schema.",
 	"default":           "Default value (never for sensitive keys or columns).",
 	"sensitive":         "The key looks like a secret: it has no default or value in the graph.",
@@ -173,6 +181,7 @@ var exampleQueries = []Example{
 	{"Which code uses a config key?", "g.V(g.IRI('cfg:server.port')).In(g.IRI('uses_config')).All()"},
 	{"What does the graph know about a node?", "g.V(g.IRI('func:controllers.HelloAPI')).OutPredicates().All()"},
 	{"How many functions are there? (counting)", "g.Emit(g.V().Has(g.IRI('type'), g.IRI('kind:func')).ToArray().length)"},
+	{"What runs a command?", "g.V(g.IRI('command:items:sync')).Out(g.IRI('run_by')).All()"},
 }
 
 // Question maps what an agent wants to know to the tool that answers it.
@@ -183,7 +192,7 @@ type Question struct {
 
 var questions = []Question{
 	{"What is this file, package, function, route or table, and what is around it?", "graph_context"},
-	{"What breaks if I change it? Which routes, tools, packages and docs are affected?", "graph_impact"},
+	{"What breaks if I change it? Which routes, commands, tools, packages and docs are affected? (Which scheduled commands write this table?)", "graph_impact"},
 	{"How does a route reach a table (or anything reach anything)?", "graph_path"},
 	{"Where is it? I only know part of a name or a phrase.", "graph_search"},
 	{"What is directly connected to this node?", "graph_neighbors"},
@@ -361,7 +370,7 @@ func (m *Model) Schema(stale []string) *SchemaInfo {
 			s.Notes = append(s.Notes, fmt.Sprintf("The %s layer is off, so the graph has no %s. To switch it on: %s.", ol.name, ol.gives, ol.enable))
 		}
 	}
-	s.Notes = append(s.Notes, m.warnings("code", "routes", "templates", "config", "mcp", "db", "docs", "findings")...)
+	s.Notes = append(s.Notes, m.warnings("code", "routes", "commands", "templates", "config", "mcp", "db", "docs", "findings")...)
 	for _, l := range stale {
 		s.Notes = append(s.Notes, fmt.Sprintf("The %s layer is stale (its inputs changed since it was built, or it failed and has not been retried); graph_reindex rebuilds it.", l))
 	}
@@ -416,6 +425,12 @@ func (m *Model) examples() []Example {
 	for _, f := range m.byKind["func"] {
 		if len(f.In["handled_by"]) > 0 {
 			set(4, "g.V(g.IRI('%s')).OutPredicates().All()", f.ID)
+			break
+		}
+	}
+	for _, c := range m.byKind["command"] {
+		if len(c.Out["run_by"]) > 0 {
+			set(6, "g.V(g.IRI('%s')).Out(g.IRI('run_by')).All()", c.ID)
 			break
 		}
 	}

@@ -35,7 +35,7 @@ import (
 
 // IndexerVersion is recorded on the build node. Bump it when the shape of any
 // layer's output changes.
-const IndexerVersion = "5"
+const IndexerVersion = "6"
 
 // Layer run statuses, as stored on `layer:<name>`.
 const (
@@ -104,6 +104,13 @@ type Options struct {
 	// project that is not being run here, as its own binary reported them (see
 	// OptionsFromInspect), or, in tests, a table made up for the purpose.
 	RouteSource func() ([]routeinfo.Route, error)
+	// CommandSource feeds the commands layer the commands of a project that is not being
+	// run here, as its own binary reported them (see OptionsFromInspect), or, in tests, a
+	// table made up for the purpose. Commands are declared in code and do not change while a
+	// process runs, so the dev server passes the same table its binary reported at boot.
+	// Nil means there is none: the commands layer is then skipped and its stored quads are
+	// left alone. A project with no commands passes a source that returns none.
+	CommandSource func() ([]routeinfo.InspectCmd, error)
 	// buildRoot overrides where the running binary's sources were compiled.
 	buildRoot *string
 }
@@ -184,7 +191,7 @@ func New(qs graph.QuadStore, opts Options) *Indexer {
 	return &Indexer{
 		opts:   opts,
 		writer: newWriter(qs),
-		layers: []layer{codeLayer{}, routesLayer{}, templatesLayer{}, configLayer{}, mcpLayer{}, dbLayer{}, docsLayer{}, callsLayer{}, gitLayer{}, externalsLayer{}, findingsLayer{}},
+		layers: []layer{codeLayer{}, routesLayer{}, commandsLayer{}, templatesLayer{}, configLayer{}, mcpLayer{}, dbLayer{}, docsLayer{}, callsLayer{}, gitLayer{}, externalsLayer{}, findingsLayer{}},
 		state:  map[string]LayerReport{},
 		enabled: map[string]bool{
 			callsLayerName: opts.Calls,

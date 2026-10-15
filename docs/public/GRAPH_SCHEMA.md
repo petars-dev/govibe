@@ -12,7 +12,7 @@ and agents work from.
 >
 > **Phase 6 (depth).** Every boot, every `POST /dev/graph/reindex`, and
 > (for stale layers only) every `/dev/graph` page load, data call and `graph_query` call fills the store
-> with the `code`, `routes`, `templates`, `config`, `mcp`, `db`, `docs` and `findings` layers plus the
+> with the `code`, `routes`, `commands`, `templates`, `config`, `mcp`, `db`, `docs`, `externals` and `findings` layers plus the
 > `meta` layer: packages, files, functions, types and imports; routes, middleware and their handlers; templ
 > components; config keys and environment variables with their usage; MCP tools; the database schema
 > (tables, columns, indexes, foreign keys, migrations, relations the schema implies but does not declare)
@@ -106,6 +106,7 @@ run) and **opaque**: never parse one, follow edges and attributes instead.
 | build | `kind:build` | `build:latest` | `build:latest` | meta | 1 |
 | layer run | `kind:layer` | `layer:<name>` | `layer:code` | meta | 1 |
 | route | `kind:route` | `route:<METHOD>:<path>`; `<METHOD>` is `ANY` for a route registered for every method | `route:GET:/dev/db/api/tables/{table}`, `route:ANY:/dev/mcp` | routes | 2 |
+| command | `kind:command` | `command:<name>`, the name the command is run with (`./app <name>`, by convention `noun:verb`) | `command:items:sync` | commands | 4 (framework extraction) |
 | middleware | `kind:middleware` | `mw:<dir>.<Name>` for application code, `mw:<import path>.<Name>` for a library | `mw:middleware.RequestLogger`, `mw:github.com/go-chi/chi/v5/middleware.RequestID` | routes | 2 |
 | template | `kind:template` | `tmpl:<dir>.<Name>`, or `tmpl:<dir>.<Recv>.<Name>` for a method component | `tmpl:assets/templates.Home` | templates | 2 |
 | MCP tool | `kind:mcp_tool` | `tool:<name>` | `tool:graph_query` | mcp | 2 |
@@ -163,6 +164,7 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `imports` | package → package (module-internal) | code | 1 | final |
 | `has_layer` | build → layer run | meta | 1 | final (new) |
 | `handled_by` | route → func (absent when the handler is not application code) | routes | 2 | final |
+| `run_by` | command → the function that runs it (absent when the command's `Run` is not application code). A command factory's closure resolves to the factory, the way a handler's does: by file and line | commands | 4 (framework extraction) | final |
 | `uses_mw` | route → middleware (set semantics: the order is not represented) | routes | 2 | final |
 | `implemented_by` | middleware → func (absent for a library middleware) | routes | 2 | final (new) |
 | `renders` | func, template → template | templates | 2 | final |
@@ -201,7 +203,7 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `exported` | bool: the name starts with an upper-case letter (a method counts by its own name, not its receiver type's) | func, type | 1 |
 | `path` | string: repo-relative file or directory (for a route: the URL path; for a config key: the settings file that declares it; for a tool, template or spec item: the file that defines it) | package, file, route, template, config key, MCP tool, doc, spec, spec item | 1, 2 |
 | `import_path` | string | package, external | 1, 3 |
-| `origin` | string, `app` or `framework`: whose a node is. Written on route (who registered it), middleware, config key, env var, MCP tool and external; every other node was indexed from the project's own tree and is the app's; a finding has the origin of the node it is about. See [Origin and scope](#origin-and-scope) | route, middleware, config key, env var, MCP tool, external | 3 (framework extraction) |
+| `origin` | string, `app` or `framework`: whose a node is. Written on route (who registered it), middleware, config key, env var, MCP tool, command (always `app`: the framework declares none of its own) and external; every other node was indexed from the project's own tree and is the app's; a finding has the origin of the node it is about. See [Origin and scope](#origin-and-scope) | route, middleware, config key, env var, MCP tool, command, external | 3, 4 (framework extraction) |
 | `module`, `module_version` | string: the module an external belongs to, and its version in the indexed build (`(devel)` for a local `replace`) | external | 3 (framework extraction) |
 | `internal` | bool: the external is inside the framework's `internal/`, not API | external | 3 (framework extraction) |
 | `off` | bool: the rule is switched off in `govibe.yml`, a choice and not a rule that could not look | rule | 3 (framework extraction) |
@@ -213,8 +215,10 @@ All predicates are bare IRIs (`<imports>`, not `<gv:imports>`).
 | `git_sha`, `dirty`, `indexed_at`, `duration_ms`, `indexer_version`, `quads`, `added`, `removed` | string, bool, time, int, string, int, int, int. `git_sha` and `dirty` are absent when git is unavailable. `quads`, `added` and `removed` total the data layers (not `meta`) and are relative to the previous run | build | 1 |
 | `quads`, `fingerprint`, `status`, `duration_ms`, `indexed_at`, `added`, `removed`, `error` | int, string, string, int, time, int, int, string. `status` is `ok`, `partial` (indexed, but some inputs were skipped, e.g. a file that does not parse), `skipped` (not applicable here: the `routes` layer with no router wired; nothing was written or deleted, and `note` says why), `off` (an opt-in layer that is not switched on: it holds no quads, whatever an earlier run left is removed, and `note` says how to switch it on) or `error` (nothing was written; the layer's previous quads stay). `quads`, `added` and `removed` are absent on `error` and `skipped`; `note` appears only on `skipped`. `fingerprint` is 16 hex characters over the sorted path, mtime and size of the layer's inputs, taken before they are read | layer run | 1 |
 | `method`, `dev_only` | string (`GET`, `POST`, ..., or `ANY`), bool (the path is `/dev` or under `/dev/`) | route | 2 |
-| `handler` | string: the Go runtime's name for a handler that is **not** application code (`net/http.StripPrefix`, `github.com/modelcontextprotocol/go-sdk/mcp.(*StreamableHTTPHandler).ServeHTTP`); present exactly when `handled_by` is absent, so a route with no code link still says what serves it | route | 2 |
-| `description`, `input_schema` | string, string (JSON). The schema is derived from the handler's input struct: `json` names, `omitempty` makes a property optional, the `jsonschema` tag is its description; `{"type":"object"}` for `struct{}`; absent when the handler does not name a struct of the registering package | MCP tool | 2 |
+| `handler` | string: the Go runtime's name for a handler that is **not** application code (`net/http.StripPrefix`, `github.com/modelcontextprotocol/go-sdk/mcp.(*StreamableHTTPHandler).ServeHTTP`); present exactly when `handled_by` (a command's: `run_by`) is absent, so a route or command with no code link still says what serves it | route, command | 2, 4 |
+| `scheduled` | bool: the command is on a schedule, so the framework's scheduler runs it as well as `./app <name>`. Always present on a command | command | 4 (framework extraction) |
+| `schedule`, `timezone`, `overlap`, `timeout`, `every` | string each, on a scheduled command only. `schedule` is the spec as declared (five-field cron, `@hourly` `@daily` `@weekly` `@monthly` `@yearly`, or `@every <duration>`, with an optional `CRON_TZ=<zone>` prefix); `timezone` the zone it is read in (the `CRON_TZ` prefix, else `scheduler.timezone`); `overlap` is `skip` or `allow`; `timeout` and `every` are Go durations (`10m0s`) and absent when the command declares none (`every` is only on an `@every` schedule, which counts from the start of the process and so has no fixed clock time). `description` carries the command's one-line description | command | 4 (framework extraction) |
+| `description`, `input_schema` | string, string (JSON). A command's one-line `description` is the first; the schema is derived from the handler's input struct: `json` names, `omitempty` makes a property optional, the `jsonschema` tag is its description; `{"type":"object"}` for `struct{}`; absent when the handler does not name a struct of the registering package | MCP tool, command (`description` only) | 2, 4 |
 | `default`, `sensitive` | string (absent when `sensitive`, and absent when empty), bool | config key, env var | 2 |
 | `declared` | bool: the key is a leaf of a settings file (`env.yml`, `config/defaults.yml`), or the variable appears as `${NAME}` in one. `false` means the code reads it but nothing declares it | config key, env var | 2 (new) |
 | `field` | string: the Go field the key binds to, from the yaml tags of `Config` (`Config.Database.MariaDB.DSN`); absent for keys only reachable through the dynamic `Get` and `Unmarshal` helpers | config key | 2 (new) |
@@ -290,6 +294,7 @@ for. (This repository has none: the dev stack's controllers live in `internal/de
 | code | `layer:code` | package, file, func, type | `go/parser` over the repo | 1 | **implemented** |
 | meta | `layer:meta` | build, layer run | the indexer itself | 1 | **implemented** |
 | routes | `layer:routes` | route, middleware | the live chi router, walked at runtime | 2 | **implemented** |
+| commands | `layer:commands` | command | the application's command table, as its own binary reports it (`inspect --json`: no database, no dev mount, no scheduler): name, description, the `Run` function's file and line, and the schedule each command declares. With no table (an offline run that could not ask a binary) the layer is `skipped`, not empty; a project that declares no command has a built layer with nothing in it | 4 (framework extraction) | **implemented** |
 | templates | `layer:templates` | template, `.templ` file | `templ/parser/v2` | 2 | **implemented** |
 | config | `layer:config` | config key, env var | the settings files the profile lists (`env.yml` by default; the framework's repository lists `config/defaults.yml`), the framework's manifest (its settings, origin `framework`), and the code index. With no settings file the layer is `skipped`, not empty | 2, 3 | **implemented** |
 | mcp | `layer:mcp` | MCP tool | `mcp.AddTool` calls, from the code index, and the framework's own tools from its manifest (origin `framework`) | 2, 3 | **implemented** |
@@ -321,11 +326,12 @@ calls), so nothing is parsed twice. A layer points only at nodes it can resolve 
 | every layer | | `govibe.yml` (the profile) |
 | code | | every indexed `.go` file, and `go.mod` |
 | routes | code | the route table: method, path, handler and middleware identity of every route |
+| commands | code | the command table: name, description, `Run` function and schedule of every command (fixed once the app is declared, so it changes only across a restart) |
 | templates | code | every `.templ` file |
 | config | code | the settings files the profile lists |
 | mcp | code | none (it reads the code index) |
 | db | code | every `.sql` under the profile's migrations directory, and the live schema (see below) |
-| docs | code, routes, templates, config, mcp, db | `README.md`, `SKILL.md`, every `.md` under `docs/public` and `docs/specs`, and whether each file those documents name is on disk (see below) |
+| docs | code, routes, commands, templates, config, mcp, db | `README.md`, `SKILL.md`, every `.md` under `docs/public` and `docs/specs`, and whether each file those documents name is on disk (see below) |
 | calls (opt-in) | code | `go.sum` (type-checking reads the Go sources the code layer stands for, and the dependencies' checksums) |
 | git (opt-in) | code, templates, docs | the commit `HEAD` points at, and whether the clone is shallow (the work tree is not part of the history) |
 | externals | code, routes, templates, calls | none: it is built from those layers' indexes, so it is stale whenever one is |
@@ -376,6 +382,15 @@ handler that is not application code (a stdlib or library handler, or a wrapper 
 gets no `handled_by`, and a `handler` attribute names it instead. Middleware is a set: the order of
 the stack is not represented. With no router wired (an offline run) the layer is `skipped` and its stored
 quads are left alone, and the docs layer reports `partial` because route mentions cannot be resolved.
+
+**commands.** The application's CLI commands come from its own binary (`inspect --json`; the dev server passes the table its binary reported at boot, and
+`govibe graph index` asks the binary, as it does for routes). A command's `Run` function is resolved exactly as a route's handler is, by file and line, so a
+`commands.SyncItems(svc)` factory's closure is `func:commands.SyncItems`; one that is not application code gets a `handler` label instead of a `run_by` edge. A
+scheduled command carries what it declared (`schedule`, `timezone`, `overlap`, `timeout`, `every`); the scheduler refuses an invalid schedule at boot, so a
+schedule in the graph is always one that parses. Through the calls layer a command reaches tables the way a route does: `graph_context` and `graph_impact` on a table list the
+commands that reach it, scheduled ones first, with how sure the graph is and which way (read or write) each touches the table, because a scheduled command that writes
+a table runs with nobody watching. Docs name a command by its name in backticks (`items:sync`) or as typed (`./app items:sync`); a command no doc or spec mentions is the
+`docs.command_undocumented` finding.
 
 **templates.** `.templ` files are parsed with `templ/parser/v2`. Components become `tmpl:` nodes, with the
 comment directly above as `doc`. `@Other()` and `@pkg.Other()` inside a component body give
@@ -799,6 +814,7 @@ an estimate is never read as a fact:
 | `interface_dispatch` | 80, 70, 60, 50 or 30, by the number of candidates | a `calls` edge through an interface the module declares: the callee is one of the types that could be on the other end |
 | `table_level` | 70 | a column changed: the readers of its table, since SQL is matched to tables, not columns |
 | `package_imports` | 60 for a package, 50 for a route or tool | the package that holds the affected code is imported by this one, or the route / tool is registered in it: **possible, not proven**, with the import chain in `through` (only when the calls layer is off, or for a changed type) |
+| `wiring_closure` | 60 | a route or command whose handler is a closure declared inside a wiring function (`routes.Register`, `routes.Console`, `main`), which the code layer resolves to that whole function; the function constructs dependencies and so calls whatever changes, and every entry point declared inline in it would be reported as certain: **possible, not proven** |
 | `package_scope` | 30 | same package as an affected helper function, which its neighbours may call (only when the calls layer is off) |
 
 A chain is as sure as its weakest hop.
@@ -881,7 +897,7 @@ Severities are `error` (breaks a rule the project states), `warning` (wrong or s
 carries the `path` and `line` the rule knows (a layering finding: where the forbidden import is first used).
 
 **A rule that did not run has not looked.** A rule whose layers are not built (say, `docs.route_undocumented`
-in an offline run with no router) is recorded with `checked=false` and the reason, and the layer is
+in an offline run with no router, or `docs.command_undocumented` with no command table) is recorded with `checked=false` and the reason, and the layer is
 `partial`. A rule that has nothing to look at (`db.drift` and `db.unapplied` with no live database) is
 recorded the same way with `not applicable: ...` and does not make the layer partial. `graph_findings`
 returns every rule with its count and whether it ran (a rule the profile switches off is `off`, not a gap), and says so in `note`, so "no findings" is never read
@@ -894,6 +910,7 @@ as "clean". When there is no findings layer at all it answers `available: false`
 | `docs.stale_ref` | warning | the doc (detail: `line:text`) | a doc names a file, symbol or page that does not exist; a path the profile lists as `derived` (generated, ignored by git, absent from a clone: `docs/graph/*.bolt`) is not judged |
 | `docs.spec_missing` | warning | the spec row (detail: `line:text`) | a row marked implemented names something that does not exist |
 | `docs.route_undocumented` | info | the route | an application route that no doc or spec mentions (a route of the framework, `/dev/*`, `/_govibe/*` and `/assets/*`, is not the project's to document) |
+| `docs.command_undocumented` | info | the command | an application command that no doc or spec mentions, by name in backticks (`items:sync`) or as typed (`./app items:sync`; a name with no colon needs the typed form, since a plain word in backticks is only a word); `path` and `line` are the function that runs it. Not checked when there is no command table |
 | `config.undeclared` | warning | the config key or environment variable | code reads it, no settings file declares it |
 | `config.unused` | info | the config key | declared, and no code reads it (a read through a variable name is not seen) |
 | `code.unreferenced` | info | the function | an exported package-level function no other indexed code references (tests are not indexed, methods are not checked, a name a `.templ` file uses counts) |
@@ -932,9 +949,9 @@ Every endpoint takes `scope=app|framework|all` (default `app`; any other value i
 | `GET /dev/graph/data/node?id=` | the inspector of any node, by ID or any reference `graph_context` takes: attributes, edges grouped by predicate (25 per group), findings about it, links |
 | `GET /dev/graph/data/search?q=&kinds=&limit=` | `graph_search` |
 | `GET /dev/graph/data/findings?severity=&rule=&limit=` | `graph_findings` |
-| `GET /dev/graph/data/table?name=` | what refers to a table (code that reads or writes it, routes and tools that may reach it, docs): `graph_impact` of the table grouped for the database explorer, with the same confidence labels |
+| `GET /dev/graph/data/table?name=` | what refers to a table (code that reads or writes it, routes, commands and tools that may reach it, docs): `graph_impact` of the table grouped for the database explorer, with the same confidence labels |
 
-The page opens on the **App map** (the first preset): each route, the handler that serves it, the actions, services and
+The page opens on the **App map** (the first preset): each route and each command (a scheduled one shows its schedule), the handler that serves or runs it, the actions, services and
 stores it reaches (through the calls layer, else estimated from package imports and drawn dashed), the tables, and the templates,
 config keys and docs on the way. The toolbar has the **scope switch** (My app, Framework, All): the URL carries `scope=`, the
 choice is remembered per browser, every data call passes it, and the banner always says which scope is showing and how many nodes it
@@ -952,9 +969,9 @@ canvas. A node's border is red, amber or blue when a finding is about it. The ki
 `/dev/docs/*`, to `/dev/db#table=<name>` (only when the database explorer is mounted) and to the node's place
 on a report. `/dev/graph#node=<id>` and `#preset=<id>` are deep links.
 
-Four generated reference pages, rebuilt from the graph on every load (so they cannot drift from the code),
+Five generated reference pages, rebuilt from the graph on every load (so they cannot drift from the code),
 replace the hand-kept route table and schema listing of ARCHITECTURE.md and MEMORY_SCHEMA.md:
-`/dev/graph/reports/routes` (every route, its handler, middleware and docs), `/config` (every key, its
+`/dev/graph/reports/routes` (every route, its handler, middleware and docs), `/commands` (every command, its schedule, zone, overlap and timeout, the function that runs it, the tables it reaches and its docs), `/config` (every key, its
 environment variable, default, whether it is declared, who reads it; secrets are never shown),
 `/schema` (tables, columns, indexes, foreign keys, inferred relations with confidence, the code that reads
 and writes each table, migrations) and `/layers` (the packages of each architecture layer, the imports between
@@ -1026,13 +1043,14 @@ compiles, is never run, and is invisible to the main module (`go list ./...` and
 `testdata`). Each layer's golden N-Quads are `testdata/golden/<layer>.nq`; regenerate them with
 `go test ./internal/codegraph -update` after an intended change and review the diff. The
 fixture is never run, so
-the `routes` layer is fed the runtime facts its router would report (`fixtureRoutes` in `layers_test.go`);
+the `routes` layer is fed the runtime facts its router would report (`fixtureRoutes` in `layers_test.go`), and the `commands` layer the table its binary would report (`fixtureCommands`);
 `routes_chi_test.go` covers the real chi traversal on a router built from this repository's handlers.
 
 | Fixture file | What it exercises |
 | --- | --- |
 | `internal/codegraph/testdata/fixture/main.go` | root package `pkg:.`, `arch_layer=wiring`, package doc; `cfg.Server.Port` and `cfg.Database.DSN` reads, and an `os.Getenv` of a variable `env.yml` does not declare |
 | `internal/codegraph/testdata/fixture/routes/routes.go` | wiring; imports every other layer; six routes (`GET /`, `GET /api/hello`, `GET /api/orders`, `GET /api/orders/{id}`, `/dev/mcp`, `/assets/`) and a middleware wrapper |
+| `internal/codegraph/testdata/fixture/routes/console.go`, `internal/codegraph/testdata/fixture/commands/export.go` | the commands: `orders:export` on a cron schedule with a timeout, `reports:digest` on `@every 6h` with overlap allowed, and `cache:warm`, which is neither scheduled nor documented (`docs.command_undocumented`). Their `Run` functions are closures of factories (resolved to the factory) and a plain function; both factories call the orders service, so the calls layer reaches the `orders` table from the two scheduled commands and not from the third. The `commands` package follows the controllers' layering rule |
 | `internal/codegraph/testdata/fixture/env.yml`, `internal/codegraph/testdata/fixture/config/config.go` | placeholders with defaults, a default containing a colon, sensitive keys whose defaults must not appear, a static value, a key bound to a struct field that nothing reads, keys reachable only through the dynamic `Get` |
 | `internal/codegraph/testdata/fixture/business/actions/notify.go` | `config.Get("queue.broker")` of a whole group, and of an undeclared key |
 | `internal/codegraph/testdata/fixture/assets/templates/*.templ` | components, a `children...` layout, `@Layout(...)` and `@Footer()` calls, a doc comment, a component whose Go package has only generated output |

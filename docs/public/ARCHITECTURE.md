@@ -34,11 +34,13 @@ application. (The rules an application follows, and the plan that produced this 
   `/_govibe/static/htmx.min.js` and the `web.HTMXScript()` tag that loads it, `web.IfDev` (renders its children only when the dev
   tools are mounted, so a production page links to no `/dev` path), and the `RequestLogger` and `DevNoCache` middleware.
 - `govibetest`: boots an app inside a test through the same path as `serve`, on an `httptest` server, without a database and without
-  the dev tools.
+  the dev tools; the scheduler runs on a fake clock the test moves (`srv.Clock.AdvanceTo`, `srv.Runs`).
 - `internal/kernel`: the one boot path (below), the runtime commands, `inspect --json`, and the small seams that keep the dev stack out
   of production.
 - `internal/migrate`: runs goose over the app's embedded migrations through its Provider API, with the dialect (`database.type`) a
   required, parsed argument.
+- `internal/scheduler`: the scheduler's engine: validated cron specs (a wrapper over the `robfig/cron/v3` parser, nothing else of it), a runner with overlap, timeout, panic recovery, an in-memory run history and
+  an optional cross-instance lock (`GET_LOCK`), and a clock a test can drive (`scheduler.Fake`). It knows nothing of commands, the kernel or the dev tools.
 - `internal/routeinfo`: reads a chi router into plain data (method, path, handler by symbol, file and line, middleware); shared by the
   kernel's `routes` and `inspect` and by the graph's routes layer, and light enough to link into a production binary.
 - `internal/devtools` and `internal/devtools/devui`: the dev panel (below). `devui` holds the pages' handlers and their embedded
@@ -65,13 +67,31 @@ One path for `main`, `serve`, the read-only commands and tests (`kernel.Build`):
    mounted; the asset mounts (the app's `./assets` from disk in local and dev, else the embedded `App.Assets`, at `/assets/*`);
    `GET /_govibe/static/htmx.min.js`. Everything registered up to here is the framework's (snapshotted as `Built.FrameworkRoutes`);
    then the app's `Routes`; then a check that the app registered nothing under the reserved prefixes `/dev` and `/_govibe`.
-5. Build the command table from `App.Commands` and reject an unnamed, duplicate or built-in name.
+5. Build the command table from `App.Commands` and reject an unnamed, duplicate or built-in name. Validate the `scheduler.*` settings and every command's `Schedule` (an invalid one is a boot error that names the
+   command), and build the scheduler's runner, which arms nothing yet (`Built.Scheduler`).
 6. Mount the dev tools when they are compiled in and the environment is not production.
-7. `serve` listens, and on SIGINT or SIGTERM shuts the server down gracefully, calls `App.Shutdown` and closes the pool.
+7. `serve` binds the port, then starts the scheduler (unless `scheduler.enabled` is false or `--no-schedule`), then serves. On SIGINT or SIGTERM it stops the scheduler (nothing new starts; running tasks get
+   `scheduler.shutdown_timeout`, then their contexts are cancelled) while the server shuts down gracefully, then calls `App.Shutdown` and closes the pool. `schedule run` does steps 1 to 5, opens the database
+   and runs only the scheduler.
 
 The runtime commands of every app binary are `serve` (the default), `migrate up|down|status`, `routes` (every route and who
-registered it), `version`, `inspect --json` (the routes and commands as one JSON document, with no database, for the tool) and
+registered it), `schedule list|run`, `version`, `inspect --json` (the routes, the commands with their schedules and the scheduler's settings as one JSON document, with no database, for the tool) and
 `help`, plus the app's own. The read-only ones boot with no database, no dev tools and quiet logging.
+
+## Commands and the scheduler
+- A command is a `Command` the app declares in a `console.go` beside its routes; with a `Schedule` it is also run by the scheduler (`internal/scheduler`, built on the cron-spec parser of `robfig/cron/v3` and nothing else of it). The kernel
+  turns the scheduled commands into tasks whose body is the very `Run` the CLI calls (with the flags' defaults and no arguments). `Build` validates and builds the runner; `serve` and `schedule run` start it.
+- The engine is timer callbacks on a `Clock`, not a goroutine per task: the real clock calls them from its own goroutines and the fake clock (`scheduler.Fake`) calls them from `Advance`, in time order, so a test is
+  deterministic and needs no sleeps. After each timer a fake clock waits (real time, bounded) for the runs that timer started to finish; that wait is why `govibetest`'s `AdvanceTo` can be asserted on at once.
+- Semantics, all deliberate: overlap `Skip` by default; a timeout is a context deadline; an error or panic is recovered and logged; nothing is caught up after downtime and nothing is run late (a due time that passed, or whose
+  timer fired more than 30 seconds late, is skipped and recorded as `missed`); `@every` counts from the start; a spring-forward gap is skipped and each reading of a repeated fall-back hour runs once for a spec that names its
+  hours. The run history (20 per task, identical consecutive skips counted as one record) is in memory.
+- Several instances each run every due task, unless `--no-schedule` or `scheduler.lock: db` (a `GET_LOCK` per task on a connection of its own, kept until 10 seconds past the due time so a quick run cannot be repeated by a second instance) says otherwise. The lock is never on by default.
+- Read-only: `schedule list` computes next runs from the declarations (`Runner.Upcoming`), with no clock started and no database. Live: `/dev/schedule` (dev builds), `GET /dev/schedule/data` and the `schedule_status`
+  MCP tool, all from one status document (`internal/devtools/schedview`). "Run now" posts to `/dev/schedule/run/{name}` and goes through the same code path as a scheduled run; it refuses a cross-site request
+  (`http.CrossOriginProtection`) and any request whose Host is not loopback (a DNS-rebinding page is "same-origin" with a server that listens on every interface).
+- In the graph: a `commands` layer from `inspect --json` (a `command` node per command, `run_by` to the function that runs it, the schedule as attributes), a commands report, the reach from a table to the commands that touch
+  it, and the info rule `docs.command_undocumented`. See `GoVibe: Commands and Scheduler`.
 
 ## Requests (in an app)
 1) chi middleware stack -> controller handler
@@ -110,7 +130,7 @@ registered it), `version`, `inspect --json` (the routes and commands as one JSON
   rendered only where it is not dead.
 
 ## Dev tooling: what it serves
-- `/dev` (the front door), `/dev/docs`, `/dev/graph`, `/dev/db`, and `/dev/mcp` are mounted by `devtools.Mount` (`internal/devtools`), which the kernel calls only in a `govibe_dev` build and only when `!cfg.IsProd()`; none of them exist in a production process. The panel's own files (stylesheets, scripts, the graph renderer, cytoscape, the logo) are the framework's: they are embedded in `internal/devtools/devui` and served at `/_govibe/static`, never from the app's `/assets`. The explorer shares the app's one database pool.
+- `/dev` (the front door), `/dev/docs`, `/dev/graph`, `/dev/db`, `/dev/schedule` (and its `/data` JSON and `POST /dev/schedule/run/{name}`) and `/dev/mcp` are mounted by `devtools.Mount` (`internal/devtools`), which the kernel calls only in a `govibe_dev` build and only when `!cfg.IsProd()`; none of them exist in a production process. The panel's own files (stylesheets, scripts, the graph renderer, cytoscape, the logo) are the framework's: they are embedded in `internal/devtools/devui` and served at `/_govibe/static`, never from the app's `/assets`. The explorer shares the app's one database pool.
 - `/dev/db` is a Faucet-like database explorer (schema introspection, table browsing, filtered queries, row sampling, explain plans) with an optional, explicitly-gated mutation surface (`db_insert_test_row`/`db_reset_test_data`, or the equivalent `/dev/db/api` endpoints) for seeding/clearing test fixtures. Gated by `dev.db.allow_mutations` in `config/defaults.yml` (`DEV_DB_ALLOW_MUTATIONS`), which has no effect in production regardless of the flag.
 - `/dev/mcp` mounts an MCP server (github.com/modelcontextprotocol/go-sdk) over streamable HTTP so local agents can call the same db_* tools plus the graph tools without going through the UI. The graph tools are `graph_schema` (start here), `graph_context`, `graph_impact`, `graph_path`, `graph_search`, `graph_neighbors`, `graph_findings`, `graph_reindex`, and `graph_query` (a raw read-only Gizmo query); the resources `govibe://graph/overview` and `govibe://graph/schema`; and the prompt `explain-change`. Each call first brings stale graph layers up to date, then reads the graph into memory (`codegraph.Load`, about 20 ms for 5,000 quads) and answers in Go; nothing is cached, so an answer is always from the graph as it is.
 - See docs/specs/SPEC_DEV_DB_EXPLORER.md for details and status.
@@ -144,7 +164,7 @@ application by default; the framework it runs on is one switch away and always l
   read of `server.port` and no app is told it never reads `dev.graph.calls`) and its MCP tools, as nodes of origin `framework`. The tool and the library are one version,
   so the offline run uses the same manifest.
 - **Offline facts.** `govibe graph index` in an application asks its own binary (`go run -tags govibe_dev . inspect --json`: no database, no dev mount, no
-  scheduler) and feeds the route table, who registered each route and the module table to the indexer (`codegraph.OptionsFromInspect`), so the route rules run in CI;
+  scheduler) and feeds the route table, the command table (with schedules), who registered each route and the module table to the indexer (`codegraph.OptionsFromInspect`), so the route rules run in CI;
   `--no-inspect` skips it. The document's types are `internal/routeinfo` (`Inspect`), shared by the app binary and the tool.
 - **Rules as data and the new findings.** `internal/rules` holds the layering table, the framework-import table and the spec sections. `framework.import` (error)
   judges every package, and every `.templ` file by its directory, against what its layer may import from the framework: business and storage nothing; controllers,

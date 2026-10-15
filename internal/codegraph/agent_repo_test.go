@@ -13,7 +13,7 @@ import (
 // the model the agent tools answer from.
 func loadRepoModel(t *testing.T) *codegraph.Model {
 	t.Helper()
-	_, _, h := indexRepoStore(t, codegraph.Options{Router: miniRouter()})
+	_, _, h := indexRepoStore(t, codegraph.Options{Router: miniRouter(), CommandSource: noCommands})
 	start := time.Now()
 	m, err := codegraph.Load(context.Background(), h.QuadStore)
 	if err != nil {
@@ -132,7 +132,7 @@ func TestRepoReferencesResolve(t *testing.T) {
 // graph_schema on the real graph: every predicate that occurs is described, and
 // the example queries it offers run against the live store.
 func TestSchemaOfThisRepoIsFullyDescribedAndItsExamplesRun(t *testing.T) {
-	rep, q, h := indexRepoStore(t, codegraph.Options{Router: miniRouter()})
+	rep, q, h := indexRepoStore(t, codegraph.Options{Router: miniRouter(), CommandSource: noCommands})
 	_ = rep
 	m, err := codegraph.Load(context.Background(), h.QuadStore)
 	if err != nil {

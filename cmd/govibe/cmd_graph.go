@@ -445,7 +445,14 @@ func (o graphIndexOptions) indexerOptions(ctx context.Context) (opts codegraph.O
 		}
 		opts = codegraph.OptionsFromInspect(doc)
 		version = doc.Framework.Version
-		note = fmt.Sprintf("%d from the application's own `inspect --json` (%d registered by the framework)", len(doc.Routes), countMountedBy(doc, routeinfo.MountedByFramework))
+		scheduled := 0
+		for _, c := range doc.Commands {
+			if c.Schedule != nil {
+				scheduled++
+			}
+		}
+		note = fmt.Sprintf("%d from the application's own `inspect --json` (%d registered by the framework); commands: %d (%d scheduled)",
+			len(doc.Routes), countMountedBy(doc, routeinfo.MountedByFramework), len(doc.Commands), scheduled)
 	}
 	if app {
 		mf, err := devtools.FrameworkManifest(ctx, version)

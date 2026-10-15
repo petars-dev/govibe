@@ -54,6 +54,9 @@ func DevGraphReports(ix *codegraph.Indexer, dbUI bool) http.HandlerFunc {
 		case "routes":
 			rep := m.RoutesReport(opts)
 			page.Title, page.AsOf, page.Notes, page.Data = codegraph.ReportTitle(name), rep.AsOf, rep.Notes, rep
+		case "commands":
+			rep := m.CommandsReport(opts)
+			page.Title, page.AsOf, page.Notes, page.Data = codegraph.ReportTitle(name), rep.AsOf, rep.Notes, rep
 		case "config":
 			rep := m.ConfigReport(opts)
 			page.Title, page.AsOf, page.Notes, page.Data = codegraph.ReportTitle(name), rep.AsOf, rep.Notes, rep
@@ -165,7 +168,7 @@ const reportsHTML = `
 </head><body class="docs-body">
 <header class="site-header">
 <div class="brand"><a class="brand-link" href="/"><img class="brand-logo" src="/_govibe/static/govibe-logo.png" alt="GoVibe"></a><span class="brand-name">GoVibe Dev Graph</span></div>
-<nav class="top-tabs"><a class="tab" href="/dev">Dev</a><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a><a class="tab active" href="/dev/graph">Graph</a><a class="tab" href="/dev/db">DB</a></nav>
+<nav class="top-tabs"><a class="tab" href="/dev">Dev</a><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a><a class="tab active" href="/dev/graph">Graph</a><a class="tab" href="/dev/db">DB</a><a class="tab" href="/dev/schedule">Schedule</a></nav>
 <div class="header-actions"><a class="btn btn-ghost" href="/">&larr; App</a><button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"><svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zm10.48 0l1.79-1.79 1.41 1.41-1.79 1.8-1.41-1.42zM12 4V1h-1v3h1zm0 19v-3h-1v3h1zm7-11h3v-1h-3v1zm-19 0h3v-1H0v1zm3.55 8.45l1.41 1.41 1.79-1.79-1.41-1.41-1.79 1.79zM18.24 18.24l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM12 7a5 5 0 100 10 5 5 0 000-10z"/></svg><svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button></div>
 </header>
 <main class="rep">
@@ -177,6 +180,7 @@ const reportsHTML = `
 {{if .Notes}}<div class="notes" role="note"><strong>Not the whole picture:</strong><ul>{{range .Notes}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
 {{if eq .Name ""}}{{template "index" .}}
 {{else if eq .Name "routes"}}{{template "routes" .Data}}
+{{else if eq .Name "commands"}}{{template "commands" .Data}}
 {{else if eq .Name "config"}}{{template "config" .Data}}
 {{else if eq .Name "schema"}}{{template "schema" .Data}}
 {{else if eq .Name "layers"}}{{template "layers" .Data}}{{end}}
@@ -203,6 +207,18 @@ const reportsHTML = `
 <td>{{template "docs" .Docs}}</td>
 <td>{{template "findings" .Findings}}</td>
 </tr>{{else}}<tr><td colspan="{{if $.Calls}}7{{else}}6{{end}}" class="muted">No routes in the graph: the routes layer is built from the running router.</td></tr>{{end}}</tbody></table></div>{{end}}
+
+{{define "commands"}}<p class="count">{{.Scheduled}} scheduled of {{.Total}} {{plural .Total "command" "commands"}}. A command is run by hand as <code>./app &lt;name&gt;</code>; a scheduled one is also run by the scheduler (<code>./app schedule list</code> shows what is due next, and <a href="/dev/schedule">/dev/schedule</a> what ran).</p>
+<div class="tablewrap"><table class="rep-table">
+<thead><tr><th>Command</th><th>Schedule</th><th>Runs</th>{{if .Calls}}<th>Tables reached</th>{{end}}<th>Documented in</th><th>Findings</th></tr></thead>
+<tbody>{{range .Commands}}<tr id="{{.Command.Anchor}}">
+<td class="mono"><a href="{{.Command.GraphURL}}">{{.Name}}</a>{{if .Description}}<br><span class="muted">{{.Description}}</span>{{end}}</td>
+<td>{{if .Scheduled}}<code>{{.Schedule}}</code><br><span class="muted">{{.Timezone}}, overlap {{.Overlap}}{{if .Timeout}}, timeout {{.Timeout}}{{end}}{{if .Every}}, counted from the start of the process{{end}}</span>{{else}}<span class="muted">CLI only</span>{{end}}</td>
+<td>{{if .Handler}}<a href="{{.Handler.GraphURL}}">{{.Handler.Label}}</a><br>{{template "place" .Handler}}{{else if .LibHandler}}<span class="mono">{{.LibHandler}}</span> <span class="badge">library</span>{{else}}<span class="muted">—</span>{{end}}</td>
+{{if $.Calls}}<td>{{if .Tables}}<ul class="plain">{{range .Tables}}<li><a href="{{.Table.PageURL}}">{{.Table.Label}}</a> <span class="muted">{{.Access}}{{if lt .Confidence 100}}, {{.Confidence}}%{{end}}</span></li>{{end}}</ul>{{else}}<span class="muted">none</span>{{end}}</td>{{end}}
+<td>{{template "docs" .Docs}}</td>
+<td>{{template "findings" .Findings}}</td>
+</tr>{{else}}<tr><td colspan="{{if $.Calls}}6{{else}}5{{end}}" class="muted">No command in the graph. Declare one in <code>routes/console.go</code> (<code>Schedule: govibe.Cron("0 2 * * *")</code> puts it on a schedule); the commands layer is read from the app's own binary.</td></tr>{{end}}</tbody></table></div>{{end}}
 
 {{define "config"}}<p class="count">{{len .Keys}} config {{plural (len .Keys) "key" "keys"}} ({{.Sensitive}} sensitive, {{.Undeclared}} read in code but not declared, {{.UnusedCount}} declared but never read). Secrets are never shown: a sensitive setting has no default in the graph.</p>
 <div class="tablewrap"><table class="rep-table">

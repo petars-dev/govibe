@@ -14,8 +14,13 @@ import (
 
 	"github.com/petars-dev/govibe/internal/codegraph"
 	"github.com/petars-dev/govibe/internal/graphdb"
+	"github.com/petars-dev/govibe/internal/routeinfo"
 	"github.com/petars-dev/govibe/web"
 )
+
+// noCommands is the command table of a project that declares none: this repository is not
+// an application, and the commands layer is still built, with nothing in it.
+func noCommands() ([]routeinfo.InspectCmd, error) { return nil, nil }
 
 // rpc sends one JSON-RPC request to the stateless streamable-HTTP handler, the
 // way an agent does, and returns the result (or the protocol error).
@@ -135,7 +140,7 @@ func indexedHandler(t *testing.T) (http.Handler, *codegraph.Indexer) {
 	t.Cleanup(func() { store.Close() })
 	r := chi.NewRouter()
 	r.Get(web.HTMXPath, web.ServeHTMX)
-	ix := codegraph.New(store.QuadStore, codegraph.Options{Root: "../..", Router: r})
+	ix := codegraph.New(store.QuadStore, codegraph.Options{Root: "../..", Router: r, CommandSource: noCommands})
 	if _, err := ix.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +418,7 @@ func TestGraphToolErrorsAreReportedToTheAgent(t *testing.T) {
 func TestGraphReindexRebuildsLayers(t *testing.T) {
 	h, _ := indexedHandler(t)
 	r := call(t, h, "graph_reindex", map[string]any{"layers": []string{"docs"}}).ok(t, "graph_reindex").StructuredContent
-	if r["failed"] != false || len(strs(r["known_layers"])) != 11 {
+	if r["failed"] != false || len(strs(r["known_layers"])) != 12 {
 		t.Errorf("reindex: %v", r)
 	}
 	var ran []string
@@ -437,7 +442,7 @@ func TestGraphReindexRebuildsLayers(t *testing.T) {
 			n++
 		}
 	}
-	if n != 9 || r["quads"].(float64) < 1000 {
+	if n != 10 || r["quads"].(float64) < 1000 {
 		t.Errorf("full reindex: %d layers, %v quads", n, r["quads"])
 	}
 }

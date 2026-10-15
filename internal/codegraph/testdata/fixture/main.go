@@ -24,5 +24,9 @@ func main() {
 	var db *sql.DB // never opened: the fixture is only ever parsed
 	log.Println("database configured:", cfg.Database.DSN != "")
 	log.Println("listening on port", cfg.Server.Port)
-	stubfw.Main(stubfw.App{Name: "fixture", Handler: routes.New(db)})
+	stubfw.Main(stubfw.App{
+		Name:     "fixture",
+		Handler:  routes.New(db),
+		Commands: func() []stubfw.Command { return routes.Console(db) },
+	})
 }

@@ -16,6 +16,12 @@
 <file:business/services/orders/orders.go> <name> "orders.go" <layer:code> .
 <file:business/services/orders/orders.go> <path> "business/services/orders/orders.go" <layer:code> .
 <file:business/services/orders/orders.go> <type> <kind:file> <layer:code> .
+<file:commands/export.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:commands/export.go> <in_package> <pkg:commands> <layer:code> .
+<file:commands/export.go> <lines> "33"^^<schema:Integer> <layer:code> .
+<file:commands/export.go> <name> "export.go" <layer:code> .
+<file:commands/export.go> <path> "commands/export.go" <layer:code> .
+<file:commands/export.go> <type> <kind:file> <layer:code> .
 <file:config/config.go> <generated> "False"^^<schema:Boolean> <layer:code> .
 <file:config/config.go> <in_package> <pkg:config> <layer:code> .
 <file:config/config.go> <lines> "23"^^<schema:Integer> <layer:code> .
@@ -48,7 +54,7 @@
 <file:devmcp/devmcp.go> <type> <kind:file> <layer:code> .
 <file:main.go> <generated> "False"^^<schema:Boolean> <layer:code> .
 <file:main.go> <in_package> <pkg:.> <layer:code> .
-<file:main.go> <lines> "28"^^<schema:Integer> <layer:code> .
+<file:main.go> <lines> "32"^^<schema:Integer> <layer:code> .
 <file:main.go> <name> "main.go" <layer:code> .
 <file:main.go> <path> "main.go" <layer:code> .
 <file:main.go> <type> <kind:file> <layer:code> .
@@ -64,6 +70,12 @@
 <file:middleware/logging.go> <name> "logging.go" <layer:code> .
 <file:middleware/logging.go> <path> "middleware/logging.go" <layer:code> .
 <file:middleware/logging.go> <type> <kind:file> <layer:code> .
+<file:routes/console.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:routes/console.go> <in_package> <pkg:routes> <layer:code> .
+<file:routes/console.go> <lines> "21"^^<schema:Integer> <layer:code> .
+<file:routes/console.go> <name> "console.go" <layer:code> .
+<file:routes/console.go> <path> "routes/console.go" <layer:code> .
+<file:routes/console.go> <type> <kind:file> <layer:code> .
 <file:routes/routes.go> <generated> "False"^^<schema:Boolean> <layer:code> .
 <file:routes/routes.go> <in_package> <pkg:routes> <layer:code> .
 <file:routes/routes.go> <lines> "28"^^<schema:Integer> <layer:code> .
@@ -122,6 +134,27 @@
 <func:business/services/orders.Service.hasStore> <name> "Service.hasStore" <layer:code> .
 <func:business/services/orders.Service.hasStore> <signature> "func (s Service) hasStore() bool" <layer:code> .
 <func:business/services/orders.Service.hasStore> <type> <kind:func> <layer:code> .
+<func:commands.Digest> <defined_in> <file:commands/export.go> <layer:code> .
+<func:commands.Digest> <doc> "Digest sends the orders digest." <layer:code> .
+<func:commands.Digest> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:commands.Digest> <line> "22"^^<schema:Integer> <layer:code> .
+<func:commands.Digest> <name> "Digest" <layer:code> .
+<func:commands.Digest> <signature> "func Digest(svc *orders.Service) stubfw.RunFunc" <layer:code> .
+<func:commands.Digest> <type> <kind:func> <layer:code> .
+<func:commands.ExportOrders> <defined_in> <file:commands/export.go> <layer:code> .
+<func:commands.ExportOrders> <doc> "ExportOrders writes every order out." <layer:code> .
+<func:commands.ExportOrders> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:commands.ExportOrders> <line> "14"^^<schema:Integer> <layer:code> .
+<func:commands.ExportOrders> <name> "ExportOrders" <layer:code> .
+<func:commands.ExportOrders> <signature> "func ExportOrders(svc *orders.Service) stubfw.RunFunc" <layer:code> .
+<func:commands.ExportOrders> <type> <kind:func> <layer:code> .
+<func:commands.WarmCache> <defined_in> <file:commands/export.go> <layer:code> .
+<func:commands.WarmCache> <doc> "WarmCache warms the cache." <layer:code> .
+<func:commands.WarmCache> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:commands.WarmCache> <line> "31"^^<schema:Integer> <layer:code> .
+<func:commands.WarmCache> <name> "WarmCache" <layer:code> .
+<func:commands.WarmCache> <signature> "func WarmCache(ctx context.Context, rt *stubfw.Runtime, args []string) error" <layer:code> .
+<func:commands.WarmCache> <type> <kind:func> <layer:code> .
 <func:config.Get> <defined_in> <file:config/config.go> <layer:code> .
 <func:config.Get> <doc> "Get returns a setting by dotted path, e.g." <layer:code> .
 <func:config.Get> <exported> "True"^^<schema:Boolean> <layer:code> .
@@ -204,6 +237,13 @@
 <func:middleware.RequestLogger> <name> "RequestLogger" <layer:code> .
 <func:middleware.RequestLogger> <signature> "func RequestLogger(next http.Handler) http.Handler" <layer:code> .
 <func:middleware.RequestLogger> <type> <kind:func> <layer:code> .
+<func:routes.Console> <defined_in> <file:routes/console.go> <layer:code> .
+<func:routes.Console> <doc> "Console declares the CLI commands and which of them run on a schedule." <layer:code> .
+<func:routes.Console> <exported> "True"^^<schema:Boolean> <layer:code> .
+<func:routes.Console> <line> "14"^^<schema:Integer> <layer:code> .
+<func:routes.Console> <name> "Console" <layer:code> .
+<func:routes.Console> <signature> "func Console(db *sql.DB) []stubfw.Command" <layer:code> .
+<func:routes.Console> <type> <kind:func> <layer:code> .
 <func:routes.New> <defined_in> <file:routes/routes.go> <layer:code> .
 <func:routes.New> <doc> "New builds the router." <layer:code> .
 <func:routes.New> <exported> "True"^^<schema:Boolean> <layer:code> .
@@ -264,6 +304,15 @@
 <pkg:business/services/orders> <name> "orders" <layer:code> .
 <pkg:business/services/orders> <path> "business/services/orders" <layer:code> .
 <pkg:business/services/orders> <type> <kind:package> <layer:code> .
+<pkg:commands> <arch_layer> "commands" <layer:code> .
+<pkg:commands> <doc> "Package commands holds the thin adapters behind the application's CLI commands: like a controller for HTTP, a command calls a service and returns, and touches no storage." <layer:code> .
+<pkg:commands> <external_imports> "2"^^<schema:Integer> <layer:code> .
+<pkg:commands> <import_path> "example.com/fixture/commands" <layer:code> .
+<pkg:commands> <imports> <pkg:business/services/orders> <layer:code> .
+<pkg:commands> <imports_external> <ext:example.com/stubfw> <layer:code> .
+<pkg:commands> <name> "commands" <layer:code> .
+<pkg:commands> <path> "commands" <layer:code> .
+<pkg:commands> <type> <kind:package> <layer:code> .
 <pkg:config> <arch_layer> "support" <layer:code> .
 <pkg:config> <doc> "Package config loads the fixture's settings from env.yml." <layer:code> .
 <pkg:config> <external_imports> "0"^^<schema:Integer> <layer:code> .
@@ -305,13 +354,15 @@
 <pkg:middleware> <type> <kind:package> <layer:code> .
 <pkg:routes> <arch_layer> "wiring" <layer:code> .
 <pkg:routes> <doc> "Package routes wires every route in one place." <layer:code> .
-<pkg:routes> <external_imports> "2"^^<schema:Integer> <layer:code> .
+<pkg:routes> <external_imports> "4"^^<schema:Integer> <layer:code> .
 <pkg:routes> <import_path> "example.com/fixture/routes" <layer:code> .
 <pkg:routes> <imports> <pkg:business/services/orders> <layer:code> .
+<pkg:routes> <imports> <pkg:commands> <layer:code> .
 <pkg:routes> <imports> <pkg:controllers> <layer:code> .
 <pkg:routes> <imports> <pkg:devmcp> <layer:code> .
 <pkg:routes> <imports> <pkg:middleware> <layer:code> .
 <pkg:routes> <imports> <pkg:storage/orderstore> <layer:code> .
+<pkg:routes> <imports_external> <ext:example.com/stubfw> <layer:code> .
 <pkg:routes> <name> "routes" <layer:code> .
 <pkg:routes> <path> "routes" <layer:code> .
 <pkg:routes> <type> <kind:package> <layer:code> .

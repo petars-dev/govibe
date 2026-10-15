@@ -36,6 +36,7 @@ const (
 	methodInferred  = "inferred"        // an implicit relation, with the annotation's confidence
 	methodPkgImport = "package_imports" // a package that imports an affected package
 	methodPkgScope  = "package_scope"   // code in the same package as an affected function
+	methodWiring    = "wiring_closure"  // a route or command whose handler is a closure declared inside an affected wiring function
 )
 
 // Access bits: how code touches a table.
@@ -74,6 +75,9 @@ type Affected struct {
 	Confidence int      `json:"confidence"`
 	Method     string   `json:"method"`
 	Access     string   `json:"access,omitempty"`
+	// Schedule is how a command that is on a schedule is scheduled; it is what tells "a
+	// scheduled command writes this table" from a command someone runs by hand.
+	Schedule string `json:"schedule,omitempty"`
 }
 
 // DocHit is a doc, spec or spec row that mentions code in question.
@@ -221,7 +225,16 @@ func (m *Model) dependents(x *Node, seedIsPkg bool) []step {
 			add(m.in(t, "maps_to"), "maps_to", 70, methodTable, 0)
 		}
 	case "func":
-		add(m.in(x, "handled_by"), "handled_by", 100, methodEdge, 0)
+		// A handler or a Run that is a closure inside a wiring function (routes.Register,
+		// routes.Console, main) resolves to that function, which constructs dependencies and
+		// so calls whatever changes: every entry point declared inline in it would be reported
+		// as certain. They are possible, not proven.
+		entryConf, entryMethod := 100, methodEdge
+		if m.isWiring(x) {
+			entryConf, entryMethod = 60, methodWiring
+		}
+		add(m.in(x, "handled_by"), "handled_by", entryConf, entryMethod, 0)
+		add(m.in(x, "run_by"), "run_by", entryConf, entryMethod, 0)
 		add(m.in(x, "implemented_by"), "implemented_by", 100, methodEdge, 0)
 		add(m.out(x, "registers"), "registers", 100, methodEdge, 0)
 		for _, c := range m.in(x, "calls") {
@@ -420,7 +433,7 @@ func (m *Model) Impact(q ImpactQuery) (*ImpactResult, error) {
 		// called by the code around it. A type, or a whole package, is not taken to
 		// be: that would put every route of the package in doubt whenever a file
 		// declares a struct, and the guess is rarely right.
-		t.helper = t.helper || n.Kind == "func" && len(n.In["handled_by"]) == 0 && len(n.Out["registers"]) == 0
+		t.helper = t.helper || n.Kind == "func" && len(n.In["handled_by"]) == 0 && len(n.In["run_by"]) == 0 && len(n.Out["registers"]) == 0
 		t.access |= acc
 	}
 	// With call edges, code is traced exactly and the package-level estimate is only
@@ -449,6 +462,13 @@ func (m *Model) Impact(q ImpactQuery) (*ImpactResult, error) {
 		m.chainEntryPoints(affected, seen, isSeed)
 	}
 
+	for _, a := range affected {
+		if a.Kind == "command" {
+			if n := m.nodes[a.ID]; n != nil {
+				a.Schedule = n.Str("schedule")
+			}
+		}
+	}
 	res := &ImpactResult{Target: m.Ref(target), SeedCount: len(seeds), Depth: depth, AsOf: m.AsOf(),
 		ByKind: map[string]int{}, ByMethod: map[string]int{}}
 	for i, s := range seeds {
@@ -474,6 +494,9 @@ func (m *Model) Impact(q ImpactQuery) (*ImpactResult, error) {
 		}
 		if ra, rb := rankOf(a.Kind), rankOf(b.Kind); ra != rb {
 			return ra < rb
+		}
+		if a.Kind == "command" && b.Kind == "command" && (a.Schedule != "") != (b.Schedule != "") {
+			return a.Schedule != "" // what runs unwatched first
 		}
 		if a.Depth != b.Depth {
 			return a.Depth < b.Depth
@@ -578,6 +601,9 @@ func (m *Model) packageReach(tp map[string]*touched, seen map[string]*Affected, 
 			}
 			for _, r := range m.in(code, "handled_by") {
 				m.addEntry(seen, affected, r, "handled_by", code.ID, c.path, conf, method, c.access)
+			}
+			for _, cmd := range m.in(code, "run_by") {
+				m.addEntry(seen, affected, cmd, "run_by", code.ID, c.path, conf, method, c.access)
 			}
 			for _, tl := range m.out(code, "registers") {
 				m.addEntry(seen, affected, tl, "registers", code.ID, c.path, conf, method, c.access)
@@ -700,7 +726,7 @@ func (m *Model) impactNotes(target *Node, seeds []*Node, affected []*Affected) [
 	case codeish:
 		notes = append(notes, "Callers come from the `calls` layer: a plain call is certain, a call through an interface is linked to each type that could implement it (method `"+methodDispatch+
 			"`, confidence 80 down to 30). Not seen: calls through function values (callbacks, handlers held in variables), reflection, and SQL built at run time. "+
-			"Wiring packages (routes, main, cmd) are listed when they call something affected and not followed further. Entry points (routes, tools) carry the chain that reaches them in `through`.")
+			"Wiring packages (routes, main, cmd) are listed when they call something affected and not followed further. Entry points (routes, commands, tools) carry the chain that reaches them in `through`.")
 	}
 	pkgLevel := false
 	for _, a := range affected {
@@ -729,9 +755,11 @@ func (m *Model) impactNotes(target *Node, seeds []*Node, affected []*Affected) [
 func layersFor(n *Node) []string {
 	switch n.Kind {
 	case "table", "column", "migration", "index":
-		return []string{"code", "db"}
+		return []string{"code", "db", "commands"}
 	case "route", "middleware":
 		return []string{"code", "routes"}
+	case "command":
+		return []string{"code", "commands"}
 	case "template":
 		return []string{"code", "templates"}
 	case "config_key", "env_var":
@@ -741,5 +769,5 @@ func layersFor(n *Node) []string {
 	case "doc", "spec", "spec_item":
 		return []string{"docs"}
 	}
-	return []string{"code", "routes"}
+	return []string{"code", "routes", "commands"}
 }

@@ -51,5 +51,8 @@ func OptionsFromInspect(doc *routeinfo.Inspect) Options {
 		RouteSource: func() ([]routeinfo.Route, error) {
 			return doc.RouteTable(), nil
 		},
+		CommandSource: func() ([]routeinfo.InspectCmd, error) {
+			return doc.Commands, nil
+		},
 	}
 }

@@ -63,7 +63,7 @@ table.db-grid td.null{color:var(--muted);font-style:italic}
 </head><body class="docs-body">
 <header class="site-header">
 <div class="brand"><a class="brand-link" href="/"><img class="brand-logo" src="/_govibe/static/govibe-logo.png" alt="GoVibe"></a><span class="brand-name">GoVibe Dev DB</span></div>
-<nav class="top-tabs"><a class="tab" href="/dev">Dev</a><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a><a class="tab" href="/dev/graph">Graph</a><a class="tab active" href="/dev/db">DB</a></nav>
+<nav class="top-tabs"><a class="tab" href="/dev">Dev</a><a class="tab" href="/dev/docs/app">Docs</a><a class="tab" href="/dev/docs/specs">Specs</a><a class="tab" href="/dev/graph">Graph</a><a class="tab active" href="/dev/db">DB</a><a class="tab" href="/dev/schedule">Schedule</a></nav>
 <div class="header-actions"><a class="btn btn-ghost" href="/">&larr; App</a><button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"><svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zm10.48 0l1.79-1.79 1.41 1.41-1.79 1.8-1.41-1.42zM12 4V1h-1v3h1zm0 19v-3h-1v3h1zm7-11h3v-1h-3v1zm-19 0h3v-1H0v1zm3.55 8.45l1.41 1.41 1.79-1.79-1.41-1.41-1.79 1.79zM18.24 18.24l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM12 7a5 5 0 100 10 5 5 0 000-10z"/></svg><svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button></div>
 </header>
 <div class="db-layout">
@@ -315,8 +315,8 @@ async function loadSchema(name){
 }
 
 // What refers to the table, from the project graph (the indexer's model of the
-// code, routes and docs). Links go to the graph explorer and the editor; a route
-// reached only through a package import is marked as possible, not proven.
+// code, routes, commands and docs). Links go to the graph explorer and the editor; a route
+// or command reached only through a package import is marked as possible, not proven.
 async function loadRefs(name, container){
   container.appendChild(el('h3', {text: 'Referenced by'}));
   var box = el('div', {class: 'db-refs'});
@@ -356,6 +356,14 @@ async function loadRefs(name, container){
       li.appendChild(el('span', {class: 'how' + (it.certain ? '' : ' maybe'), text: it.certain ? 'certain' : 'possible, not proven (' + it.confidence + '%, ' + it.method.replace(/_/g, ' ') + ')'}));
       return li;
     });
+    // A scheduled command that writes a table runs with nobody watching: its schedule is shown.
+    section('Commands', r.commands, function(it){
+      var li = el('li', {}, [link(it)]);
+      if(it.schedule) li.appendChild(el('span', {class: 'how', text: 'scheduled ' + it.schedule}));
+      if(it.access) li.appendChild(el('span', {class: 'how', text: it.access}));
+      li.appendChild(el('span', {class: 'how' + (it.certain ? '' : ' maybe'), text: it.certain ? 'certain' : 'possible, not proven (' + it.confidence + '%, ' + it.method.replace(/_/g, ' ') + ')'}));
+      return li;
+    });
     section('MCP tools', r.tools, function(it){ return el('li', {}, [link(it), el('span', {class: 'how', text: it.certain ? '' : 'possible'})]); });
     section('Docs and specs', r.docs, function(it){
       var li = el('li', {}, [link(it, it.path || it.name)]);
@@ -365,7 +373,7 @@ async function loadRefs(name, container){
     (r.findings || []).forEach(function(f){
       box.appendChild(el('div', {class: 'db-error', text: f.severity + ' ' + f.rule + ': ' + f.message}));
     });
-    if(!box.firstChild) box.appendChild(el('div', {class: 'db-empty', text: 'Nothing in the indexed code, routes or docs refers to this table.'}));
+    if(!box.firstChild) box.appendChild(el('div', {class: 'db-empty', text: 'Nothing in the indexed code, routes, commands or docs refers to this table.'}));
     var links = (r.links || []).filter(function(l){ return l.kind === 'report' || l.kind === 'graph'; });
     if(links.length){
       var p = el('div', {class: 'how', style: 'margin-top:8px'});

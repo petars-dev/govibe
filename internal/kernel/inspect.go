@@ -10,9 +10,11 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/petars-dev/govibe/config"
 	"github.com/petars-dev/govibe/internal/routeinfo"
+	"github.com/petars-dev/govibe/internal/scheduler"
 )
 
 // The document `inspect --json` prints is defined in routeinfo, which the tools that
@@ -94,8 +96,8 @@ func (b *Built) Inspect() Inspect {
 			}
 		}
 	}
-	if b.App.Routes != nil {
-		doc.App.RootHint = ref(rootHint(b.App))
+	if b.App.Routes != nil || len(b.Commands) > 0 {
+		doc.App.RootHint = ref(rootHint(b.App, b.Commands))
 	}
 
 	doc.Routes = []InspectRoute{}
@@ -110,10 +112,29 @@ func (b *Built) Inspect() Inspect {
 		doc.Routes = append(doc.Routes, ir)
 	}
 	doc.Commands = []InspectCmd{}
+	infos := map[string]scheduler.Info{}
+	if b.Scheduler != nil {
+		for _, in := range b.Scheduler.Infos(time.Time{}) {
+			infos[in.Name] = in
+		}
+	}
 	for _, c := range b.Commands {
-		doc.Commands = append(doc.Commands, InspectCmd{
-			Name: c.Use, Short: c.Short, Handler: ref(routeinfo.FuncRef(reflect.ValueOf(c.Run))),
-		})
+		ic := InspectCmd{Name: c.Use, Short: c.Short, Handler: ref(routeinfo.FuncRef(reflect.ValueOf(c.Run)))}
+		if in, ok := infos[c.Use]; ok {
+			ic.Schedule = &routeinfo.InspectSchedule{Spec: in.Spec, Timezone: in.Timezone, Overlap: in.Overlap.String()}
+			if in.Timeout > 0 {
+				ic.Schedule.Timeout = in.Timeout.String()
+			}
+			if in.Every > 0 {
+				ic.Schedule.Every = in.Every.String()
+			}
+		}
+		doc.Commands = append(doc.Commands, ic)
+	}
+	set := b.SchedulerSettings
+	doc.Scheduler = routeinfo.InspectScheduler{Enabled: set.Enabled, Timezone: "UTC", Lock: set.Lock}
+	if set.Loc != nil {
+		doc.Scheduler.Timezone = set.Loc.String()
 	}
 	return doc
 }
@@ -123,11 +144,18 @@ func (b *Built) Inspect() Inspect {
 // The runtime names a function of package main "main.f", with no import path, and an
 // app's Routes is often written in main (a closure in newApp, say); the binary's own
 // build information knows that package's path, so the symbol is completed with it.
-func rootHint(app App) routeinfo.Ref {
-	if app.Routes == nil {
+func rootHint(app App, cmds []Command) routeinfo.Ref {
+	var ref routeinfo.Ref
+	switch {
+	case app.Routes != nil:
+		ref = routeinfo.FuncRef(reflect.ValueOf(app.Routes))
+	case len(cmds) > 0 && cmds[0].Run != nil:
+		// An app with no routes (a worker that only runs commands) still says where its
+		// sources were compiled, by a function it declared: the first command's Run.
+		ref = routeinfo.FuncRef(reflect.ValueOf(cmds[0].Run))
+	default:
 		return routeinfo.Ref{}
 	}
-	ref := routeinfo.FuncRef(reflect.ValueOf(app.Routes))
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		ref.Symbol = qualifyMain(ref.Symbol, bi.Path)
 	}

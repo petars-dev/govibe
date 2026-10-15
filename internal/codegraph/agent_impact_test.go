@@ -131,12 +131,14 @@ func TestImpactKindsAndLimit(t *testing.T) {
 		}
 	}
 	// the summary still describes everything, so the caller sees what it filtered out
-	if res.ByKind["func"] != 3 || res.ByKind["package"] != 5 {
+	// Three commands too: the two that go through the orders service, and (without call
+	// edges) the one in a package that imports it, as a possible, not proven, reach.
+	if res.ByKind["func"] != 3 || res.ByKind["package"] != 6 || res.ByKind["command"] != 3 {
 		t.Errorf("by_kind after filtering: %v", res.ByKind)
 	}
 
 	res = impact(t, m, ImpactQuery{Node: "table:orders", Limit: 4})
-	if len(res.Affected) != 4 || !res.Truncated || res.Total != 17 {
+	if len(res.Affected) != 4 || !res.Truncated || res.Total != 21 {
 		t.Errorf("limit: %d affected, truncated=%v, total=%d", len(res.Affected), res.Truncated, res.Total)
 	}
 	// truncation drops the weakest evidence, never the strongest

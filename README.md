@@ -44,6 +44,7 @@ until the first tag; until then, work inside `examples/`, where `go.work` and a 
    - Docs: `http://localhost:8080/dev/docs/app` and `/dev/docs/specs` come first (your docs and specs); the framework's reference docs are a separate group under `/dev/docs/govibe`, every title prefixed `GoVibe:`
    - Project graph: `http://localhost:8080/dev/graph` shows the app's own routes, code, tables and docs by default; the switch (My app, Framework, All) shows the framework it runs on, labelled
    - Database explorer: `http://localhost:8080/dev/db` (needs `MARIADB_DSN`; see `docs/public/DEV_DB_EXPLORER.md`)
+   - Scheduler: `http://localhost:8080/dev/schedule` (scheduled commands, their next run and history, and a "Run now" button; see `docs/public/COMMANDS_AND_SCHEDULER.md`)
    - MCP server for local agents: `http://localhost:8080/dev/mcp`
 3. `make test` and `make test-dev` run the tests without and with the dev tools; `make graph-check` and `make graph-check-app` are the CI gates.
 4. `make build` builds the reference app as a production binary (no dev tag): one file, no dev tooling linked.

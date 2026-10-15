@@ -16,6 +16,7 @@ func newApp() govibe.App {
 		Migrations: migrations.FS,    // embedded goose SQL
 		Assets:     assets.FS,        // embedded static files, served at /assets
 		Routes:     routes.Register,  // func(rt *govibe.Runtime, r chi.Router) error
+		Commands:   routes.Console,   // func(rt *govibe.Runtime) []govibe.Command: CLI commands, some of them scheduled
 	}
 }
 
@@ -24,6 +25,11 @@ func main() { govibe.Main(newApp()) }
 Every field is optional. The framework calls `Routes` with a chi router that already carries the standard middleware and the asset mounts, so
 the app keeps using plain chi. Registration must not open connections or read secrets: tooling calls it with no database to list what exists
 (`rt.DB` is nil then).
+
+## Commands and the scheduler
+A CLI command is one `govibe.Command`, declared in a `console.go` beside your routes; give it a `Schedule` (`govibe.Cron("0 3 * * *")`, `govibe.Every(10 * time.Minute)`) and the framework also runs it, while
+the app is up. The same function serves `./app items:prune` and the scheduled run. `./app schedule list` shows what is scheduled and when it is next due, with no database; `serve --no-schedule`
+keeps the scheduler off an instance; `./app schedule run` runs it alone as a worker. See `GoVibe: Commands and Scheduler`.
 
 ## Layers
 ```text
@@ -38,10 +44,11 @@ controllers, commands  ->  business/{actions,services}  ->  storage/<store>
 
 ## What you run
 - `make dev` (or `go run -tags govibe_dev .`) runs the app with the dev tools compiled in: the panel at `/dev`, the docs at `/dev/docs`, the
-  project graph at `/dev/graph`, the database explorer at `/dev/db` (with a DSN) and the MCP server at `/dev/mcp`.
+  project graph at `/dev/graph`, the database explorer at `/dev/db` (with a DSN), the scheduler at `/dev/schedule` and the MCP server at `/dev/mcp`.
 - A default build (no tag) contains none of it: the dev stack is not linked, `/dev/*` answers 404, and pages that link to the panel render
   no link (wrap such links in `web.IfDev`).
-- `./app routes`, `./app version`, `./app migrate up|down|status` and `./app inspect --json` are part of every app binary and work in production.
+- `./app routes`, `./app version`, `./app migrate up|down|status`, `./app schedule list|run` and `./app inspect --json` are part of every app binary and work in production, and so
+  is every command you declare.
 
 ## The dev panel is about your app
 The graph, the findings, the reports, the docs and the agent tools show your app's own code and docs by default. The framework it runs on is
@@ -50,6 +57,7 @@ reference docs are a separate group, every title prefixed `GoVibe:`.
 
 ## Where to read next
 - `GoVibe: Configuration` for `env.yml`, the framework's settings and how they layer.
+- `GoVibe: Commands and Scheduler` for declaring a command, scheduling it, and testing both.
 - `GoVibe: Architecture` for how the framework is built.
 - `GoVibe: Graph Schema` for the vocabulary of the project graph and the agent tools.
 - `GoVibe: Dev DB Explorer` for the database explorer.
