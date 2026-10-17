@@ -1,0 +1,29 @@
+package main
+
+import (
+	"embed"
+
+	"github.com/petars-dev/govibe"
+	"[[.Module]]/assets"
+	"[[.Module]]/routes"
+	migrations "[[.Module]]/storage/migrations"
+)
+
+// env.yml sits next to this file and is embedded, so the binary stays one file.
+//
+//go:embed env.yml
+var configFS embed.FS
+
+// newApp declares what this application contributes; the framework boots it.
+func newApp() govibe.App {
+	return govibe.App{
+		Name:       "[[.Name]]",
+		Config:     configFS,
+		Migrations: migrations.FS,
+		Assets:     assets.FS,
+		Routes:     routes.Register,
+		Commands:   routes.Console,
+	}
+}
+
+func main() { govibe.Main(newApp()) }

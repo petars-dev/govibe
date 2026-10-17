@@ -3,7 +3,7 @@ GoVibe: contributor guide
 Overview
 This repository is the GoVibe framework: the module github.com/petars-dev/govibe, the tool in cmd/govibe, and one reference
 application in examples/hello. Applications are separate modules that depend on the framework; the rules they follow are in
-examples/hello/SKILL.md (the app-facing rules, which `govibe new` will generate into every app). This file is for working on the
+examples/hello/SKILL.md (the app-facing rules, rendered into every app by `govibe new`). This file is for working on the
 framework itself. The plan behind the layout is docs/specs/SPEC_FRAMEWORK_EXTRACTION.md; how it is built is docs/public/ARCHITECTURE.md.
 
 Directory Layout
@@ -13,7 +13,8 @@ Directory Layout
 - internal/devtools, internal/devtools/devui: the dev panel (docs, graph, db pages and their embedded files); internal/codegraph, internal/dbexplorer, internal/graphdb, internal/devmcp: the indexer, the database explorer, the Cayley store, the MCP server
 - internal/migrate, internal/routeinfo, internal/scheduler: the goose runner, the chi router read into plain data (and the `inspect --json` document the app binary and the tool share), and the scheduler's engine (validated cron specs, the runner, a fake clock)
 - internal/profile, internal/rules, internal/frameworkdocs: the project profile (`govibe.yml`), the rules of the app-facing SKILL.md as data, and the framework docs an app serves under /dev/docs/govibe
-- cmd/govibe: the tool (`graph index`, `generate`, `serve`, `migrate`)
+- internal/scaffold: what `govibe new` writes (the embedded templates, the demo synced from examples/hello, go.mod, SKILL.md, govibe.yml, the managed files) and the keystone test
+- cmd/govibe: the tool (`new`, `check`, `graph index`, `generate`, `serve`, `migrate`)
 - examples/hello: the reference app, its own module (go.work joins it to the framework); it is also the demo every new app starts with
 - docs: framework docs (public) and specs; the specs are process artifacts and are never shipped or embedded
 
@@ -43,6 +44,10 @@ Working on it
   stays in the repository's docs and is stripped from the copy an app serves. Examples in anything an app reads (docs, tool descriptions, graph_schema) use neutral names, never the fixtures' domain; a test fails if a served doc names a fixture.
 - The framework docs an app sees are copies of docs/public made for go:embed (`make docs-embed`; a test fails when one is stale), chosen by the allowlist in internal/frameworkdocs. A spec is never on it.
   Set `GOVIBE_FRAMEWORK_SRC=<this checkout>` to read them from disk and list the specs under /dev/docs/govibe-specs.
+- The Hello GoVibe demo a new app gets is examples/hello, synced into internal/scaffold/templates/demo by `make scaffold-sync` (`go generate ./internal/scaffold`), which also renders
+  examples/hello/SKILL.md; a test fails when either is stale, so edit the example (never the copy) and run the sync. The scaffold's own templates are internal/scaffold/templates/app, rendered with
+  `[[` and `]]`; a change to anything an app gets is a change to the managed files' hashes, so say so in docs/public/UPGRADING.md. `make new MODULE=github.com/acme/shop DIR=../shop` creates an app
+  against this checkout; `make keystone` runs the keystone (the real `govibe new` plus an overlay, builds, tests, the gate and two boots, in a temp directory; minutes).
 - The indexer's tests run against testdata/fixture (an app built on the stub framework testdata/stubfw) and testdata/fixture_layout (a non-default layout); `go.work` lists the stub and the fixture.
 - Add a runtime command: a case in `kernel.Run`, its name in `builtinCommands`, a line in `usage`, and a test in govibe_test.go. The scheduler is tested on `scheduler.NewFake`, never with sleeps; a test that starts a
   task which blocks on purpose lowers `Fake.SetSettle`, and a test's cleanup moves the fake clock on so a stuck task cannot hang it. Add a dev page:

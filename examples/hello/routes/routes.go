@@ -23,5 +23,7 @@ func Register(rt *govibe.Runtime, r chi.Router) error {
 
 	// htmx-friendly plain text endpoint (also used by UI button if desired)
 	r.Get("/hello", controllers.Hello)
+
+	// govibe:routes
 	return nil
 }

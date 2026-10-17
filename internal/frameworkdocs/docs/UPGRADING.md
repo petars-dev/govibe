@@ -7,13 +7,19 @@ in any release.
 ## How to upgrade
 1. Bump the framework: `go get github.com/petars-dev/govibe@<version>`, then `go mod tidy`.
 2. Rebuild and run the tests, with and without the dev tag (`go build ./... && go build -tags govibe_dev ./...`).
-3. Run the gate: `govibe graph index --fail-on error --baseline docs/graph/baseline.json`. The tool and the library are one version; run the tool the
-   `go.mod` pins.
+3. Run the gate: `go tool govibe check`. The tool and the library are one version: `go.mod` pins the tool next to the framework, so bump them
+   together (`go get github.com/petars-dev/govibe@<version> github.com/petars-dev/govibe/cmd/govibe@<version>`).
 
-Files the framework generates for you are rewritten by `govibe upgrade` (planned); files that are yours (`env.yml`, `README.md`, every Go file, your docs)
+Files the framework generates for you (the Makefile, .air.toml, the workflow under .github/workflows, the managed block of SKILL.md; their hashes are in
+`govibe.yml`) are rewritten by `govibe upgrade` (planned), which refuses one you edited; files that are yours (`env.yml`, `README.md`, every Go file, your docs)
 are never touched.
 
 ## Unreleased
+- `govibe new <module>` creates an application (the Hello GoVibe demo, in a module of its own that requires the framework); `govibe check` runs the
+  managed-file check and the graph gate in a scratch store, and is what a generated app's workflow and `make check` run. `govibe.yml` gained a `managed`
+  section (the manifest of generated files); an app that was not generated has none and needs none.
+- A generated app declares `Commands: routes.Console` from a routes/console.go that starts empty, with a `// govibe:commands` marker (and a
+  `// govibe:routes` marker in routes/routes.go) where the generators of `govibe make` will insert. An existing app needs neither.
 - The module path is `github.com/petars-dev/govibe` (it was `petars-dev/govibe`, which is not fetchable).
 - An application is a module of its own that calls `govibe.Main(govibe.App{...})`; `routes.NewRouter` and the boot code are gone from application code.
 - `env.yml` is in the project root and embedded by `main.go`; the framework's defaults are `config/defaults.yml`, layered under it. Settings for mail and WorkOS

@@ -55,6 +55,13 @@ layout:                              # a layer replaces its default directories
   business: [internal/core]
 rules:
   code.unreferenced: off             # or error, warning, info
+managed:                             # written by govibe new, read by govibe check and upgrade: do not edit
+  version: v0.1.0                    # the framework version that rendered the managed files
+  files:
+    Makefile: sha256:...             # the hash of what the framework wrote; SKILL.md's covers its managed block alone
 ```
+`managed` is the manifest of the files the framework generated and may rewrite on upgrade (the Makefile, .air.toml, the workflow under
+.github/workflows, and the block of SKILL.md between the `govibe:managed` markers). `govibe check` reports a managed file that was edited, is missing or is not listed;
+an upgrade refuses to overwrite an edited one. A project that was not generated has no `managed` section.
 Accepting a finding in the baseline (`docs/graph/baseline.json`) needs a reason: `govibe graph index --update-baseline --reason "..."`. Each entry
 keeps its reason and date, and a baseline entry without a reason fails the gate.

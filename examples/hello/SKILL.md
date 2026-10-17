@@ -1,76 +1,96 @@
-Hello GoVibe: the rules of a GoVibe application
+# hello: the rules of this GoVibe application
 
-Overview
-This is a GoVibe application: a Go module that imports the framework (github.com/petars-dev/govibe) and contains only application code.
-- templ for typesafe server-rendered HTML
-- htmx 2.0, vendored in the framework and served at /_govibe/static/htmx.min.js (`web.HTMXScript()` renders the tag) for simple interactivity without node/npm
-- chi v5 router with middleware and subroutes
-- goose v3 for SQL migrations embedded into the binary
-- sqlx over database/sql with the mysql driver (MariaDB compatible)
-- All assets embedded for a single deployable binary
+<!-- govibe:managed:start -->
+<!-- Rendered by the framework from the rules it enforces. govibe upgrade rewrites this block; everything after the end marker is yours. -->
 
-Directory Layout
-- main.go: the whole boot is one declaration, `govibe.Main(newApp())`; the app hands over its embedded env.yml, migrations and assets and its routes, and the framework runs it
-- env.yml: this app's settings (project root, embedded by main.go), layered over the framework defaults
-- assets: templates (templ), static files, embed.go to embed them (the dev panel's files and htmx belong to the framework, not here)
-- controllers: HTTP handlers that only orchestrate actions/services -> views/API
-- routes: the app's route registration (`routes.Register`); the framework builds the router around it
-- storage: DB access and migrations (goose SQL files under storage/migrations, embedded)
-- business: actions (single-function business logic) and services (packages)
-- docs: public docs, specs, and the graph baseline
+## What this is
+A GoVibe application: a Go module that depends on the framework (`github.com/petars-dev/govibe`) and contains only application code. `main.go` is a declaration, `govibe.Main(newApp())`: it hands the framework the embedded settings, migrations and assets, the routes and the commands, and the framework boots and runs it. The framework never imports the app.
 
-Key Constraints
-- Controllers contain no business logic. They only call actions/services and render responses.
-- Only actions/services may call the storage layer.
-- Business logic and storage import nothing from the framework; controllers and views import only `govibe/web`; only main.go and routes/ touch `govibe` itself.
-- All assets (templates, JS, CSS) and migrations are embedded. The binary is self-contained.
-- Never register a route under /dev or /_govibe: the framework owns those prefixes, and the app fails to boot if it does.
+## Stack
+- templ for type-safe server-rendered HTML (`go tool templ generate` after editing a .templ file).
+- htmx 2, served by the framework at `/_govibe/static/htmx.min.js` (`web.HTMXScript()` renders the tag): interactivity without node or npm.
+- chi v5 router with middleware and subroutes; the framework builds the router around `routes.Register`.
+- goose v3 SQL migrations under storage/migrations/sql, embedded; sqlx over database/sql with the mysql driver (MariaDB compatible).
+- One binary: assets, templates, settings and migrations are embedded. No external runtime files.
 
-Local Development
-1. Go version: ensure your environment matches go.mod.
-2. Run with the dev tools: `go run -tags govibe_dev .` (the tag compiles the dev panel in, at /dev). Without the tag the app is a production build and serves nothing under /dev.
-3. `templ generate` after editing a .templ file.
-4. Visit http://localhost:8080: `/` renders the Hello GoVibe page, `/api/hello` returns `{"message":"Hello GoVibe!"}`.
+## Layout
+- `main.go`: the declaration, nothing else (keep it under 30 lines). `main_test.go` boots it with `govibetest.Boot`.
+- `env.yml`: this app's settings, in the project root, embedded by main.go and layered over the framework's defaults. `govibe.yml`: the project profile and the manifest of managed files.
+- `routes/routes.go` (HTTP, `routes.Register`) and `routes/console.go` (CLI commands and their schedules, `routes.Console`): the wiring layer. Construct dependencies here (stores, services) and hand them to controllers and commands; nothing else constructs anything.
+- controllers: thin HTTP adapters that parse the request, call a business action or service and render a view or JSON.
+- commands: thin CLI adapters with the same rule (a command is the CLI twin of a controller).
+- business/actions (single-function logic) and business/services (packages): plain Go, no framework.
+- storage: one package per store, taking a *sqlx.DB from its constructor, and storage/migrations (`storage/migrations/embed.go`, sql/).
+- middleware: app middleware only. assets: templates (templ) and static files, embedded by `assets/embed.go`, served at /assets. docs: public docs, specs and the graph baseline.
 
-Configuration
-- Settings live in `env.yml` with `${ENV:default}` placeholders, resolved from the process environment. Prefer adding keys there, not ad-hoc env lookups in code.
-  - APP_ENV: one of local, dev/development, staging, prod/production (defaults to local)
-  - PORT: HTTP port (default 8080)
-  - MARIADB_DSN: if set, the app connects to MariaDB/MySQL and runs its embedded goose migrations on startup
-  - Your own settings: declare them in env.yml under a name of your own, such as `shop.currency`, and read them through the runtime: `rt.Config.Unmarshal("shop", &cfg)` or `rt.Config.Get("shop.currency")`.
-- APP_ENV controls behavior across local/dev/staging/prod. In local/dev the app's ./assets directory is served from disk with no-cache headers when it exists.
+## Rules (checked by `go tool govibe check`)
+### Layering
+- Only business actions and services may call the storage layer.
+- Storage is the lowest layer: it depends on nothing above it, only on support code.
+- Business logic does not depend on the HTTP layer or on commands (controllers, commands, middleware, views) or on wiring and dev code.
+- Packages of the wiring and dev layers may import anything: they assemble the application.
 
-Adding Features
-- New pages: add a .templ file under assets/templates, run `templ generate`, add a controller that renders it, then map the route in routes/routes.go.
-- New APIs: add an action/service in business/, call it from a controller in controllers/, add the route.
-- DB changes: add a new SQL file in storage/migrations/sql with goose directives; the framework runs it on start.
-- New CLI commands: declare a `govibe.Command` in a new file beside `routes/routes.go` (by convention `console.go`) and wire it as `App.Commands` and keep its body thin (call a business action); run it as `./app <name>`. Name it `noun:verb`.
-  Put it on a schedule with `Schedule: govibe.Cron("0 3 * * *")` or `govibe.Every(10 * time.Minute)`: the same body then also runs from the framework's scheduler, `./app schedule list` shows when, and
-  a test proves it with `govibetest.Boot(...).Clock.AdvanceTo(...)`. See `GoVibe: Commands and Scheduler`. Name every command in a doc (in backticks) or the graph reports it.
+### What each layer may import from the framework
+- business: nothing
+- storage: nothing
+- controllers: govibe/web
+- middleware: govibe/web
+- views: govibe/web
+- commands: govibe
+- support: govibe/config
+- wiring: govibe, govibe/config, govibe/web
 
-Testing
-- Add unit tests next to packages using _test.go files. `main_test.go` boots the app with `govibetest.Boot`, without a database and without the dev tools.
-- For handlers, prefer request/response tests against the booted app.
+No application package imports `govibe/internal/...` (not API) or `govibetest` (tests only).
 
-Deployment
-- Build a single binary without the dev tag: `go build -trimpath -ldflags='-s -w' -o app`
-- Ensure `templ generate` was run before building.
-- The binary embeds assets, settings and migrations; no external runtime files are required.
+### Specs
+Every `SPEC_*.md` in docs/specs has these sections, in this order:
+1. Description
+2. Goals
+3. Phases and Tasks
+4. Backlog
+5. Status Table
 
-Hello GoVibe Done Criteria
-- UI: `/` renders a templ page with a button that triggers htmx to call `/hello`.
-- API: `/api/hello` returns JSON `{"message":"Hello GoVibe!"}`.
-- All assets and migrations embedded; the app runs as one binary, and a build without the govibe_dev tag links no dev tooling.
+### Other constraints
+- Controllers and commands hold no business logic; business logic and storage import nothing from the framework (they stay testable without it).
+- All settings live in `env.yml` as `${ENV:default}` placeholders resolved from the process environment: no ad-hoc environment reads in code. Your own keys go under a name of your own and are read through the runtime (`rt.Config.Get("hello.key")`, `rt.Config.Unmarshal("hello", &cfg)`). The framework's keys (`server.*`, `database.*`, `scheduler.*`, `dev.*`) are documented in "GoVibe: Configuration" under /dev/docs.
+- Registration (`routes.Register`, `routes.Console`) must not open connections or read secrets: tooling calls it with no database to list what exists (rt.DB is nil then).
+- Never register a route under /dev or /_govibe: the framework owns those prefixes, and the app fails to boot if it does. Links to /dev pages sit inside `web.IfDev`, so a production build shows none.
+- Every route is named in a doc as `GET /path` (docs/public/ARCHITECTURE.md), every command in backticks (or as typed, `./hello name`); the graph reports the rest.
+- A finding is fixed, or accepted in `docs/graph/baseline.json` with a written reason (`go tool govibe graph index --update-baseline --reason "..."`), never silenced.
 
-Spec-Driven Development Guidelines
-- Keep human-readable docs in docs/:
-  - docs/public/ARCHITECTURE.md: high-level architecture of this app (update on structure changes).
-  - docs/public/MEMORY_SCHEMA.md: DB schema and any in-memory storage models (update with each migration/shape change).
-  - docs/specs/: spec-driven process artifacts. For each epic/feature/user story, add SPEC_{FEATURE_NAME}.md with:
-    1. Description
-    2. Goals
-    3. Phases and Tasks
-    4. Backlog (tasks)
-    5. Status Table of implemented vs skipped with rationale
-- After each development loop (including AI runs), update the relevant spec with progress and deviations, and ARCHITECTURE.md and/or MEMORY_SCHEMA.md if architecture or data shapes changed.
-- In a dev build, browse /dev/docs/app for public docs and /dev/docs/specs for specs.
+## Development
+- `make dev` runs the app with the dev tools compiled in (`go run -tags govibe_dev .`): the panel at /dev, the docs at /dev/docs, the project graph at /dev/graph, the database explorer at /dev/db (with a DSN), the scheduler at /dev/schedule and the MCP server at /dev/mcp for agents. Without the tag the app is a production build and serves nothing under /dev.
+- `make air` does the same with live reload; `make test` and `make check` are what CI runs (`.github/workflows/govibe.yml`). The tools (templ, air, govibe) are pinned in go.mod and run with `go tool`, so everyone runs the same versions.
+- Environment: APP_ENV (local, dev, staging, prod; local by default), PORT (8080), LOG_LEVEL, MARIADB_DSN (set it and the app connects and runs its migrations on start). In local and dev the ./assets directory is served from disk with no-cache headers.
+- Runtime commands of the binary: `serve` (the default), `migrate up|down|status`, `routes`, `schedule list|run`, `version`, `inspect --json`, `help`, plus the app's own.
+
+## Adding features
+- A page: a .templ file under assets/templates, `go tool templ generate`, a controller that renders it, a route in `routes/routes.go`.
+- An API: a business action or service, a controller that calls it, a route.
+- A table: a goose SQL file in storage/migrations/sql (the framework applies it on start), a store package under storage, documented in `docs/public/MEMORY_SCHEMA.md`.
+- A CLI command: a `govibe.Command` in `routes/console.go` (name it noun:verb) with a thin body in a commands package that calls business code; run it as `./hello noun:verb`. Put it on a schedule with `Schedule: govibe.Cron("0 3 * * *")` or `govibe.Every(10 * time.Minute)`: the scheduler then runs the same body while the app serves, `./hello schedule list` shows when, and a test proves it with `govibetest.Boot(...).Clock.AdvanceTo(...)`. See "GoVibe: Commands and Scheduler".
+- Register at the marker comments (`// govibe:routes`, `// govibe:commands`): the generators of `govibe make` insert there.
+
+## Testing
+- `govibetest.Boot(t, newApp())` boots the app the way serve does, on a test server, with no database and no dev tools; the scheduler runs on a fake clock the test moves. Prefer request/response tests against the booted app for handlers, and unit tests next to business packages.
+
+## Deployment
+- `make build` (`go build -trimpath -ldflags='-s -w' -o hello .`, no dev tag) after `go tool templ generate`. The binary embeds everything; the environment is the only deploy-time input.
+- Several instances each run every scheduled command unless `serve --no-schedule` or `scheduler.lock: db` says otherwise.
+
+## Spec-driven development
+- Keep `docs/public/ARCHITECTURE.md` (the architecture, the routes) and `docs/public/MEMORY_SCHEMA.md` (every table, index and in-memory store) current. For each feature add docs/specs/SPEC_{FEATURE}.md with the sections above, and update it after each development loop (AI runs included) with progress and deviations.
+- In a dev build, /dev/docs/app shows these docs and /dev/docs/specs the specs; the framework's own docs are the "GoVibe:" group.
+<!-- govibe:managed:end -->
+
+## This application
+This section is yours: the framework never rewrites it. Replace it with what an agent must know about your domain and your extra constraints.
+
+### Hello GoVibe done criteria
+The app starts as the Hello GoVibe demo, plain application code in the usual layers:
+- UI: `GET /` renders a templ page with a button that triggers htmx to call `GET /hello`.
+- API: `GET /api/hello` returns JSON `{"message":"Hello GoVibe!"}`.
+- Assets, settings and migrations embedded: the app runs as one binary, and a build without the govibe_dev tag links no dev tooling.
+
+### Starting your own app
+Delete the demo's files: `assets/static/govibe-hero.png`, `assets/static/govibe-logo.png`, `assets/static/home.css`, `assets/static/theme.css`, `assets/static/theme.js`, `assets/templates/home.templ`, `business/actions/hello.go`, `controllers/api.go`, `controllers/hello.go`, `controllers/home.go`. Keep the .gitkeep files in assets/static and assets/templates (the embed patterns need something to match). Then replace the three routes in `routes/routes.go` with your own, replace TestHelloGoVibe in `main_test.go`, which asserts the demo, and update `docs/public/ARCHITECTURE.md`. Nothing else refers to the demo. Then delete this list.

@@ -22,6 +22,7 @@ func newApp() govibe.App {
 		Migrations: migrations.FS,
 		Assets:     assets.FS,
 		Routes:     routes.Register,
+		Commands:   routes.Console,
 	}
 }
 

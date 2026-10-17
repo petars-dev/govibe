@@ -1,0 +1,16 @@
+package routes
+
+import (
+	"github.com/petars-dev/govibe"
+
+	"[[.Module]]/commands"
+)
+
+// Console declares the app's CLI commands, and which of them run on a schedule. The
+// keystone job's overlay: one scheduled command, declared the way an app declares one.
+func Console(rt *govibe.Runtime) []govibe.Command {
+	return []govibe.Command{
+		{Use: "greeting:log", Short: "Log the greeting", Schedule: govibe.Cron("*/5 * * * *"), Run: commands.LogGreeting},
+		// govibe:commands
+	}
+}

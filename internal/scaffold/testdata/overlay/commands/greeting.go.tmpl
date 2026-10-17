@@ -1,0 +1,18 @@
+// Package commands holds the thin adapters behind the app's CLI commands: like a
+// controller for HTTP, a command calls business code and returns.
+package commands
+
+import (
+	"context"
+
+	"github.com/petars-dev/govibe"
+
+	"[[.Module]]/business/actions"
+)
+
+// LogGreeting logs the greeting. The scheduler runs it every five minutes while the app
+// serves; `./[[.Name]] greeting:log` runs it by hand.
+func LogGreeting(ctx context.Context, rt *govibe.Runtime, args []string) error {
+	rt.Log.Info(actions.Hello())
+	return nil
+}

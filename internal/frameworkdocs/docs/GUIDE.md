@@ -4,6 +4,21 @@ GoVibe is a Go web framework you depend on, not a skeleton you fork. An applicat
 (controllers, business logic, storage, templ views, routes, `env.yml`, docs) and hands the framework a declaration; the framework boots it,
 serves it and gives it a dev panel, a project graph and an MCP server for agents.
 
+## Starting an app
+```sh
+go install github.com/petars-dev/govibe/cmd/govibe@latest   # once, for `new`
+govibe new github.com/acme/shop && cd shop && make dev          # http://localhost:8080, the dev panel at /dev
+```
+`govibe new` writes a module of your own that requires the framework at the tool's version, runs `go mod tidy`, `go tool templ generate`, `git init`
+with a first commit and `go tool govibe check` (which finds nothing in a new app). It starts as the Hello GoVibe demo (`GET /`, `GET /api/hello`,
+`GET /hello`): plain app code in the usual layers that you keep as a smoke test or delete when you build your own; `SKILL.md` says what to delete.
+The tools (templ, air and the framework's own `govibe`) are pinned in `go.mod` and run with `go tool`, so the tool that judges your project is
+the version it builds against. `--db mariadb` declares the database in `env.yml`; `--replace <checkout>` builds against a checkout of the framework.
+
+A few files are **managed**: the Makefile, .air.toml, the workflow under .github/workflows and the block of SKILL.md between the `govibe:managed`
+markers. They carry a hash in `govibe.yml`, so an upgrade can rewrite them and knows when you edited one. Everything else is yours and is never
+touched again.
+
 ## The declaration
 ```go
 //go:embed env.yml
@@ -49,6 +64,8 @@ controllers, commands  ->  business/{actions,services}  ->  storage/<store>
   no link (wrap such links in `web.IfDev`).
 - `./app routes`, `./app version`, `./app migrate up|down|status`, `./app schedule list|run` and `./app inspect --json` are part of every app binary and work in production, and so
   is every command you declare.
+- `make check` (`go tool govibe check`) is what CI runs: the managed files against their manifest, then the project graph's findings against
+  `docs/graph/baseline.json`, in a scratch store. A finding is fixed, or accepted in the baseline with a reason.
 
 ## The dev panel is about your app
 The graph, the findings, the reports, the docs and the agent tools show your app's own code and docs by default. The framework it runs on is

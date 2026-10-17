@@ -1,0 +1,54 @@
+# Managed by GoVibe (govibe new, govibe upgrade): its hash is in govibe.yml, and an
+# upgrade refuses to rewrite it once you edit it. Every target calls the tools pinned in
+# go.mod through `go tool`, so everyone runs the same versions.
+SHELL := /bin/bash
+APP_NAME := [[.Name]]
+PORT ?= 8080
+DEV_TAGS := govibe_dev
+
+.PHONY: dev run build templ test test-dev check graph air air-build tidy
+
+# The app with the dev tools compiled in: the panel at /dev, the graph, the docs, the
+# database explorer, the scheduler page and the MCP server.
+dev: templ
+	APP_ENV=dev LOG_LEVEL=debug PORT=$(PORT) go run -tags $(DEV_TAGS) .
+
+# The app as a production build runs: no dev tag, nothing under /dev.
+run: templ
+	PORT=$(PORT) go run .
+
+# One binary, built the way a deployment builds it.
+build: templ
+	go build -trimpath -ldflags='-s -w' -o $(APP_NAME) .
+
+# Regenerate the templ output after editing a .templ file.
+templ:
+	go tool templ generate
+
+test:
+	go test ./...
+
+# The tests with the dev tools compiled in.
+test-dev:
+	go test -tags $(DEV_TAGS) ./...
+
+# What CI runs: the managed files, then the project graph's findings against
+# docs/graph/baseline.json, in a scratch store.
+check:
+	go tool govibe check
+
+# Index the project into its own graph store (what /dev/graph reads) and print the
+# findings. Not while `make dev` runs: the dev server holds the store's lock.
+graph:
+	go tool govibe graph index --calls
+
+# Live reload: rebuilds and restarts the dev build on every change (.air.toml).
+air:
+	go tool air
+
+# What air runs on each change.
+air-build: templ
+	go build -tags $(DEV_TAGS) -o tmp/$(APP_NAME)-dev .
+
+tidy:
+	go mod tidy

@@ -1,0 +1,18 @@
+package controllers
+
+import (
+	"encoding/json"
+	"[[.Module]]/business/actions"
+	"net/http"
+)
+
+type helloResponse struct {
+	Message string `json:"message"`
+}
+
+// HelloAPI returns a JSON greeting.
+func HelloAPI(w http.ResponseWriter, r *http.Request) {
+	resp := helloResponse{Message: actions.Hello()}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}

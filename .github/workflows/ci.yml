@@ -1,8 +1,9 @@
 name: ci
 
 # The framework's tests, run both ways (the default build and the govibe_dev build the
-# dev tools are compiled into), and the production check: a default build links and
-# serves no dev tooling (SPEC_FRAMEWORK_EXTRACTION, acceptance scenario A7).
+# dev tools are compiled into), the production check (a default build links and serves
+# no dev tooling, acceptance scenario A7 of SPEC_FRAMEWORK_EXTRACTION), the dev panel
+# check, and the keystone: the framework tests its own output (A1, A2, A4, A6, A7).
 on:
   push:
     branches: [main]
@@ -126,3 +127,20 @@ jobs:
           ask schedule_status '{}' | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["state"]=="none" and d["how_to_declare"], d'
           curl -s localhost:18081/dev/graph/data/status | python3 -c 'import sys,json; d=json.load(sys.stdin); assert "commands" in [l["name"] for l in d["freshness"]["layers"]], d'
 
+
+  keystone:
+    # The framework tests its own output: `govibe new` from this checkout into a temp
+    # directory, a scheduled command from the overlay, both builds, the tests, the gate
+    # with an empty baseline, the demo and the dev endpoints of a booted dev build, the
+    # 404s of a production build, no dev package in the default build, no spec in the
+    # tree, and the rules failing a planted violation. The test is internal/scaffold's
+    # TestKeystone; `make keystone` runs it locally.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Scaffold an app from the working tree and exercise it
+        run: GOVIBE_KEYSTONE=1 go test ./internal/scaffold -run TestKeystone -v -timeout 30m

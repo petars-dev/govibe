@@ -7,3 +7,4 @@ tmp
 # Embedded Cayley store: derived data, rebuilt by the graph indexer on every boot.
 # (An application keeps its own under its docs/graph, so this matches at any depth.)
 **/docs/graph/*.bolt
+.DS_Store

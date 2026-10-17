@@ -24,5 +24,7 @@ Delete `controllers/home.go`, `controllers/api.go`, `controllers/hello.go`, `bus
 `assets/embed.go` need something to match). Then replace the three routes in `routes/routes.go` with your own, and replace `TestHelloGoVibe` in `main_test.go`, which
 asserts the demo. Nothing else refers to the demo. (The app builds without it: `go build ./...` passes with those files gone.)
 
-This directory is built against the framework next to it (`replace ../..` in `go.mod`, joined by the repository's `go.work`), because no version of the framework
-is published yet. An app outside this repository cannot depend on the framework until the first tag; `govibe new` will generate one against a published version.
+This directory is built against the framework next to it (`replace ../..` in `go.mod`, joined by the repository's `go.work`). It is also the source of the
+demo every new app starts with: `govibe new` renders a copy of it (synced by `make scaffold-sync`), with its own `README.md`, docs and settings, and this
+`SKILL.md` is rendered by the same code. Until a version of the framework is published, create an app against this checkout with
+`make new MODULE=github.com/acme/shop DIR=../shop` from the repository root.

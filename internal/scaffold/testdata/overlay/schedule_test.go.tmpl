@@ -1,0 +1,21 @@
+package main
+
+import (
+	"testing"
+	"time"
+
+	"github.com/petars-dev/govibe/govibetest"
+)
+
+// The scheduled command runs at its due times, on the fake clock the test moves.
+func TestGreetingIsLoggedEveryFiveMinutes(t *testing.T) {
+	srv := govibetest.Boot(t, newApp(), govibetest.WithTime(time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)))
+	srv.Clock.Advance(10 * time.Minute)
+	runs := srv.Runs("greeting:log")
+	if len(runs) != 2 || runs[0].Status != "ok" || runs[1].Status != "ok" {
+		t.Fatalf("runs = %+v", runs)
+	}
+	if want := time.Date(2026, 3, 1, 12, 5, 0, 0, time.UTC); !runs[0].Due.Equal(want) {
+		t.Errorf("first run due %s, want %s", runs[0].Due, want)
+	}
+}

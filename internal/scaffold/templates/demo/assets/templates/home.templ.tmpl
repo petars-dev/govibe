@@ -1,0 +1,122 @@
+package templates
+
+import "github.com/petars-dev/govibe/web"
+
+// Home renders the GoVibe landing page: a small demo of the templ+htmx stack,
+// themed to match the /dev/docs site (same tokens, header and toggle).
+templ Home() {
+    <html lang="en">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>GoVibe</title>
+            <link rel="icon" href="/assets/static/govibe-logo.png" />
+            <link rel="stylesheet" href="/assets/static/theme.css" />
+            <link rel="stylesheet" href="/assets/static/home.css" />
+            <!-- htmx is vendored and served by the framework, pinned per release: no CDN/SRI issues -->
+            @web.HTMXScript()
+            <!-- Bootstraps the dark/light toggle before first paint. -->
+            <script src="/assets/static/theme.js"></script>
+        </head>
+        <body>
+            <header class="site-header">
+                <div class="brand">
+                    <a class="brand-link" href="/"><img class="brand-logo" src="/assets/static/govibe-logo.png" alt="GoVibe" /></a>
+                    <span class="brand-name">GoVibe</span>
+                </div>
+                @web.IfDev() {
+                    <nav class="top-tabs">
+                        <a class="tab" href="/dev/docs/app">Docs</a>
+                        <a class="tab" href="/dev/docs/specs">Specs</a>
+                        <a class="tab" href="/dev/graph">Graph</a>
+                        <a class="tab" href="/dev/db">DB</a>
+                    </nav>
+                }
+                <div class="header-actions">
+                    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+                        <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zm10.48 0l1.79-1.79 1.41 1.41-1.79 1.8-1.41-1.42zM12 4V1h-1v3h1zm0 19v-3h-1v3h1zm7-11h3v-1h-3v1zm-19 0h3v-1H0v1zm3.55 8.45l1.41 1.41 1.79-1.79-1.41-1.41-1.79 1.79zM18.24 18.24l1.79 1.79 1.41-1.41-1.79-1.79-1.41 1.41zM12 7a5 5 0 100 10 5 5 0 000-10z"></path></svg>
+                        <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path></svg>
+                    </button>
+                </div>
+            </header>
+
+            <main>
+                <section class="hero">
+                    <div class="hero-grid">
+                        <div class="hero-copy">
+                            <h1>A pragmatic Go web stack, <span class="accent">not a framework to fight</span>.</h1>
+                            <p class="lede">
+                                Server-rendered <code>templ</code> views, progressive interactivity via vendored htmx, a chi router,
+                                and thin sqlx storage &mdash; compiled into a single deployable binary. No Node runtime, no bundler.
+                            </p>
+                            @web.IfDev() {
+                                <div class="cta">
+                                    <a class="btn btn-primary" href="/dev/docs/app">Browse the docs</a>
+                                    <a class="btn btn-ghost" href="/dev/docs/specs">Read the specs</a>
+                                    <a class="btn btn-ghost" href="/dev/db">Open DB explorer</a>
+                                </div>
+                            }
+                        </div>
+                        <div class="hero-art">
+                            <img src="/assets/static/govibe-hero.png" alt="The GoVibe gopher mascot" width="560" height="560" loading="eager" />
+                        </div>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <div class="feature-grid">
+                        <div class="feature-card">
+                            <h3>templ views</h3>
+                            <p>Typed, compiled HTML templates. Bad markup is a compile-time error, not a 2am incident.</p>
+                        </div>
+                        <div class="feature-card">
+                            <h3>htmx, vendored</h3>
+                            <p>Progressive interactivity straight from HTML attributes &mdash; no client build step.</p>
+                        </div>
+                        <div class="feature-card">
+                            <h3>chi + sqlx</h3>
+                            <p>A minimal router and thin database access over <code>database/sql</code>, nothing hidden.</p>
+                        </div>
+                        <div class="feature-card">
+                            <h3>goose migrations</h3>
+                            <p>Plain SQL migrations, embedded into the binary and applied automatically on boot.</p>
+                        </div>
+                        <div class="feature-card">
+                            <h3>Single binary</h3>
+                            <p>Assets, templates and migrations are all embedded &mdash; ship one file, no runtime deps.</p>
+                        </div>
+                        <div class="feature-card">
+                            <h3>Explicit layering</h3>
+                            <p>Controllers orchestrate; actions/services hold logic; only storage touches the database.</p>
+                        </div>
+                        @web.IfDev() {
+                            <div class="feature-card">
+                                <h3>Dev DB explorer &amp; MCP</h3>
+                                <p>A Faucet-like <a href="/dev/db">database explorer</a> with schema browsing, filtered queries and sampling, plus an embedded <a href="/dev/db">MCP server</a> exposing the same tools to local agents. Dev-only.</p>
+                            </div>
+                        }
+                    </div>
+                </section>
+
+                <section class="section">
+                    <div class="demo-card">
+                        <h2>Try the htmx demo</h2>
+                        <p>Fetches a greeting from <code>/api/hello</code> without a page reload.</p>
+                        <button class="btn btn-primary" hx-get="/hello" hx-target="#hello-result" hx-swap="innerHTML">
+                            Fetch greeting via API
+                        </button>
+                        <div id="hello-result"></div>
+                    </div>
+                </section>
+            </main>
+
+            <footer class="site-footer">
+                if web.IsDev(ctx) {
+                    GoVibe &mdash; more in the <a href="/dev/docs/app">Application Docs</a> and <a href="/dev/docs/specs">Specs</a>.
+                } else {
+                    GoVibe
+                }
+            </footer>
+        </body>
+    </html>
+}

@@ -26,14 +26,22 @@ func main() {
 }
 ```
 The framework never imports the app, and the app imports only four packages: `govibe`, `config`, `web` and (in tests) `govibetest`.
-The reference app, [`examples/hello`](examples/hello), is exactly this: the Hello GoVibe demo, which every new app will start with.
-(`govibe new`, which scaffolds an app from it, is planned. No version of the framework is published yet, so an app outside this repository cannot depend on it
-until the first tag; until then, work inside `examples/`, where `go.work` and a `replace` directive point the app at the framework next to it.)
+The reference app, [`examples/hello`](examples/hello), is exactly this: the Hello GoVibe demo, which every new app starts with.
+
+## Start an app
+```sh
+go install github.com/petars-dev/govibe/cmd/govibe@latest
+govibe new github.com/acme/shop && cd shop && make dev
+```
+`govibe new` writes a module of your own that depends on the framework, runs `go mod tidy`, `templ generate`, a first commit and `govibe check`,
+and `make dev` serves the Hello GoVibe page at `http://localhost:8080` with the dev panel at `/dev`. The app's `SKILL.md` holds the rules and what to
+delete to start your own. (No version of the framework is published yet: until the first tag, create apps against this checkout with
+`make new MODULE=github.com/acme/shop DIR=../shop`, which passes `--replace`.)
 
 ## This repository
 - the framework module, `github.com/petars-dev/govibe`: public packages `govibe`, `config`, `web`, `govibetest`; everything else is `internal/`
-- the tool, `cmd/govibe`: `govibe graph index` (the offline indexer and CI gate), `govibe generate`, and `govibe serve` / `govibe migrate`,
-  which run the app in the current project
+- the tool, `cmd/govibe`: `govibe new` (a new application), `govibe check` (what an app's CI runs), `govibe graph index` (the offline indexer and
+  gate), `govibe generate`, and `govibe serve` / `govibe migrate`, which run the app in the current project; an app runs it as `go tool govibe`
 - `examples/hello`: the reference app, its own module (`go.work` joins it to the framework)
 - `docs`: how it is built (`docs/public/ARCHITECTURE.md`) and the specs that produced it (`docs/specs`)
 
@@ -46,7 +54,8 @@ until the first tag; until then, work inside `examples/`, where `go.work` and a 
    - Database explorer: `http://localhost:8080/dev/db` (needs `MARIADB_DSN`; see `docs/public/DEV_DB_EXPLORER.md`)
    - Scheduler: `http://localhost:8080/dev/schedule` (scheduled commands, their next run and history, and a "Run now" button; see `docs/public/COMMANDS_AND_SCHEDULER.md`)
    - MCP server for local agents: `http://localhost:8080/dev/mcp`
-3. `make test` and `make test-dev` run the tests without and with the dev tools; `make graph-check` and `make graph-check-app` are the CI gates.
+3. `make test` and `make test-dev` run the tests without and with the dev tools; `make graph-check` and `make graph-check-app` are the CI gates;
+   `make keystone` scaffolds an app from the working tree and exercises it the way the `ci` workflow does.
 4. `make build` builds the reference app as a production binary (no dev tag): one file, no dev tooling linked.
 
 ## Configuration

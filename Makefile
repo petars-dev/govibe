@@ -14,7 +14,7 @@ DEV_TAGS := govibe_dev
 AIR_BIN ?= $(shell go env GOPATH)/bin/air
 TEMPL_BIN ?= $(shell go env GOPATH)/bin/templ
 
-.PHONY: dev run build tidy templ test test-dev check cli cli-generate graph-index graph-check graph-check-app air air-build docs docs-embed
+.PHONY: dev run build tidy templ test test-dev check cli cli-generate graph-index graph-check graph-check-app air air-build docs docs-embed scaffold-sync new keystone
 
 tidy:
 	go mod tidy
@@ -87,3 +87,21 @@ air-build:
 # go:embed; a test fails when one is stale.
 docs-embed:
 	go generate ./internal/frameworkdocs
+
+# The Hello GoVibe demo every new app starts with is a copy of examples/hello inside the
+# scaffold's template set (go:embed cannot reach a nested module), and the example's
+# SKILL.md is rendered the way a generated app's is; a test fails when either is stale.
+scaffold-sync:
+	go generate ./internal/scaffold
+
+# A new application built against this checkout (no version of the framework is published
+# yet): make new MODULE=github.com/acme/shop DIR=../shop
+DIR ?= ../$(notdir $(MODULE))
+new: cli
+	./govibe new $(MODULE) --dir $(DIR) --replace $(CURDIR)
+
+# The keystone: scaffold an app from this checkout with the real `govibe new`, overlay a
+# scheduled command, build it both ways, test it, gate it and boot it (minutes; downloads
+# modules). What the ci workflow runs.
+keystone:
+	GOVIBE_KEYSTONE=1 go test ./internal/scaffold -run TestKeystone -v -timeout 30m

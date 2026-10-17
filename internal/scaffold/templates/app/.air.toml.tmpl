@@ -1,0 +1,28 @@
+# Managed by GoVibe (govibe new, govibe upgrade): its hash is in govibe.yml. `make air`.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # Delegate to the Makefile so templ generation always runs before the build.
+  cmd = "make air-build"
+  bin = "tmp/[[.Name]]-dev"
+  full_bin = "APP_ENV=dev LOG_LEVEL=debug ./tmp/[[.Name]]-dev"
+  include_ext = ["go", "templ", "yml", "yaml"]
+  exclude_dir = ["tmp", "docs", ".git"]
+  # Skip templ's generated output so it does not retrigger a rebuild loop.
+  exclude_regex = ["_templ\\.go$"]
+  delay = 1000
+  stop_on_error = true
+  send_interrupt = true
+  kill_delay = "500ms"
+  log = "build-errors.log"
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = false
+
+[screen]
+  clear_on_rebuild = true
+  keep_scroll = true

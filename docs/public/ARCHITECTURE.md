@@ -13,8 +13,8 @@ application. (The rules an application follows, and the plan that produced this 
 
   framework (module github.com/petars-dev/govibe, this repository)
   public    govibe  config  web  govibetest
-  internal  kernel  migrate  routeinfo  profile  rules  frameworkdocs  devtools (devui)  codegraph  dbexplorer  graphdb  devmcp
-  tool      cmd/govibe
+  internal  kernel  migrate  routeinfo  scheduler  profile  rules  frameworkdocs  scaffold  devtools (devui)  codegraph  dbexplorer  graphdb  devmcp
+  tool      cmd/govibe  (new, check, graph index, generate, serve, migrate)
   example   examples/hello  (its own module; go.work joins it to this one)
 ```
 - The app imports the framework, never the reverse (the module graph makes the reverse impossible). An app imports only the four
@@ -53,8 +53,11 @@ application. (The rules an application follows, and the plan that produced this 
   spec. The graph's findings enforce them; the same tables render the rules text.
 - `internal/frameworkdocs`: the framework's own reference docs as an app sees them: a curated, embedded allowlist, every title prefixed
   `GoVibe:`, never a spec.
-- `cmd/govibe`: the tool. `govibe graph index` (the offline indexer and CI gate), `govibe generate` (templ), and `govibe serve` and
-  `govibe migrate`, which run the app in the current project through `go run -tags govibe_dev .`.
+- `internal/scaffold`: what `govibe new` writes (below): the embedded template set (the Hello GoVibe demo synced from `examples/hello`, and the
+  settings, docs, Makefile, air and workflow files), the rendered `go.mod`, `SKILL.md` and `govibe.yml`, the managed files and their hashes.
+- `cmd/govibe`: the tool. `govibe new` (a new application), `govibe check` (the managed files and the graph gate, in a scratch store),
+  `govibe graph index` (the offline indexer and CI gate), `govibe generate` (templ), and `govibe serve` and `govibe migrate`, which run the app in
+  the current project through `go run -tags govibe_dev .`. An app runs it as `go tool govibe`, pinned in its `go.mod`.
 - `examples/hello`: the reference app, the Hello GoVibe demo. It is plain application code (three handlers, an action, a templ
   page with its own static files, the routes) that the framework runs and that this repository tests and gates as an app.
 
@@ -136,6 +139,47 @@ registered it), `schedule list|run`, `version`, `inspect --json` (the routes, th
 - See docs/specs/SPEC_DEV_DB_EXPLORER.md for details and status.
 - The graph store's bolt file (`docs/graph/*.bolt`) is derived data and is git-ignored. What goes into the graph and how to query it is defined in `docs/public/GRAPH_SCHEMA.md`; the plan for the indexer is `docs/specs/SPEC_GRAPH_INDEXER.md`.
 - **Graph indexer** (`internal/codegraph`, Phases 1-5 of that spec): once the kernel has built the router, `devtools.Mount` starts a goroutine that indexes the application's project (the root it is given: the app's own tree, not the framework's) into the graph store, so every Air rebuild/restart refreshes it. It runs inside the server process because the process owns the bolt lock; it never delays startup and a failure is logged, never fatal. `POST /dev/graph/reindex` rebuilds on demand and returns a JSON report (per-layer status, whether it was rebuilt, quad counts, added/removed vs the previous run). Each layer owns the quads carrying its `layer:<name>` label and replaces only those, so quads added by hand survive. Implemented layers: `code` (packages, files, funcs, types, imports from `go/ast`, and the facts the other layers resolve against), `routes` (the live chi router: route → handler by file and line, middleware), `templates` (`.templ` components and who renders them), `config` (the keys of the settings files, `env.yml` over `config/defaults.yml`, with their defaults, environment variables, sensitive flags, and every use in the code), `mcp` (tools registered with `mcp.AddTool`), `db` (the schema from the migrations in an app's migrations directory, merged with the live database's schema read by `dbexplorer.Explorer.Snapshot` when one is configured: tables, columns, indexes, foreign keys, drift between the two, relations the schema implies, and which code reads or writes which table), `docs` (docs, specs and their status rows, what they mention, and what they name that is gone), `findings` (problems derived from all of the above: layering violations, stale doc references, config declared and never read or read and never declared, a table without a primary key, migration drift, ...; a rule that could not run says so), and `meta` (`build:latest` and one `layer:<name>` node per layer). Each layer has a fingerprint over its inputs and its dependencies' fingerprints; a `/dev/graph` page load and every `graph_query` call first rebuild only the stale layers, which is how an edit to `docs/**` (ignored by Air) shows up without a restart. Two **opt-in** layers (Phase 6) are switched by `dev.graph.calls` / `dev.graph.git` (`GRAPH_CALLS` / `GRAPH_GIT`; `config/defaults.yml` ships `calls` on and `git` off, and the offline `govibe graph index` takes `--calls` / `--git`), or on demand by `graph_reindex` naming the layer, which switches it on until the server restarts: `calls` type-checks the module with `golang.org/x/tools/go/packages` (about a second) and records which function calls which, with calls through an interface the module declares linked to every type that could be on the other end (an annotated edge: method `interface_dispatch`, confidence 80 down to 30), and `git` reads `git log` (newest 1,000 commits, once per `HEAD`) for each file's last commit, churn, number of authors and the files that change in the same commits. A layer that is off has status `off` and holds no quads. Phase 4, the agent surface, is the read side of the same package (`model.go`, `resolve.go`, `agent_*.go`): a `Model` (an in-memory copy of the indexer's quads) with reference resolution (`GET /api/hello`, a `file:line` reference into an app's controller, `itemstore.Store.List`, `items`), search, neighbors, impact, path and context. With the `calls` layer off, reach beyond what a stored edge ties together is estimated from package imports and labelled so (method `package_imports`, confidence at most 60): a route that imports the code that touches a table is possible, not proven. With it on, `graph_impact`, `graph_path` and `graph_context` walk call edges instead: a route's path to a table is a chain of calls with the weakest hop's confidence, `access` is the union over every call path, "no table is reached" is a measured answer, and the request-flow view and the routes report show the tables each route reaches. The live schema can change with no file changing, so a freshness check reads it too (reused for 5 seconds), and an unreachable database only makes the `db` layer fall back to the migrations. Phase 5, the human surface: `/dev/graph` is a page (`internal/devtools/devui/static/graph.js`) that draws bounded views the server builds from the same `Model` (architecture, request flow, database ER, docs against code, config usage, findings, or the neighbourhood of any node) and never loads the whole graph, so it stays quick at any size; its data is `/dev/graph/data/{status,view,node,search,findings,table}` (`devui.GraphUI`). `/dev/graph/reports/{routes,config,schema,layers}` are reference pages generated from the graph on every load, so the route table, config reference, schema listing and package layer map cannot drift from the code. The layering rule the findings enforce is `layering.go`: only business may call storage, storage depends on nothing above it, business does not depend on the HTTP layer; the `wiring` and `dev` packages (an app's `routes`, `main` and `cmd`, the framework's kernel, dev tools and MCP server) may import anything. `govibe graph index` (`cmd/govibe/cmd_graph.go`) builds the same graph offline, into a store of its own (`--dir`), for when no server holds the lock; with `--fail-on error --baseline docs/graph/baseline.json` it exits 1 on a finding the baseline does not accept, which is what `.github/workflows/graph.yml` runs on every push to `main` and every pull request (`make graph-check` locally). Production never opens the graph store, so it never indexes.
+
+## The scaffolder: `govibe new`, managed files, `govibe check`
+Phase 5 of `docs/specs/SPEC_FRAMEWORK_EXTRACTION.md`. An application is created with `govibe new <module>` and depends on the framework; the
+repository it gets holds only application code.
+
+- **Templates embedded in the tool** (`internal/scaffold`), so the scaffold's version is the framework's, it works offline and it is tested. They render
+  with the delimiters `[[` and `]]` (templ's `{ }` and Go's `{{ }}` need no escaping); a `*.tmpl` file is rendered and loses the suffix, any other file
+  (an image) is copied. Two sets: `templates/demo` is the Hello GoVibe demo, and `templates/app` the rest (`env.yml`, the two seeded docs, `README.md`,
+  `Makefile`, `.air.toml`, `.gitignore`, the workflow). `go.mod`, `SKILL.md` and `govibe.yml` are rendered by code. Rendered Go is gofmt-ed, because the
+  module path changes the order of imports.
+- **The demo is synced, not written twice.** `examples/hello` is the source of truth; `go generate ./internal/scaffold` (`make scaffold-sync`) copies it
+  into `templates/demo` with the module path and the app name templated (go:embed cannot reach a nested module), and writes the example's own `SKILL.md`
+  the way a generated app's is rendered. Two tests fail when either copy is stale. The sync skips what the scaffold writes itself (the module files, the
+  settings, the docs, the readme) and refuses a source that holds a delimiter.
+- **What `new` does.** Validates the module path (the app's name is its last element), refuses a non-empty directory, writes the tree, then runs `go mod
+  tidy`, `go tool templ generate`, `git init` and a first commit (`--no-git`), and `go tool govibe check` (`--no-check`). `--db mariadb` declares the
+  database in `env.yml`; `--replace <checkout>` builds the app against a checkout of the framework instead of a release (contributors, and the keystone
+  job): the tool refuses to proceed without it when it was itself built from a checkout, because the app could not fetch the framework at that version.
+  The subprocesses run with `GOWORK=off`, so a new module is built on its own even inside a workspace.
+- **Pins (AM1 to AM3 of the spec, applied as defaults).** The generated `go.mod` writes the `go` line explicitly (the framework's own, `1.25.0`; `go mod
+  init` would write the local toolchain's), requires the framework at the tool's version, chi, templ at the framework's version (`v0.3.1020`) and air at
+  `v1.67.0` (the last release on `go 1.25`; a newer templ or air raises the app's `go` line, and `@latest` would do so silently), and declares templ, air and
+  the framework's tool as `tool` directives, so `go tool templ`, `go tool air` and `go tool govibe` run the pinned versions. A test checks the pins
+  against the framework's `go.mod`. Air as a tool costs about 80 indirect modules in the app's `go.mod` (hugo among them); none is linked into the app.
+- **Managed files** (the app's Makefile, .air.toml, the workflow under .github/workflows, and the block of its SKILL.md between `<!-- govibe:managed:start -->` and
+  `<!-- govibe:managed:end -->`) carry a header and a hash in `govibe.yml` (`managed.version`, `managed.files`). Everything else is the app's and is never
+  touched again: `env.yml`, `README.md`, the docs, every Go file. `SKILL.md`'s block is rendered from `internal/rules` (the layering table, what each
+  layer may import, the spec sections) and the facts of the version (the CLI, the dev tooling); its owned section is seeded once with the Hello GoVibe
+  done criteria and the list of demo files to delete. `govibe upgrade` (Phase 6) re-renders the block and the files and refuses one the app edited.
+- **`govibe check`** is what CI runs in an app (`go tool govibe check --format github` in the generated workflow, `make check`): the managed files
+  against the manifest (edited, missing or unlisted ones are reported, not failed), then the gate of `govibe graph index --calls` in a scratch store
+  (never the store a dev server holds), with the app's own routes and commands from its `inspect --json`, against `docs/graph/baseline.json` when it
+  exists (`--fail-on error` by default; `--fail-on info` is "no finding at any severity"). An app that does not boot (an invalid schedule, say) fails the
+  check with the app's own error, which names the command. Exit 0, 1 on a new finding or a baseline entry without a reason, 2 when the check could not run.
+- **The keystone** (`internal/scaffold`, `TestKeystone`, run by the `ci` workflow's `keystone` job and `make keystone`; skipped without
+  `GOVIBE_KEYSTONE`): builds the tool from the checkout, runs the real `govibe new --replace <checkout>` into a temp directory, applies the overlay in
+  `testdata/overlay` (a scheduled command, its thin adapter, a test on the fake clock, a doc that names it), builds the app both ways, vets and tests it,
+  runs `govibe check --fail-on info` with the empty baseline, boots the dev build and asks for the demo, `/dev`, the graph status, `graph_schema` and
+  `schedule_status` over `/dev/mcp` and `schedule list`, boots the production build and expects 404 on every `/dev` path and no `/dev` link, checks
+  the default build links no dev package and the tree holds no `SPEC_*`, and plants a `framework.import` and a `layering` violation that must fail the
+  check. Everything runs under a scrubbed environment (no DSN or secret of the shell reaches it) and `GOWORK=off`.
 
 ## The project profile and the app's own graph
 Phase 3 of `docs/specs/SPEC_FRAMEWORK_EXTRACTION.md`. The graph, the findings, the reports, the docs and the agent tools are about the

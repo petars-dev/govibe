@@ -20,6 +20,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -61,10 +62,24 @@ type Profile struct {
 	Layout map[string][]string `yaml:"layout"`
 	// Rules switches a rule off or changes its severity: off, error, warning or info.
 	Rules map[string]string `yaml:"rules"`
+	// Managed is the manifest of the files the framework generated and may rewrite on
+	// upgrade (the Makefile, .air.toml, the workflow, the managed block of SKILL.md): the
+	// framework version that rendered them and a hash per file, so an edit by the app is
+	// noticed before anything overwrites it. Nil when the project was not scaffolded.
+	Managed *Managed `yaml:"managed"`
 
 	// Source is the file the profile was read from, relative to the root, or "" when
 	// it is the default (there is no govibe.yml). Not part of the file.
 	Source string `yaml:"-"`
+}
+
+// Managed is the manifest of the files the framework generated (see Profile.Managed).
+type Managed struct {
+	// Version is the framework version that rendered the files.
+	Version string `yaml:"version"`
+	// Files maps a managed file (relative to the root) to the hash of what the framework
+	// wrote, "sha256:<hex>". For SKILL.md the hash covers its managed block alone.
+	Files map[string]string `yaml:"files"`
 }
 
 // Docs says where the project's documentation lives.
@@ -232,8 +247,21 @@ func (p *Profile) Validate() error {
 			return fmt.Errorf("rules.%s: %q is not off, error, warning or info", rule, v)
 		}
 	}
+	if p.Managed != nil {
+		for file, hash := range p.Managed.Files {
+			if err := checkRel(file); err != nil {
+				return fmt.Errorf("managed.files: %q %w", file, err)
+			}
+			if !hashRe.MatchString(hash) {
+				return fmt.Errorf("managed.files.%s: %q is not a sha256:<hex> hash", file, hash)
+			}
+		}
+	}
 	return nil
 }
+
+// hashRe is the form of a managed file's hash.
+var hashRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func validLayer(l string) bool {
 	for _, x := range Layers {

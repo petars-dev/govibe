@@ -1,0 +1,34 @@
+# Managed by GoVibe (govibe new, govibe upgrade): its hash is in govibe.yml.
+#
+# The gate: the app builds both ways (the production build and the build with the dev
+# tools compiled in), its tests pass, and `govibe check` finds nothing that
+# docs/graph/baseline.json does not accept.
+name: govibe
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build both ways
+        run: |
+          go build ./...
+          go build -tags govibe_dev ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+      - name: Check
+        run: go tool govibe check --format github

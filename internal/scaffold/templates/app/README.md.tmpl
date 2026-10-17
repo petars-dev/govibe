@@ -1,0 +1,19 @@
+# [[.Name]]
+
+A GoVibe application: a Go module that depends on the framework (`[[.FrameworkModule]]`) and holds only application
+code. It starts as the Hello GoVibe demo, ordinary app code in the usual layers that you keep as a smoke test or delete
+when you build your own (`SKILL.md` says what to delete).
+
+- `GET /` renders the landing page, with a button that uses htmx to call `/hello`.
+- `GET /api/hello` returns `{"message":"Hello GoVibe!"}`.
+- `GET /hello` returns the same greeting as plain text.
+
+## Run
+- `make dev`: the app with the dev tools compiled in. The page is at http://localhost:8080 and the dev panel at
+  http://localhost:8080/dev (the project graph, the docs, the database explorer, the scheduler and the MCP server for agents).
+- `make air`: the same, rebuilt on every change.
+- `make test` and `make check`: what CI runs (`.github/workflows/govibe.yml`).
+- `make build`: one binary with no dev tooling, `./[[.Name]]`; `./[[.Name]] help` lists its commands.
+
+The rules of the code and the layout are in `SKILL.md`, the architecture in `docs/public/ARCHITECTURE.md` and the data in
+`docs/public/MEMORY_SCHEMA.md`.
