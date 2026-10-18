@@ -1,0 +1,23 @@
+// Package config binds this application's own settings, the "[[.Section]]" section of
+// env.yml, to a struct. Declare a key in env.yml, add its field here (the yaml tag is
+// the key) and read it through Load.
+package config
+
+import (
+	govibeconfig "[[.Framework]]/config"
+)
+
+// Config is the "[[.Section]]" section of env.yml.
+type Config struct {
+[[.Fields]]}
+
+// Load reads the section from the loaded configuration: config.Load(rt.Config). A
+// section env.yml does not declare yet leaves the zero value.
+func Load(cfg govibeconfig.Config) (Config, error) {
+	var out Config
+	if _, ok := cfg.Get("[[.Section]]"); !ok {
+		return out, nil
+	}
+	err := cfg.Unmarshal("[[.Section]]", &out)
+	return out, err
+}

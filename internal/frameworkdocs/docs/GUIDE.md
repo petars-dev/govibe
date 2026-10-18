@@ -19,6 +19,19 @@ A few files are **managed**: the Makefile, .air.toml, the workflow under .github
 markers. They carry a hash in `govibe.yml`, so an upgrade can rewrite them and knows when you edited one. Everything else is yours and is never
 touched again.
 
+## Adding things
+`go tool govibe make` writes code in the right layer and registers it: a route or a command at the marker comments in the wiring, a line in
+your architecture doc, so the gate stays green. A file that exists is never overwritten (`--force`), and when a marker is missing the snippet is
+printed instead of guessed at.
+```sh
+go tool govibe make page about                       # a templ page, its controller, GET /about
+go tool govibe make resource order                   # migration, store, service, JSON controller, GET /api/orders and /api/orders/{id}, docs
+go tool govibe make command items:prune --schedule "0 3 * * *" --short "Delete archived items"   # body, declaration, doc line, a test on the fake clock
+go tool govibe make action notify | service billing | store invoice | migration add_status --table invoices | middleware rate-limit
+go tool govibe make config                           # a typed struct for the "<app>" section of env.yml
+go tool govibe make spec payments                    # a spec with the required sections
+```
+
 ## The declaration
 ```go
 //go:embed env.yml
@@ -64,8 +77,13 @@ controllers, commands  ->  business/{actions,services}  ->  storage/<store>
   no link (wrap such links in `web.IfDev`).
 - `./app routes`, `./app version`, `./app migrate up|down|status`, `./app schedule list|run` and `./app inspect --json` are part of every app binary and work in production, and so
   is every command you declare.
-- `make check` (`go tool govibe check`) is what CI runs: the managed files against their manifest, then the project graph's findings against
-  `docs/graph/baseline.json`, in a scratch store. A finding is fixed, or accepted in the baseline with a reason.
+- `make check` (`go tool govibe check`) is what CI runs: the managed files against their manifest, the doctor's static checks, then the project
+  graph's findings against `docs/graph/baseline.json`, in a scratch store. A finding is fixed, or accepted in the baseline with a reason.
+- `go tool govibe doctor` says what is wrong before it costs time: the tool against the pinned version, managed files, specs missing a section, a
+  baseline entry without a reason, a script loaded from the network, and (building the app) `inspect --json` with no environment, files not handed
+  to the framework, a dev package in the default build.
+- `go tool govibe upgrade`, after `go get github.com/petars-dev/govibe@<version> && go mod tidy`: the managed files are rewritten for the new
+  version with their diffs shown, one you edited is refused unless `--force`, your own files are never touched, and the upgrade notes are printed.
 
 ## The dev panel is about your app
 The graph, the findings, the reports, the docs and the agent tools show your app's own code and docs by default. The framework it runs on is

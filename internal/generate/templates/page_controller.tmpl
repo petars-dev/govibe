@@ -1,0 +1,14 @@
+package [[.Pkg]]
+
+import (
+	"net/http"
+
+	"github.com/a-h/templ"
+
+	"[[.Module]]/[[.TemplatesDir]]"
+)
+
+// [[.Name.Pascal]] renders the [[.Name.Spaced]] page ([[.Method]] [[.Path]]).
+func [[.Name.Pascal]](w http.ResponseWriter, r *http.Request) {
+	templ.Handler([[.TemplatesPkg]].[[.Name.Pascal]]()).ServeHTTP(w, r)
+}

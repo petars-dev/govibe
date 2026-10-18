@@ -1,0 +1,17 @@
+-- +goose Up
+[[- if .Table]]
+CREATE TABLE [[.Table]] (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB;
+[[- else]]
+-- [[.Name.Spaced]]: the schema change goes here.
+[[- end]]
+
+-- +goose Down
+[[- if .Table]]
+DROP TABLE [[.Table]];
+[[- else]]
+-- and how to undo it here.
+[[- end]]

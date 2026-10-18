@@ -1,0 +1,9 @@
+kind: command
+templ: false
+files:
+  create commands/cleanup.go
+  edit docs/public/ARCHITECTURE.md
+  edit routes/console.go
+  create schedule_cleanup_test.go
+note: run it: go build . && ./shop cleanup
+note: see when it is due: ./shop schedule list

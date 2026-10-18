@@ -116,6 +116,18 @@ func runCheck(ctx context.Context, o checkOptions, out, errOut io.Writer) error 
 			fmt.Fprintf(notes, "  %s\n", d)
 		}
 	}
+	// The doctor's checks that need no build (govibe doctor runs the rest); a failure
+	// here is one the gate would report too (a baseline entry with no reason).
+	var diags []diag
+	for _, d := range doctorStatic(root, prof) {
+		if d.Check != "managed" && d.Level != "ok" {
+			diags = append(diags, d)
+		}
+	}
+	if len(diags) > 0 {
+		fmt.Fprintln(notes, "doctor:")
+		writeDiags(notes, diags)
+	}
 	fmt.Fprintln(notes)
 
 	baseline := o.baseline

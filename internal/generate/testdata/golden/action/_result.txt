@@ -1,0 +1,6 @@
+kind: action
+templ: false
+files:
+  create business/actions/notify.go
+  create business/actions/notify_test.go
+note: call actions.Notify from a controller or a command; business code imports nothing from the framework

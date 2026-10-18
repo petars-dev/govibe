@@ -1,0 +1,7 @@
+kind: config
+templ: false
+files:
+  create config/config.go
+  create config/config_test.go
+note: 4 keys of the "shop" section of env.yml are bound; keep the struct and the file in step
+note: read it in the wiring: cfg, err := config.Load(rt.Config)

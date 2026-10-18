@@ -1,0 +1,31 @@
+// Package [[.Pkg]] holds the [[.Singular.Spaced]] queries and rules that controllers and
+// commands call. It owns the storage call: nothing above it touches the store.
+package [[.Pkg]]
+
+import (
+	"context"
+
+	"[[.Module]]/[[.StoreDir]]"
+)
+
+// Reader is what the service needs from the [[.Singular.Spaced]] store.
+type Reader interface {
+	List(ctx context.Context) ([][[.StorePkg]].[[.Type]], error)
+	Get(ctx context.Context, id int64) ([[.StorePkg]].[[.Type]], error)
+}
+
+// Service answers [[.Singular.Spaced]] questions on top of a Reader.
+type Service struct{ store Reader }
+
+// New returns a Service over store.
+func New(store Reader) *Service { return &Service{store: store} }
+
+// List returns every [[.Singular.Spaced]], newest first.
+func (s *Service) List(ctx context.Context) ([][[.StorePkg]].[[.Type]], error) {
+	return s.store.List(ctx)
+}
+
+// Get returns the [[.Singular.Spaced]] with the id; sql.ErrNoRows when there is none.
+func (s *Service) Get(ctx context.Context, id int64) ([[.StorePkg]].[[.Type]], error) {
+	return s.store.Get(ctx, id)
+}

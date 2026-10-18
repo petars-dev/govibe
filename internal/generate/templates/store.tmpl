@@ -1,0 +1,59 @@
+// Package [[.Pkg]] reads and writes the [[.Table]] table. It imports nothing from the
+// framework: it takes the database pool from its constructor.
+package [[.Pkg]]
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/jmoiron/sqlx"
+)
+
+// [[.Type]] is one row of the [[.Table]] table.
+type [[.Type]] struct {
+	ID        int64     `db:"id" json:"id"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+}
+
+// ErrNoDatabase is what every query returns while the app runs with no database
+// configured (no DSN: the framework hands routes and commands a nil rt.DB).
+var ErrNoDatabase = errors.New("[[.Pkg]]: no database is configured (set MARIADB_DSN)")
+
+// Store is the [[.Table]] data-access object.
+type Store struct{ db *sqlx.DB }
+
+// New returns a Store over db. A nil db is fine until a query runs.
+func New(db *sqlx.DB) *Store { return &Store{db: db} }
+
+// List returns every [[.Singular.Spaced]], newest first.
+func (s *Store) List(ctx context.Context) ([][[.Type]], error) {
+	if s.db == nil {
+		return nil, ErrNoDatabase
+	}
+	out := [][[.Type]]{}
+	err := s.db.SelectContext(ctx, &out, "SELECT id, created_at FROM [[.Table]] ORDER BY id DESC")
+	return out, err
+}
+
+// Get returns the [[.Singular.Spaced]] with the id; sql.ErrNoRows when there is none.
+func (s *Store) Get(ctx context.Context, id int64) ([[.Type]], error) {
+	var out [[.Type]]
+	if s.db == nil {
+		return out, ErrNoDatabase
+	}
+	err := s.db.GetContext(ctx, &out, "SELECT id, created_at FROM [[.Table]] WHERE id = ?", id)
+	return out, err
+}
+
+// Create inserts a [[.Singular.Spaced]] and returns its id.
+func (s *Store) Create(ctx context.Context) (int64, error) {
+	if s.db == nil {
+		return 0, ErrNoDatabase
+	}
+	res, err := s.db.ExecContext(ctx, "INSERT INTO [[.Table]] () VALUES ()")
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}

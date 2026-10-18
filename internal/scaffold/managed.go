@@ -87,18 +87,11 @@ func Manifest(o Options, tree Tree) ([]byte, error) {
 # wrote: an upgrade refuses to overwrite one this app has edited. Do not edit by hand.
 managed:
 `)
-	fmt.Fprintf(&b, "  version: %s\n  files:\n", o.FrameworkVersion)
-	for _, name := range Managed {
-		content, ok := tree[name]
-		if !ok {
-			return nil, fmt.Errorf("the managed file %s was not rendered", name)
-		}
-		h, err := Hash(name, content)
-		if err != nil {
-			return nil, err
-		}
-		fmt.Fprintf(&b, "    %s: %s\n", name, h)
+	block, err := ManagedBlock(o.FrameworkVersion, tree)
+	if err != nil {
+		return nil, err
 	}
+	b.WriteString(strings.TrimPrefix(block, "managed:\n"))
 	return []byte(b.String()), nil
 }
 

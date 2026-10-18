@@ -179,6 +179,80 @@ func TestKeystone(t *testing.T) {
 	}
 	os.Remove(badCtl)
 	os.RemoveAll(store)
+
+	t.Log("generators: a resource, a scheduled command and a page leave the gate green (T6.1)")
+	readme, _ := os.ReadFile(filepath.Join(k.app, "README.md"))
+	k.run(k.app, "go", "tool", "govibe", "make", "resource", "order")
+	k.run(k.app, "go", "tool", "govibe", "make", "command", "items:prune", "--schedule", "0 3 * * *", "--short", "Delete archived items")
+	out = k.run(k.app, "go", "tool", "govibe", "make", "page", "about")
+	if !strings.Contains(out, "==> go tool templ generate") {
+		t.Errorf("make page did not run templ:\n%s", out)
+	}
+	k.run(k.app, "go", "build", "./...")
+	k.run(k.app, "go", "build", "-tags", "govibe_dev", "./...")
+	k.run(k.app, "go", "vet", "./...")
+	out = k.run(k.app, "go", "test", "./...")
+	for _, pkg := range []string{"github.com/keystone/shop\t", "github.com/keystone/shop/business/services/orders", "github.com/keystone/shop/storage/orderstore"} {
+		if !strings.Contains(out, "ok  \t"+pkg) {
+			t.Errorf("go test after the generators: no ok for %s:\n%s", pkg, out)
+		}
+	}
+	out = k.run(k.app, "go", "tool", "govibe", "check", "--fail-on", "info")
+	for _, want := range []string{"findings: 0 error, 0 warning, 0 info", "commands: 2 (2 scheduled)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("check after the generators: output lacks %q:\n%s", want, out)
+		}
+	}
+	k.run(k.app, "go", "build", "-tags", "govibe_dev", "-o", dev, ".")
+	out = k.run(k.app, dev, "schedule", "list")
+	if !strings.Contains(out, "items:prune") || !strings.Contains(out, "0 3 * * *") {
+		t.Errorf("schedule list after make command:\n%s", out)
+	}
+	k.serve(dev, func(base string) {
+		if page := k.get(base+"/about", 200); !strings.Contains(page, "<h1>About</h1>") {
+			t.Errorf("GET /about:\n%s", page)
+		}
+		// No DSN: the generated store says so instead of panicking.
+		if body := k.get(base+"/api/orders", 500); !strings.Contains(body, "no database is configured") {
+			t.Errorf("GET /api/orders = %q", body)
+		}
+		k.get(base+"/api/orders/x", 400)
+		k.get(base+"/api/hello", 200)
+	})
+
+	t.Log("upgrade: managed files rewritten, an edited one refused then forced, owned files untouched (A5, T6.2)")
+	out = k.run(k.app, "go", "tool", "govibe", "upgrade")
+	if !strings.Contains(out, "up to date") {
+		t.Errorf("upgrade with nothing to do:\n%s", out)
+	}
+	mk, _ := os.ReadFile(filepath.Join(k.app, "Makefile"))
+	os.WriteFile(filepath.Join(k.app, "Makefile"), append(mk, "\nlint:\n\ttrue\n"...), 0o644)
+	out, code = k.try(k.app, "go", "tool", "govibe", "upgrade")
+	if code != 1 || !strings.Contains(out, "edited    Makefile") || !strings.Contains(out, "-lint:") {
+		t.Errorf("upgrade over an edited Makefile: exit %d\n%s", code, out)
+	}
+	out = k.run(k.app, "go", "tool", "govibe", "upgrade", "--force")
+	if !strings.Contains(out, "forced    Makefile") {
+		t.Errorf("upgrade --force:\n%s", out)
+	}
+	if mk, _ = os.ReadFile(filepath.Join(k.app, "Makefile")); strings.Contains(string(mk), "lint:") {
+		t.Error("upgrade --force kept the edit")
+	}
+	if now, _ := os.ReadFile(filepath.Join(k.app, "README.md")); !bytes.Equal(now, readme) {
+		t.Error("README.md, an owned file, was changed")
+	}
+	out = k.run(k.app, "go", "tool", "govibe", "check")
+	if !strings.Contains(out, "managed files: 4 as generated") {
+		t.Errorf("check after the upgrade:\n%s", out)
+	}
+
+	t.Log("doctor: the build checks on the real app")
+	out = k.run(k.app, "go", "tool", "govibe", "doctor")
+	for _, want := range []string{"note  framework  go.mod replaces", "ok    managed    4 files as generated", "ok    inspect    the app declares", "ok    embeds", "ok    build      the default build links no dev tooling", "0 failures"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor: output lacks %q:\n%s", want, out)
+		}
+	}
 }
 
 // devOnly names what only the dev tools may link (prod_test.go of the demo says the same).

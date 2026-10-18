@@ -1,0 +1,12 @@
+package [[.Pkg]]
+
+import (
+	"context"
+	"testing"
+)
+
+func TestNewReturnsAWorkingService(t *testing.T) {
+	if err := New().Ping(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}

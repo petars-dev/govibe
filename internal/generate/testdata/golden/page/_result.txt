@@ -1,0 +1,7 @@
+kind: page
+templ: true
+files:
+  create assets/templates/about.templ
+  create controllers/about.go
+  edit docs/public/ARCHITECTURE.md
+  edit routes/routes.go

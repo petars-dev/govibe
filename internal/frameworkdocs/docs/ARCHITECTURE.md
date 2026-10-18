@@ -13,8 +13,8 @@ application. (The rules an application follows, and the plan that produced this 
 
   framework (module github.com/petars-dev/govibe, this repository)
   public    govibe  config  web  govibetest
-  internal  kernel  migrate  routeinfo  scheduler  profile  rules  frameworkdocs  scaffold  devtools (devui)  codegraph  dbexplorer  graphdb  devmcp
-  tool      cmd/govibe  (new, check, graph index, generate, serve, migrate)
+  internal  kernel  migrate  routeinfo  scheduler  profile  rules  frameworkdocs  scaffold  generate  devtools (devui)  codegraph  dbexplorer  graphdb  devmcp
+  tool      cmd/govibe  (new, make, check, doctor, upgrade, graph index, generate, serve, migrate)
   example   examples/hello  (its own module; go.work joins it to this one)
 ```
 - The app imports the framework, never the reverse (the module graph makes the reverse impossible). An app imports only the four
@@ -54,10 +54,14 @@ application. (The rules an application follows, and the plan that produced this 
 - `internal/frameworkdocs`: the framework's own reference docs as an app sees them: a curated, embedded allowlist, every title prefixed
   `GoVibe:`, never a spec.
 - `internal/scaffold`: what `govibe new` writes (below): the embedded template set (the Hello GoVibe demo synced from `examples/hello`, and the
-  settings, docs, Makefile, air and workflow files), the rendered `go.mod`, `SKILL.md` and `govibe.yml`, the managed files and their hashes.
-- `cmd/govibe`: the tool. `govibe new` (a new application), `govibe check` (the managed files and the graph gate, in a scratch store),
-  `govibe graph index` (the offline indexer and CI gate), `govibe generate` (templ), and `govibe serve` and `govibe migrate`, which run the app in
-  the current project through `go run -tags govibe_dev .`. An app runs it as `go tool govibe`, pinned in its `go.mod`.
+  settings, docs, Makefile, air and workflow files), the rendered `go.mod`, `SKILL.md` and `govibe.yml`, the managed files and their hashes, the
+  upgrade plan (`scaffold.PlanUpgrade`: the managed files re-rendered for the pinned version, diffed, refused when edited) and the unified diff.
+- `internal/generate`: the generators of `govibe make` (below): a page, a resource, an action, a service, a store, a migration, a middleware, a
+  command, a typed config, a spec. Each returns the files to write and the snippets it could not insert; the tool applies them.
+- `cmd/govibe`: the tool. `govibe new` (a new application), `govibe make` (the generators), `govibe check` (the managed files, the doctor's static
+  checks and the graph gate, in a scratch store), `govibe doctor` (the project's health, with the build checks), `govibe upgrade` (the managed files
+  for a new framework version), `govibe graph index` (the offline indexer and CI gate), `govibe generate` (templ), and `govibe serve` and
+  `govibe migrate`, which run the app in the current project through `go run -tags govibe_dev .`. An app runs it as `go tool govibe`, pinned in its `go.mod`.
 - `examples/hello`: the reference app, the Hello GoVibe demo. It is plain application code (three handlers, an action, a templ
   page with its own static files, the routes) that the framework runs and that this repository tests and gates as an app.
 
@@ -167,7 +171,7 @@ repository it gets holds only application code.
   `<!-- govibe:managed:end -->`) carry a header and a hash in `govibe.yml` (`managed.version`, `managed.files`). Everything else is the app's and is never
   touched again: `env.yml`, `README.md`, the docs, every Go file. `SKILL.md`'s block is rendered from `internal/rules` (the layering table, what each
   layer may import, the spec sections) and the facts of the version (the CLI, the dev tooling); its owned section is seeded once with the Hello GoVibe
-  done criteria and the list of demo files to delete. `govibe upgrade` (Phase 6) re-renders the block and the files and refuses one the app edited.
+  done criteria and the list of demo files to delete. `govibe upgrade` (below) re-renders the block and the files and refuses one the app edited.
 - **`govibe check`** is what CI runs in an app (`go tool govibe check --format github` in the generated workflow, `make check`): the managed files
   against the manifest (edited, missing or unlisted ones are reported, not failed), then the gate of `govibe graph index --calls` in a scratch store
   (never the store a dev server holds), with the app's own routes and commands from its `inspect --json`, against `docs/graph/baseline.json` when it
@@ -179,7 +183,48 @@ repository it gets holds only application code.
   runs `govibe check --fail-on info` with the empty baseline, boots the dev build and asks for the demo, `/dev`, the graph status, `graph_schema` and
   `schedule_status` over `/dev/mcp` and `schedule list`, boots the production build and expects 404 on every `/dev` path and no `/dev` link, checks
   the default build links no dev package and the tree holds no `SPEC_*`, and plants a `framework.import` and a `layering` violation that must fail the
-  check. Everything runs under a scrubbed environment (no DSN or secret of the shell reaches it) and `GOWORK=off`.
+  check. Everything runs under a scrubbed environment (no DSN or secret of the shell reaches it) and `GOWORK=off`. Phase 6 added the generators
+  (a resource, a scheduled command and a page, then the gate at `--fail-on info`, the dev build serving the new routes, `schedule list`), the
+  upgrade (nothing to do, an edited Makefile refused with its diff, `--force`, the owned README untouched, the check green after) and the doctor.
+
+## Generators, upgrade, doctor (`govibe make`, `govibe upgrade`, `govibe doctor`)
+Phase 6 of `docs/specs/SPEC_FRAMEWORK_EXTRACTION.md`. The tool adds code to an app, keeps the managed files current across framework versions,
+and says what is wrong with a project before it costs time.
+
+- **`govibe make <kind> <name>`** (`internal/generate`) writes files that obey the layering rules, in the layout the project's `govibe.yml`
+  declares (the first directory of each layer; the generated app's by default), and registers what it made where it belongs: a route or a
+  command at the marker comment in the wiring (`// govibe:routes`, `// govibe:commands`: the file of the wiring layer that holds the line, found by
+  searching the wiring directories one level deep; the marker stays, so the next generator inserts after), and a line under the "Routes",
+  "Commands" or "Tables" heading of the app's architecture and schema docs, so `docs.route_undocumented` and `docs.command_undocumented` stay
+  green. Insertion is textual at the marker, then the file is parsed, the imports added with `astutil.AddImport` and the file gofmt-ed; when a
+  marker or a heading is missing the snippet is printed instead of guessed at. A file that exists is refused without `--force`; `--dry-run` writes
+  nothing. A generator is a function from a `Project` (go.mod, the app's name from main.go, the profile) to a `Result` (files to create or edit,
+  snippets, notes, whether templ must run), so each has a golden test under `internal/generate/testdata/golden`, and one test writes every
+  generator's output into a generated app, builds it both ways, vets, tests, and runs the gate at `--fail-on info` and the doctor: zero findings.
+  The kinds: `page` (a templ page with `web.HTMXScript`, the controller, the route; `go tool templ generate` runs after), `resource` (the vertical
+  slice: a migration creating the table, a store package over `*sqlx.DB` whose queries answer `ErrNoDatabase` while no DSN is set, a service with
+  a `Reader` interface and a test on a fake, a JSON controller with list and get, the two routes constructed in the routes function, the doc lines),
+  `action` and its test, `service` and its test, `store` and its test, `migration` (numbered after the last; `--table` creates the table and documents
+  it), `middleware` and its test (chi wants `Use` before any route, so the snippet is printed, not inserted at the marker), `command` (noun:verb reads
+  as VerbNoun; the body in the commands package, the declaration at the marker, the doc line; `--schedule` is validated by `scheduler.Parse`, and a
+  test on the fake clock advances to the first due time computed from the spec), `config` (a struct for the app's own section of `env.yml`,
+  nested maps as nested structs, types from the placeholders' defaults, with a `Load(cfg)` whose receiver name the config layer recognises as a
+  read) and `spec` (the sections of `rules.SpecSections`). Names may be written as `order`, `rate-limit`, `rateLimit` or `RateLimit`.
+- **`govibe upgrade`** (`scaffold.PlanUpgrade`, `Upgrade.Apply`): after `go get` of a new framework version, each managed file is rendered for the
+  version `go.mod` pins (`v0.0.0` when a `replace` points at a checkout) and compared with the file on disk and with the hash the manifest recorded.
+  A file the app never edited is rewritten with its diff shown (`updated`), a missing one restored, one the app edited is refused with its diff
+  (`edited`; exit 1, nothing written) unless `--force` (`forced`). `SKILL.md` is special: only the block between the markers is replaced, the rest is
+  the app's; a `SKILL.md` without markers counts as edited and `--force` puts the block at the top. The `managed:` section of `govibe.yml` is swapped
+  textually (the app's own keys and comments stay) with the new version and hashes, so `check` is green after. The notes of the versions crossed come
+  from the embedded `UPGRADING.md` (`scaffold.UpgradeNotes`: every released version after the manifest's up to the pin, and the unreleased section
+  when the pin is a commit or a checkout). `--dry-run` shows the plan.
+- **`govibe doctor`** (`cmd/govibe/cmd_doctor.go`) reports, as ok, note, warn or fail: the tool's version against the framework version `go.mod`
+  pins (a mismatch warns: run it as `go tool govibe`; a `replace` is a note), the managed files against the manifest, every spec against
+  `rules.SpecSections`, the baseline's entries each saying why (fail otherwise: the gate fails on them too), the generators' markers, a script tag
+  that loads from the network (htmx comes from the framework), and, unless `--no-build`, the app's own `inspect --json` run with the scrubbed
+  environment (an invalid schedule or a registration that opens a connection fails here with the app's own words), static files or migrations on
+  disk that the declaration does not hand to the framework (from `contributes` in the document), and a dev package in `go list -deps -tags ''`.
+  Exit 1 on a failure. `govibe check` runs the static checks before the gate and prints what is not ok.
 
 ## The project profile and the app's own graph
 Phase 3 of `docs/specs/SPEC_FRAMEWORK_EXTRACTION.md`. The graph, the findings, the reports, the docs and the agent tools are about the

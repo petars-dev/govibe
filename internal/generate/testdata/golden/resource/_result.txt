@@ -1,0 +1,13 @@
+kind: resource
+templ: false
+files:
+  create business/services/orders/orders.go
+  create business/services/orders/orders_test.go
+  create controllers/orders.go
+  edit docs/public/ARCHITECTURE.md
+  edit docs/public/MEMORY_SCHEMA.md
+  edit routes/routes.go
+  create storage/migrations/sql/0002_create_orders.sql
+  create storage/orderstore/orderstore.go
+  create storage/orderstore/orderstore_test.go
+note: the table is created on the next start with a DSN set; without one the routes answer 500 with orderstore.ErrNoDatabase

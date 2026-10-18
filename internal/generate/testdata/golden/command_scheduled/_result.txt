@@ -1,0 +1,9 @@
+kind: command
+templ: false
+files:
+  create commands/prune_items.go
+  edit docs/public/ARCHITECTURE.md
+  edit routes/console.go
+  create schedule_prune_items_test.go
+note: run it: go build . && ./shop items:prune
+note: see when it is due: ./shop schedule list

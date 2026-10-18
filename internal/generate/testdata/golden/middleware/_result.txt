@@ -1,0 +1,7 @@
+kind: middleware
+templ: false
+files:
+  create middleware/rate_limit.go
+  create middleware/rate_limit_test.go
+snippet (at the top of routes.Register, before any route (chi refuses a Use after a route), or on one group with r.With):
+r.Use(middleware.RateLimit)

@@ -10,11 +10,18 @@ in any release.
 3. Run the gate: `go tool govibe check`. The tool and the library are one version: `go.mod` pins the tool next to the framework, so bump them
    together (`go get github.com/petars-dev/govibe@<version> github.com/petars-dev/govibe/cmd/govibe@<version>`).
 
-Files the framework generates for you (the Makefile, .air.toml, the workflow under .github/workflows, the managed block of SKILL.md; their hashes are in
-`govibe.yml`) are rewritten by `govibe upgrade` (planned), which refuses one you edited; files that are yours (`env.yml`, `README.md`, every Go file, your docs)
-are never touched.
+4. Run `go tool govibe upgrade`. Files the framework generates for you (the Makefile, .air.toml, the workflow under .github/workflows, the managed block of
+   SKILL.md; their hashes are in `govibe.yml`) are rewritten for the new version, each with its diff shown; one you edited is refused unless `--force`;
+   files that are yours (`env.yml`, `README.md`, every Go file, your docs, the rest of SKILL.md) are never touched. The notes below for the versions you
+   crossed are printed. `--dry-run` shows the plan first.
 
 ## Unreleased
+- `govibe make <kind> <name>` generates a page, a resource (table, store, service, JSON controller, routes, docs), an action, a service, a store, a migration, a
+  middleware, a command (`--schedule` adds the schedule and a test on the fake clock), a typed config (`make config`) or a spec, in the layers and at the markers
+  a generated app has (`// govibe:routes`, `// govibe:commands`; the snippet is printed when a marker is missing). `govibe upgrade` rewrites the managed files for
+  the version go.mod pins and prints these notes; `govibe doctor` checks the project's health, and `govibe check` runs its static checks before the gate. An existing
+  app needs nothing: add the two markers to use the generators' insertion, and a `## Routes`, `## Commands` section in docs/public/ARCHITECTURE.md and a
+  `## Tables` section in docs/public/MEMORY_SCHEMA.md to have them documented for you.
 - `govibe new <module>` creates an application (the Hello GoVibe demo, in a module of its own that requires the framework); `govibe check` runs the
   managed-file check and the graph gate in a scratch store, and is what a generated app's workflow and `make check` run. `govibe.yml` gained a `managed`
   section (the manifest of generated files); an app that was not generated has none and needs none.

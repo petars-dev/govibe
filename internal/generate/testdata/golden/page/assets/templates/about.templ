@@ -1,0 +1,21 @@
+package templates
+
+import "github.com/petars-dev/govibe/web"
+
+// About renders the about page (GET /about).
+templ About() {
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>About</title>
+			@web.HTMXScript()
+		</head>
+		<body>
+			<main>
+				<h1>About</h1>
+				<p>Rendered by assets/templates/about.templ. Edit it, then run <code>go tool templ generate</code>.</p>
+			</main>
+		</body>
+	</html>
+}

@@ -1,0 +1,7 @@
+kind: page
+templ: true
+files:
+  create assets/templates/privacy_policy.templ
+  create controllers/privacy_policy.go
+  edit docs/public/ARCHITECTURE.md
+  edit routes/routes.go

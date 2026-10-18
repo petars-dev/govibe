@@ -1,0 +1,21 @@
+package templates
+
+import "github.com/petars-dev/govibe/web"
+
+// PrivacyPolicy renders the privacy policy page (GET /legal/privacy).
+templ PrivacyPolicy() {
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>Privacy policy</title>
+			@web.HTMXScript()
+		</head>
+		<body>
+			<main>
+				<h1>Privacy policy</h1>
+				<p>Rendered by assets/templates/privacy_policy.templ. Edit it, then run <code>go tool templ generate</code>.</p>
+			</main>
+		</body>
+	</html>
+}

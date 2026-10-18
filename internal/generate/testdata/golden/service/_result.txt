@@ -1,0 +1,6 @@
+kind: service
+templ: false
+files:
+  create business/services/billing/billing.go
+  create business/services/billing/billing_test.go
+note: construct it in routes.Register or routes.Console (svc := billing.New()) and hand it to the controllers and commands that need it

@@ -1,0 +1,19 @@
+[[- if .PackageDoc]]
+// Package [[.Pkg]] holds the thin adapters behind the app's CLI commands: like a
+// controller for HTTP, a command calls a business action or service and returns.
+[[- end]]
+package [[.Pkg]]
+
+import (
+	"context"
+
+	"[[.Framework]]"
+)
+
+// [[.Func]] is the body of `./[[.AppName]] [[.Use]]`[[if .Schedule]], which the scheduler also runs
+// ([[.Schedule]]) while the app serves[[end]]. Call a business action or a service here and
+// return; the context ends on SIGINT or SIGTERM[[if .Schedule]], or at the schedule's timeout[[end]].
+func [[.Func]](ctx context.Context, rt *govibe.Runtime, args []string) error {
+	rt.Log.Info("[[.Use]]: nothing to do yet")
+	return nil
+}

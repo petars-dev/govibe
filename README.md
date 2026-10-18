@@ -40,8 +40,9 @@ delete to start your own. (No version of the framework is published yet: until t
 
 ## This repository
 - the framework module, `github.com/petars-dev/govibe`: public packages `govibe`, `config`, `web`, `govibetest`; everything else is `internal/`
-- the tool, `cmd/govibe`: `govibe new` (a new application), `govibe check` (what an app's CI runs), `govibe graph index` (the offline indexer and
-  gate), `govibe generate`, and `govibe serve` / `govibe migrate`, which run the app in the current project; an app runs it as `go tool govibe`
+- the tool, `cmd/govibe`: `govibe new` (a new application), `govibe make` (generators: page, resource, action, service, store, migration, middleware,
+  command, config, spec), `govibe check` (what an app's CI runs), `govibe doctor`, `govibe upgrade` (the managed files for a new version), `govibe graph index`
+  (the offline indexer and gate), `govibe generate`, and `govibe serve` / `govibe migrate`, which run the app in the current project; an app runs it as `go tool govibe`
 - `examples/hello`: the reference app, its own module (`go.work` joins it to the framework)
 - `docs`: how it is built (`docs/public/ARCHITECTURE.md`) and the specs that produced it (`docs/specs`)
 

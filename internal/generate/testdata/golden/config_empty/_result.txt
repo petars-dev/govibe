@@ -1,0 +1,7 @@
+kind: config
+templ: false
+files:
+  create config/config.go
+  create config/config_test.go
+note: env.yml declares no "shop" section yet: add one (keys as ${ENV:default} placeholders), then add the fields to config.Config
+note: read it in the wiring: cfg, err := config.Load(rt.Config)

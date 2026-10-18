@@ -1,0 +1,21 @@
+package templates
+
+import "[[.Framework]]/web"
+
+// [[.Name.Pascal]] renders the [[.Name.Spaced]] page ([[.Method]] [[.Path]]).
+templ [[.Name.Pascal]]() {
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>[[.Name.Title]]</title>
+			@web.HTMXScript()
+		</head>
+		<body>
+			<main>
+				<h1>[[.Name.Title]]</h1>
+				<p>Rendered by [[.TemplFile]]. Edit it, then run <code>go tool templ generate</code>.</p>
+			</main>
+		</body>
+	</html>
+}

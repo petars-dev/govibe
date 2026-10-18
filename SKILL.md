@@ -13,8 +13,9 @@ Directory Layout
 - internal/devtools, internal/devtools/devui: the dev panel (docs, graph, db pages and their embedded files); internal/codegraph, internal/dbexplorer, internal/graphdb, internal/devmcp: the indexer, the database explorer, the Cayley store, the MCP server
 - internal/migrate, internal/routeinfo, internal/scheduler: the goose runner, the chi router read into plain data (and the `inspect --json` document the app binary and the tool share), and the scheduler's engine (validated cron specs, the runner, a fake clock)
 - internal/profile, internal/rules, internal/frameworkdocs: the project profile (`govibe.yml`), the rules of the app-facing SKILL.md as data, and the framework docs an app serves under /dev/docs/govibe
-- internal/scaffold: what `govibe new` writes (the embedded templates, the demo synced from examples/hello, go.mod, SKILL.md, govibe.yml, the managed files) and the keystone test
-- cmd/govibe: the tool (`new`, `check`, `graph index`, `generate`, `serve`, `migrate`)
+- internal/scaffold: what `govibe new` writes (the embedded templates, the demo synced from examples/hello, go.mod, SKILL.md, govibe.yml, the managed files), the upgrade plan and the keystone test
+- internal/generate: the generators of `govibe make` (templates under templates/, one golden tree per generator under testdata/golden, `-update` to regenerate)
+- cmd/govibe: the tool (`new`, `make`, `check`, `doctor`, `upgrade`, `graph index`, `generate`, `serve`, `migrate`)
 - examples/hello: the reference app, its own module (go.work joins it to the framework); it is also the demo every new app starts with
 - docs: framework docs (public) and specs; the specs are process artifacts and are never shipped or embedded
 
@@ -49,6 +50,9 @@ Working on it
   `[[` and `]]`; a change to anything an app gets is a change to the managed files' hashes, so say so in docs/public/UPGRADING.md. `make new MODULE=github.com/acme/shop DIR=../shop` creates an app
   against this checkout; `make keystone` runs the keystone (the real `govibe new` plus an overlay, builds, tests, the gate and two boots, in a temp directory; minutes).
 - The indexer's tests run against testdata/fixture (an app built on the stub framework testdata/stubfw) and testdata/fixture_layout (a non-default layout); `go.work` lists the stub and the fixture.
+- Add a generator: a template in internal/generate/templates (delimiters `[[` `]]`), a function in kinds.go that returns a Result, a case in `Make`, a subcommand in cmd/govibe/cmd_make.go,
+  a golden case in generate_test.go and a line in the build-and-gate test of cmd/govibe (TestGeneratedCodeBuildsAndPassesTheGate): everything a generator writes must build, test and leave
+  the gate at zero findings. Backticked paths in anything an app reads must exist in a generated app.
 - Add a runtime command: a case in `kernel.Run`, its name in `builtinCommands`, a line in `usage`, and a test in govibe_test.go. The scheduler is tested on `scheduler.NewFake`, never with sleeps; a test that starts a
   task which blocks on purpose lowers `Fake.SetSettle`, and a test's cleanup moves the fake clock on so a stuck task cannot hang it. Add a dev page:
   a handler in internal/devtools/devui, its route in `devtools.Mount`, and a test that runs under the govibe_dev tag if it needs the mount.

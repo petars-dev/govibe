@@ -1,0 +1,5 @@
+kind: spec
+templ: false
+files:
+  create docs/specs/SPEC_PAYMENTS.md
+note: update the status table after each development loop; a row marked implemented must name things that exist (the graph checks it)

@@ -25,6 +25,9 @@ func Console(rt *govibe.Runtime) []govibe.Command {
 - A command is the CLI twin of a controller: a thin adapter in `commands/` that calls a business action or service. It imports the root `govibe` package for
   `RunFunc` and `Runtime` and nothing else of the framework, and never storage. The graph reports a command that breaks this (`layering`, `framework.import`).
 
+`go tool govibe make command items:prune --schedule "0 3 * * *" --short "Delete archived items"` writes the body, inserts the declaration at the
+`// govibe:commands` marker, names the command in your architecture doc and, with a schedule, writes a test on the fake clock that advances to its first due time.
+
 ## Putting a command on a schedule
 ```go
 Schedule: govibe.Cron("*/5 * * * *")                                 // a cron expression

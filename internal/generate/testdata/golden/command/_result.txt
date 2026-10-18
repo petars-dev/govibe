@@ -1,0 +1,7 @@
+kind: command
+templ: false
+files:
+  create commands/sync_items.go
+  edit docs/public/ARCHITECTURE.md
+  edit routes/console.go
+note: run it: go build . && ./shop items:sync

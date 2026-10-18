@@ -1,0 +1,7 @@
+kind: store
+templ: false
+files:
+  create storage/orderstore/orderstore.go
+  create storage/orderstore/orderstore_test.go
+note: construct it in routes.Register or routes.Console (orderStore := orderstore.New(rt.DB)); only business actions and services call it
+note: no migration creates the orders table: govibe make migration create_orders --table orders

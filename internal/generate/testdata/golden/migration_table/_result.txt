@@ -1,0 +1,5 @@
+kind: migration
+templ: false
+files:
+  edit docs/public/MEMORY_SCHEMA.md
+  create storage/migrations/sql/0002_create_orders.sql

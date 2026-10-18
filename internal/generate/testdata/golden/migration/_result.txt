@@ -1,0 +1,5 @@
+kind: migration
+templ: false
+files:
+  create storage/migrations/sql/0002_add_status.sql
+note: the framework applies it on the next start with a DSN set (./shop migrate up); record the change in docs/public/MEMORY_SCHEMA.md
