@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/petars-dev/govibe/internal/devext"
 	"github.com/petars-dev/govibe/internal/devtools/schedview"
 	"github.com/petars-dev/govibe/internal/frameworkdocs"
 	"github.com/petars-dev/govibe/internal/routeinfo"
@@ -30,6 +31,9 @@ type Options struct {
 	// Schedule reads the scheduler as it is now, for schedule_status. Nil: the process
 	// has none, and the tool says so.
 	Schedule func() schedview.Status
+	// AppTools are the tools the application adds through App.DevTools, already
+	// validated (names, no duplicates, none of the framework's families).
+	AppTools []devext.Tool
 }
 
 const (

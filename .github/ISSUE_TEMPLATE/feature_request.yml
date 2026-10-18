@@ -1,0 +1,29 @@
+name: Feature request
+description: Something the framework, the tool or the dev panel should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: The change as an app would see it (a field on `App`, a flag, a generator, a dev page, a rule).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Including doing it in your app without a framework change.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: I read the non-goals in CONTRIBUTING.md and this is not one of them (or I am arguing it should change)

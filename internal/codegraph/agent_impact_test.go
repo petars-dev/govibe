@@ -121,8 +121,10 @@ func TestImpactOfATable(t *testing.T) {
 func TestImpactKindsAndLimit(t *testing.T) {
 	m := fixtureGraph(t)
 
+	// Five routes and four tools: the two the fixture's own MCP server registers, and the
+	// two it adds to the framework's dev server through App.DevTools (routes/devtools_dev.go).
 	res := impact(t, m, ImpactQuery{Node: "table:orders", Kinds: []string{"route", "tool"}})
-	if len(res.Affected) != 7 {
+	if len(res.Affected) != 9 {
 		t.Errorf("routes and tools: %v", affectedIDs(res))
 	}
 	for _, a := range res.Affected {
@@ -138,7 +140,7 @@ func TestImpactKindsAndLimit(t *testing.T) {
 	}
 
 	res = impact(t, m, ImpactQuery{Node: "table:orders", Limit: 4})
-	if len(res.Affected) != 4 || !res.Truncated || res.Total != 21 {
+	if len(res.Affected) != 4 || !res.Truncated || res.Total != 23 {
 		t.Errorf("limit: %d affected, truncated=%v, total=%d", len(res.Affected), res.Truncated, res.Total)
 	}
 	// truncation drops the weakest evidence, never the strongest
@@ -148,11 +150,12 @@ func TestImpactKindsAndLimit(t *testing.T) {
 }
 
 // A handler is called by the router, so changing it does not put the routes
-// beside it in doubt; its importers are the code that wires it.
+// beside it in doubt; its importers are the code that wires it, and (a possible reach,
+// through the wiring package) the dev tools that package registers.
 func TestImpactOfAHandler(t *testing.T) {
 	m := fixtureGraph(t)
 	res := impact(t, m, ImpactQuery{Node: "controllers.HelloAPI"})
-	want := []string{"route:GET:/api/hello", "pkg:routes", "pkg:."}
+	want := []string{"route:GET:/api/hello", "pkg:routes", "pkg:.", "tool:fixture_cache_flush", "tool:fixture_orders_count"}
 	if got := affectedIDs(res); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("affected = %v, want %v", got, want)
 	}

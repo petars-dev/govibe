@@ -1,0 +1,36 @@
+name: Bug report
+description: Something does not work the way the docs say
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got. Paste the exact error text.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The smallest sequence that shows it. A `govibe new` app plus one change is ideal.
+      placeholder: |
+        govibe new github.com/acme/repro && cd repro
+        go tool govibe make resource order
+        make dev   # then GET /api/orders
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: "`go tool govibe version` (or `govibe version`), `go version`, your OS, and whether the build carries `-tags govibe_dev`."
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: govibe doctor
+      description: The output of `go tool govibe doctor` in the app, if the problem is in an app.
+      render: text

@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/petars-dev/govibe/config"
+	"github.com/petars-dev/govibe/internal/devext"
 	"github.com/petars-dev/govibe/internal/migrate"
 	"github.com/petars-dev/govibe/internal/routeinfo"
 	"github.com/petars-dev/govibe/internal/scheduler"
@@ -33,7 +34,17 @@ type App struct {
 	Routes     func(rt *Runtime, r chi.Router) error // the app's HTTP surface
 	Commands   func(rt *Runtime) []Command           // the app's CLI commands
 	Shutdown   func(ctx context.Context) error       // called after the server has stopped
+	// DevTools adds the app's own MCP tools and pages to the dev panel. It is called
+	// only when the dev tools are mounted (a govibe_dev build outside production),
+	// after Routes and Commands, with the same rt. Declare it in a file that carries
+	// the govibe_dev build tag, so a production binary holds none of it: the field is
+	// then nil in a default build.
+	DevTools func(rt *Runtime, dev *Dev) error
 }
+
+// Dev is what DevTools is handed: it collects the app's tools and pages, and the dev
+// tools mount them (the pages under /dev/app, the tools on /dev/mcp).
+type Dev = devext.Dev
 
 // Runtime is what the framework hands the app. Nothing here is a global.
 type Runtime struct {

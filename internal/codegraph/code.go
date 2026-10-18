@@ -78,7 +78,7 @@ type codeIndex struct {
 	cfgChains  []cfgChain // cfg.A.B selector chains
 	envReads   []envRead  // os.Getenv("X") / os.LookupEnv("X")
 	cfgCalls   []cfgCall  // config.Get("a.b") / config.Unmarshal("a.b", ...), or the same methods on a config value (rt.Config.Get)
-	tools      []toolReg  // mcp.AddTool(srv, &mcp.Tool{...}, handler)
+	tools      []toolReg  // mcp.AddTool(srv, &mcp.Tool{...}, handler), govibe.DevToolFunc(...), govibe.DevTool{...}
 	toolWarns  []string
 	sql        []sqlText // SQL-looking strings used inside storage and business functions
 
@@ -641,6 +641,10 @@ func (c *collector) visit(n ast.Node) bool {
 		}
 	case *ast.CallExpr:
 		c.call(x)
+	case *ast.CompositeLit:
+		if c.frameworkType(x.Type, "DevTool") {
+			c.addDevTool(x)
+		}
 	case *ast.BasicLit:
 		if c.sql && x.Kind == token.STRING {
 			if s, err := strconv.Unquote(x.Value); err == nil {
@@ -776,6 +780,8 @@ func (c *collector) call(call *ast.CallExpr) {
 		}
 	case sel.Sel.Name == "AddTool" && guessPkgName(path) == "mcp":
 		c.addTool(call)
+	case sel.Sel.Name == "DevToolFunc" && c.ci.mods != nil && path == c.ci.mods.framework:
+		c.addDevToolFunc(call)
 	default:
 		if d, ok := moduleDir(c.ci.module, path); ok && c.ci.pkgs[d] != nil && c.ci.pkgs[d].name() == "config" &&
 			(sel.Sel.Name == "Get" || sel.Sel.Name == "Unmarshal") {
@@ -827,6 +833,71 @@ func (c *collector) addTool(call *ast.CallExpr) {
 	c.ci.tools = append(c.ci.tools, tr)
 }
 
+// addDevToolFunc records govibe.DevToolFunc("name", "description", handler): an MCP
+// tool the application adds to its dev server through App.DevTools. The handler's
+// second parameter is the arguments struct.
+func (c *collector) addDevToolFunc(call *ast.CallExpr) {
+	if len(call.Args) < 3 {
+		return
+	}
+	pos := c.fset.Position(call.Pos())
+	tr := toolReg{site: c.site(call.Pos())}
+	tr.name, _ = constString(call.Args[0])
+	tr.description, _ = constString(call.Args[1])
+	if tr.name == "" {
+		c.ci.toolWarns = append(c.ci.toolWarns, fmt.Sprintf("%s:%d: DevToolFunc with a name that is not a string constant, tool not indexed", pos.Filename, pos.Line))
+		return
+	}
+	if fl, ok := call.Args[2].(*ast.FuncLit); ok {
+		tr.input, tr.emptyInput = paramType(fl, 1)
+	}
+	c.ci.tools = append(c.ci.tools, tr)
+}
+
+// addDevTool records a govibe.DevTool{Name: "x", Description: "..."} literal: the
+// untyped form of an application's dev tool (its Run reads raw JSON, so it has no
+// input struct to describe).
+func (c *collector) addDevTool(lit *ast.CompositeLit) {
+	pos := c.fset.Position(lit.Pos())
+	tr := toolReg{site: c.site(lit.Pos())}
+	for _, el := range lit.Elts {
+		kv, ok := el.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		switch key.Name {
+		case "Name":
+			tr.name, _ = constString(kv.Value)
+		case "Description":
+			tr.description, _ = constString(kv.Value)
+		}
+	}
+	if tr.name == "" {
+		c.ci.toolWarns = append(c.ci.toolWarns, fmt.Sprintf("%s:%d: DevTool with a Name that is not a string constant, tool not indexed", pos.Filename, pos.Line))
+		return
+	}
+	c.ci.tools = append(c.ci.tools, tr)
+}
+
+// frameworkType reports whether a type expression names Name in the framework's root
+// package (govibe.Name), by the file's imports.
+func (c *collector) frameworkType(e ast.Expr, name string) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != name || c.ci.mods == nil {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	path, ok := c.imps[id.Name]
+	return ok && path == c.ci.mods.framework
+}
+
 func toolLiteral(e ast.Expr) *ast.CompositeLit {
 	if u, ok := e.(*ast.UnaryExpr); ok && u.Op == token.AND {
 		e = u.X
@@ -837,7 +908,11 @@ func toolLiteral(e ast.Expr) *ast.CompositeLit {
 
 // handlerInput returns the name of the third parameter's type of a tool
 // handler literal, or reports that it is struct{}.
-func handlerInput(fl *ast.FuncLit) (name string, empty bool) {
+func handlerInput(fl *ast.FuncLit) (name string, empty bool) { return paramType(fl, 2) }
+
+// paramType returns the name of the type of a function literal's i-th parameter
+// (counting from 0), or reports that it is struct{}.
+func paramType(fl *ast.FuncLit, i int) (name string, empty bool) {
 	var types []ast.Expr
 	for _, f := range fl.Type.Params.List {
 		n := len(f.Names)
@@ -848,10 +923,10 @@ func handlerInput(fl *ast.FuncLit) (name string, empty bool) {
 			types = append(types, f.Type)
 		}
 	}
-	if len(types) < 3 {
+	if len(types) <= i {
 		return "", false
 	}
-	switch t := types[2].(type) {
+	switch t := types[i].(type) {
 	case *ast.Ident:
 		return t.Name, false
 	case *ast.StructType:

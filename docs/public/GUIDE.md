@@ -45,6 +45,7 @@ func newApp() govibe.App {
 		Assets:     assets.FS,        // embedded static files, served at /assets
 		Routes:     routes.Register,  // func(rt *govibe.Runtime, r chi.Router) error
 		Commands:   routes.Console,   // func(rt *govibe.Runtime) []govibe.Command: CLI commands, some of them scheduled
+		DevTools:   routes.DevTools,  // func(rt *govibe.Runtime, dev *govibe.Dev) error: your own dev tools (nil in a default build)
 	}
 }
 
@@ -59,6 +60,37 @@ A CLI command is one `govibe.Command`, declared in a `console.go` beside your ro
 the app is up. The same function serves `./app items:prune` and the scheduled run. `./app schedule list` shows what is scheduled and when it is next due, with no database; `serve --no-schedule`
 keeps the scheduler off an instance; `./app schedule run` runs it alone as a worker. See `GoVibe: Commands and Scheduler`.
 
+## Your own dev tools
+The panel and the MCP server are the framework's, but an app can add to them: an MCP tool that answers a question only your code can
+(the invoices of the day, the state of a queue), or a page that shows it. Declare them in a file that carries the `govibe_dev` build tag, so a
+production binary holds none of it, and hand them over through a variable the tagged file sets:
+```go
+// routes/devtools.go (no tag): the hand-over, nil in a default build
+var DevTools func(rt *govibe.Runtime, dev *govibe.Dev) error
+
+// routes/devtools_dev.go
+//go:build govibe_dev
+
+func init() { DevTools = registerDevTools }
+
+func registerDevTools(rt *govibe.Runtime, dev *govibe.Dev) error {
+	svc := billing.New(invoicestore.New(rt.DB))
+	dev.Tool(govibe.DevToolFunc("invoices_summary", "Count the invoices, by status when one is given.",
+		func(ctx context.Context, in struct {
+			Status string `json:"status,omitempty" jsonschema:"only invoices in this status"`
+		}) (billing.Summary, error) {
+			return svc.Summary(ctx, in.Status)
+		}))
+	dev.Page("/invoices", "Invoices", controllers.DevInvoices(svc)) // served at /dev/app/invoices, linked from /dev
+	return nil
+}
+```
+and `DevTools: routes.DevTools` in the declaration. The framework calls it only when it mounts the dev tools, after `Routes` and `Commands`,
+with the same runtime. The tool appears in `tools/list` of `/dev/mcp` with a schema from its arguments struct, `/dev` lists the tools and
+links the pages, and the project graph indexes the tool (origin `app`, registered by your function), so `graph_context` finds it. Names of
+the framework's families (`graph_`, `db_`, `schedule_`) are refused and said so on `/dev`; an error or a panic in a tool is a failed call,
+never a dead server.
+
 ## Layers
 ```text
 controllers, commands  ->  business/{actions,services}  ->  storage/<store>
@@ -71,6 +103,9 @@ controllers, commands  ->  business/{actions,services}  ->  storage/<store>
   them is a finding that names the import and where it is written.
 
 ## What you run
+Inside an app, run the tool as `go tool govibe`: `go.mod` pins it next to the framework, so the tool that judges the project is the version the
+project builds against. A globally installed `govibe` is needed once, for `govibe new`; run inside an app that pins another version it hands
+every other command to `go tool govibe` itself and says so (`GOVIBE_SHIM=off` keeps the global one). `govibe version` prints both versions.
 - `make dev` (or `go run -tags govibe_dev .`) runs the app with the dev tools compiled in: the panel at `/dev`, the docs at `/dev/docs`, the
   project graph at `/dev/graph`, the database explorer at `/dev/db` (with a DSN), the scheduler at `/dev/schedule` and the MCP server at `/dev/mcp`.
 - A default build (no tag) contains none of it: the dev stack is not linked, `/dev/*` answers 404, and pages that link to the panel render

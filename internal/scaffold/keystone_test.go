@@ -47,7 +47,7 @@ func TestKeystone(t *testing.T) {
 	}
 	k.treeIsClean()
 
-	t.Log("overlay: a scheduled command")
+	t.Log("overlay: a scheduled command, and the app's own dev tool and page (App.DevTools)")
 	o := Options{Module: "github.com/keystone/shop", FrameworkModule: "github.com/petars-dev/govibe", Replace: checkout}
 	if err := o.Complete(); err != nil {
 		t.Fatal(err)
@@ -138,6 +138,31 @@ func TestKeystone(t *testing.T) {
 		if len(sched.Tasks) != 1 || sched.Tasks[0].Name != "greeting:log" {
 			t.Errorf("schedule_status = %+v", sched)
 		}
+		// The app's own dev tool and page (T7.3): the page under /dev/app, linked from /dev;
+		// the tool on /dev/mcp, answering with the app's code; and the tool in the app's graph,
+		// registered by the app's function.
+		if page := k.get(base+"/dev/app/greeting", 200); !strings.Contains(page, "Hello GoVibe!") {
+			t.Errorf("GET /dev/app/greeting:\n%s", page)
+		}
+		if index := k.get(base+"/dev", 200); !strings.Contains(index, `href="/dev/app/greeting"`) || !strings.Contains(index, "greeting_preview") {
+			t.Error("/dev does not list the app's dev page and tool")
+		}
+		var greeting struct{ Message string }
+		k.mcp(base, "greeting_preview", `{}`, &greeting)
+		if greeting.Message != "Hello GoVibe!" {
+			t.Errorf("greeting_preview = %+v", greeting)
+		}
+		var toolCtx struct {
+			Node struct {
+				ID     string `json:"id"`
+				Kind   string `json:"kind"`
+				Origin string `json:"origin"`
+			} `json:"node"`
+		}
+		k.mcp(base, "graph_context", `{"node":"tool:greeting_preview"}`, &toolCtx)
+		if toolCtx.Node.ID != "tool:greeting_preview" || toolCtx.Node.Kind != "mcp_tool" || toolCtx.Node.Origin != "app" {
+			t.Errorf("graph_context on the app's tool = %+v", toolCtx)
+		}
 	})
 
 	t.Log("the production build: no dev tooling, no dev link (A7)")
@@ -148,7 +173,7 @@ func TestKeystone(t *testing.T) {
 		if strings.Contains(page, `href="/dev`) {
 			t.Error("the production page links to /dev")
 		}
-		for _, p := range []string{"/dev", "/dev/graph", "/dev/docs", "/dev/mcp", "/dev/schedule", "/_govibe/static/graph.js", "/assets/static/graph.js"} {
+		for _, p := range []string{"/dev", "/dev/graph", "/dev/docs", "/dev/mcp", "/dev/schedule", "/dev/app/greeting", "/_govibe/static/graph.js", "/assets/static/graph.js"} {
 			k.get(base+p, 404)
 		}
 		k.get(base+"/api/hello", 200)

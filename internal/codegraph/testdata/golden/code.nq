@@ -54,7 +54,7 @@
 <file:devmcp/devmcp.go> <type> <kind:file> <layer:code> .
 <file:main.go> <generated> "False"^^<schema:Boolean> <layer:code> .
 <file:main.go> <in_package> <pkg:.> <layer:code> .
-<file:main.go> <lines> "32"^^<schema:Integer> <layer:code> .
+<file:main.go> <lines> "33"^^<schema:Integer> <layer:code> .
 <file:main.go> <name> "main.go" <layer:code> .
 <file:main.go> <path> "main.go" <layer:code> .
 <file:main.go> <type> <kind:file> <layer:code> .
@@ -76,6 +76,18 @@
 <file:routes/console.go> <name> "console.go" <layer:code> .
 <file:routes/console.go> <path> "routes/console.go" <layer:code> .
 <file:routes/console.go> <type> <kind:file> <layer:code> .
+<file:routes/devtools.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:routes/devtools.go> <in_package> <pkg:routes> <layer:code> .
+<file:routes/devtools.go> <lines> "8"^^<schema:Integer> <layer:code> .
+<file:routes/devtools.go> <name> "devtools.go" <layer:code> .
+<file:routes/devtools.go> <path> "routes/devtools.go" <layer:code> .
+<file:routes/devtools.go> <type> <kind:file> <layer:code> .
+<file:routes/devtools_dev.go> <generated> "False"^^<schema:Boolean> <layer:code> .
+<file:routes/devtools_dev.go> <in_package> <pkg:routes> <layer:code> .
+<file:routes/devtools_dev.go> <lines> "41"^^<schema:Integer> <layer:code> .
+<file:routes/devtools_dev.go> <name> "devtools_dev.go" <layer:code> .
+<file:routes/devtools_dev.go> <path> "routes/devtools_dev.go" <layer:code> .
+<file:routes/devtools_dev.go> <type> <kind:file> <layer:code> .
 <file:routes/routes.go> <generated> "False"^^<schema:Boolean> <layer:code> .
 <file:routes/routes.go> <in_package> <pkg:routes> <layer:code> .
 <file:routes/routes.go> <lines> "28"^^<schema:Integer> <layer:code> .
@@ -251,6 +263,19 @@
 <func:routes.New> <name> "New" <layer:code> .
 <func:routes.New> <signature> "func New(db *sql.DB) http.Handler" <layer:code> .
 <func:routes.New> <type> <kind:func> <layer:code> .
+<func:routes.init> <defined_in> <file:routes/devtools_dev.go> <layer:code> .
+<func:routes.init> <exported> "False"^^<schema:Boolean> <layer:code> .
+<func:routes.init> <line> "15"^^<schema:Integer> <layer:code> .
+<func:routes.init> <name> "init" <layer:code> .
+<func:routes.init> <signature> "func init()" <layer:code> .
+<func:routes.init> <type> <kind:func> <layer:code> .
+<func:routes.registerDevTools> <defined_in> <file:routes/devtools_dev.go> <layer:code> .
+<func:routes.registerDevTools> <doc> "registerDevTools adds the orders tool and page to the dev panel of a dev build." <layer:code> .
+<func:routes.registerDevTools> <exported> "False"^^<schema:Boolean> <layer:code> .
+<func:routes.registerDevTools> <line> "26"^^<schema:Integer> <layer:code> .
+<func:routes.registerDevTools> <name> "registerDevTools" <layer:code> .
+<func:routes.registerDevTools> <signature> "func registerDevTools(rt *stubfw.Runtime, dev *stubfw.Dev) error" <layer:code> .
+<func:routes.registerDevTools> <type> <kind:func> <layer:code> .
 <func:storage/orderstore.New> <defined_in> <file:storage/orderstore/orderstore.go> <layer:code> .
 <func:storage/orderstore.New> <doc> "New returns a Store over db." <layer:code> .
 <func:storage/orderstore.New> <exported> "True"^^<schema:Boolean> <layer:code> .
@@ -354,7 +379,7 @@
 <pkg:middleware> <type> <kind:package> <layer:code> .
 <pkg:routes> <arch_layer> "wiring" <layer:code> .
 <pkg:routes> <doc> "Package routes wires every route in one place." <layer:code> .
-<pkg:routes> <external_imports> "4"^^<schema:Integer> <layer:code> .
+<pkg:routes> <external_imports> "6"^^<schema:Integer> <layer:code> .
 <pkg:routes> <import_path> "example.com/fixture/routes" <layer:code> .
 <pkg:routes> <imports> <pkg:business/services/orders> <layer:code> .
 <pkg:routes> <imports> <pkg:commands> <layer:code> .
@@ -427,6 +452,18 @@
 <typ:mcp.Tool> <name> "Tool" <layer:code> .
 <typ:mcp.Tool> <signature> "type Tool struct" <layer:code> .
 <typ:mcp.Tool> <type> <kind:type> <layer:code> .
+<typ:routes.ordersCountIn> <defined_in> <file:routes/devtools_dev.go> <layer:code> .
+<typ:routes.ordersCountIn> <exported> "False"^^<schema:Boolean> <layer:code> .
+<typ:routes.ordersCountIn> <line> "17"^^<schema:Integer> <layer:code> .
+<typ:routes.ordersCountIn> <name> "ordersCountIn" <layer:code> .
+<typ:routes.ordersCountIn> <signature> "type ordersCountIn struct" <layer:code> .
+<typ:routes.ordersCountIn> <type> <kind:type> <layer:code> .
+<typ:routes.ordersCountOut> <defined_in> <file:routes/devtools_dev.go> <layer:code> .
+<typ:routes.ordersCountOut> <exported> "False"^^<schema:Boolean> <layer:code> .
+<typ:routes.ordersCountOut> <line> "21"^^<schema:Integer> <layer:code> .
+<typ:routes.ordersCountOut> <name> "ordersCountOut" <layer:code> .
+<typ:routes.ordersCountOut> <signature> "type ordersCountOut struct" <layer:code> .
+<typ:routes.ordersCountOut> <type> <kind:type> <layer:code> .
 <typ:storage/orderstore.Order> <defined_in> <file:storage/orderstore/orderstore.go> <layer:code> .
 <typ:storage/orderstore.Order> <doc> "Order is one row of the orders table." <layer:code> .
 <typ:storage/orderstore.Order> <exported> "True"^^<schema:Boolean> <layer:code> .

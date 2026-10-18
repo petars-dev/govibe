@@ -1,8 +1,19 @@
 # Upgrading GoVibe
 
-GoVibe follows semantic versions. Before `v1.0.0` a minor version may change the public surface (the packages `govibe`, `config`, `web` and
-`govibetest`), and every such change is listed here with what to do about it. Everything outside those four packages is `internal/` and can change
-in any release.
+## Versioning policy
+GoVibe follows [semantic versioning](https://semver.org). The public surface is four packages, `govibe`, `config`, `web` and `govibetest`, plus what
+a generated app is given (the managed files, the CLI of the tool and the runtime commands of an app binary, the `inspect --json` document's schema,
+the settings in `config/defaults.yml`). Everything under `internal/` can change in any release.
+
+- **Before `v1.0.0`**, a minor version (`v0.2.0`, `v0.3.0`) may change the public surface. Every such change is listed below under its version with what
+  to do about it, and `go tool govibe upgrade` prints the notes of the versions you cross. A patch version (`v0.1.1`) changes behaviour only to fix it.
+- **From `v1.0.0`**, the public surface changes only with a major version; a minor adds, a patch fixes.
+- **One version.** The tool and the library are released together and must match: `go.mod` pins both (`require` and `tool`), `govibe doctor` warns
+  when they differ, and a global `govibe` of another version hands its commands to the pinned one.
+- **Dependencies.** The Go version a generated app gets is the framework's own (`go 1.25.0`); the tools it pins (templ, air) are the versions this
+  release tested; htmx is served by the framework and its version is per release.
+- **Releases** are git tags on `main`, each with a section below and a GitHub release that carries it. The `ci` workflow checks the API against the
+  last tag with `gorelease` before a release is cut.
 
 ## How to upgrade
 1. Bump the framework: `go get github.com/petars-dev/govibe@<version>`, then `go mod tidy`.
@@ -16,6 +27,17 @@ in any release.
    crossed are printed. `--dry-run` shows the plan first.
 
 ## Unreleased
+- Nothing yet.
+
+## v0.1.0
+The first release: the framework as a dependency, with the Hello GoVibe demo as every new app's start. Nothing to upgrade from; the notes record what
+the extraction changed for anyone who was tracking the repository before it.
+- An app can add its own MCP tools and pages to the dev panel: `App.DevTools` (`func(rt *govibe.Runtime, dev *govibe.Dev) error`), with `dev.Tool`
+  (`govibe.DevToolFunc` for typed arguments) and `dev.Page`; the pages are served under /dev/app and the tools on /dev/mcp, both only in a `govibe_dev`
+  build. Declare it in a tagged file (see "GoVibe: Guide"). `inspect --json` reports `contributes.dev_tools`; the schema number is unchanged. Existing apps
+  need nothing.
+- A globally installed `govibe` run inside an app that pins another version hands every command but `new`, `version` and `help` to `go tool govibe`
+  (`GOVIBE_SHIM=off` keeps the global one); `govibe version` prints both. Nothing to do.
 - `govibe make <kind> <name>` generates a page, a resource (table, store, service, JSON controller, routes, docs), an action, a service, a store, a migration, a
   middleware, a command (`--schedule` adds the schedule and a test on the fake clock), a typed config (`make config`) or a spec, in the layers and at the markers
   a generated app has (`// govibe:routes`, `// govibe:commands`; the snippet is printed when a marker is missing). `govibe upgrade` rewrites the managed files for

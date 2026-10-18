@@ -27,7 +27,7 @@ application. (The rules an application follows, and the plan that produced this 
 ## Packages
 - `govibe` (the module root, `govibe.go`): the public entry point. `App`, `Runtime`, `Command` and `RunFunc` are aliases of the
   kernel's types; `Main` and `Run` run an app. The app declares what it contributes (`Config`, `Migrations`, `Assets`, `Routes`,
-  `Commands`, `Shutdown`, all optional); the framework runs it.
+  `Commands`, `Shutdown`, `DevTools`, all optional); the framework runs it. `Dev`, `DevTool` and `DevToolFunc` are what `DevTools` works with.
 - `config`: the layered loader. `config.Load(fs)` merges the framework defaults (`config/defaults.yml`, embedded here) under the
   app's `env.yml`, resolves `${ENV:default}` placeholders from the process environment, and returns a `Config` value (no globals).
 - `web`: what an app's controllers and views share with the framework: the vendored htmx 2.0 build served at
@@ -41,6 +41,8 @@ application. (The rules an application follows, and the plan that produced this 
   required, parsed argument.
 - `internal/scheduler`: the scheduler's engine: validated cron specs (a wrapper over the `robfig/cron/v3` parser, nothing else of it), a runner with overlap, timeout, panic recovery, an in-memory run history and
   an optional cross-instance lock (`GET_LOCK`), and a clock a test can drive (`scheduler.Fake`). It knows nothing of commands, the kernel or the dev tools.
+- `internal/devext`: the dev panel as an app sees it (`Dev`: `Tool`, `Page`, `Handle`), a collector with no dependency on the dev stack, so the
+  public API can name it and a default build links none of the dev tools through it. The kernel hands one to `App.DevTools`; `devtools.Mount` mounts what it holds.
 - `internal/routeinfo`: reads a chi router into plain data (method, path, handler by symbol, file and line, middleware); shared by the
   kernel's `routes` and `inspect` and by the graph's routes layer, and light enough to link into a production binary.
 - `internal/devtools` and `internal/devtools/devui`: the dev panel (below). `devui` holds the pages' handlers and their embedded
@@ -135,6 +137,18 @@ registered it), `schedule list|run`, `version`, `inspect --json` (the routes, th
   a dev build). An app's own files live under `/assets`, and an app that registers a route in a reserved prefix fails to boot.
 - `web.IfDev` wraps links to `/dev/*` in app pages: the kernel marks the request context when it mounts the tools, so a link is
   rendered only where it is not dead.
+- **The app's own dev tools** (`App.DevTools`, Phase 7). An app can add MCP tools and pages to the panel: the kernel calls `DevTools(rt, dev)`
+  only when it mounts the dev tools (after `Routes` and `Commands`, with the same runtime), `dev.Tool` registers an MCP tool on `/dev/mcp`
+  (`govibe.DevToolFunc` gives it typed arguments; the schema comes from the arguments struct the way the framework's own tools get theirs;
+  the `graph_`, `db_` and `schedule_` families are refused), `dev.Page` and `dev.Handle` register handlers that the framework mounts under
+  `/dev/app` (the one place inside the reserved namespace that is the app's: the graph's routes layer gives those routes origin `app`), and
+  `/dev` lists both. A refused registration is logged and shown on `/dev`; an error from `DevTools` leaves the app's part out and the panel up;
+  a tool that returns an error or panics is a failed call to the agent, never a dead server. The convention is a variable the app's tagged
+  file sets (routes/devtools.go declares `var DevTools func(rt *govibe.Runtime, dev *govibe.Dev) error`, routes/devtools_dev.go, tagged
+  `govibe_dev`, sets it in `init` and holds the registrations; `main.go` passes `DevTools: routes.DevTools`), so a default build compiles none of
+  it and the field is nil there; `inspect --json` reports `contributes.dev_tools` for the build that answers. The graph's `mcp` layer indexes a
+  `DevToolFunc` call or a `DevTool` literal like an `mcp.AddTool`: the tool node, origin `app`, its schema, and `registers` from the function
+  that holds it, so `graph_context` and `graph_impact` see the app's tools next to the framework's.
 
 ## Dev tooling: what it serves
 - `/dev` (the front door), `/dev/docs`, `/dev/graph`, `/dev/db`, `/dev/schedule` (and its `/data` JSON and `POST /dev/schedule/run/{name}`) and `/dev/mcp` are mounted by `devtools.Mount` (`internal/devtools`), which the kernel calls only in a `govibe_dev` build and only when `!cfg.IsProd()`; none of them exist in a production process. The panel's own files (stylesheets, scripts, the graph renderer, cytoscape, the logo) are the framework's: they are embedded in `internal/devtools/devui` and served at `/_govibe/static`, never from the app's `/assets`. The explorer shares the app's one database pool.
@@ -225,6 +239,33 @@ and says what is wrong with a project before it costs time.
   environment (an invalid schedule or a registration that opens a connection fails here with the app's own words), static files or migrations on
   disk that the declaration does not hand to the framework (from `contributes` in the document), and a dev package in `go list -deps -tags ''`.
   Exit 1 on a failure. `govibe check` runs the static checks before the gate and prints what is not ok.
+
+## Hardening and open source (Phase 7)
+Phase 7 of `docs/specs/SPEC_FRAMEWORK_EXTRACTION.md`: the version shim, `App.DevTools` (above), the Option D decision, and the repository as an
+open-source project.
+
+- **The version shim** (`cmd/govibe/shim.go`). A globally installed `govibe` is needed once, for `govibe new`. Inside an application, every other
+  command runs as the version the app pins: before cobra sees the arguments, `main` reads the nearest `go.mod` (from `--root`, `GOVIBE_ROOT` or the
+  working directory up), and when it requires the framework at a version other than this binary's and pins the tool (`tool github.com/petars-dev/govibe/cmd/govibe`),
+  it runs `go tool govibe <the same arguments>` in the same directory with `GOVIBE_SHIMMED=1` (the child never shims again), says so on stderr in one
+  line, and exits with the child's status. It never delegates for `new`, `version`, `help` and `completion`, when the app replaces the framework with a
+  checkout (the pin is `v0.0.0`, and `go tool govibe` would be this flow again), when `go.mod` does not pin the tool, or with `GOVIBE_SHIM=off`. This
+  closes AM14 together with the doctor's version check: a stale global tool can no longer judge a project by rules the project does not build against.
+  `govibe version` prints the tool's version and, inside a project, the version it pins.
+- **Option D, decided: no.** The out-of-process dev host (a supervisor that builds and runs the app, hosts the panel and proxies to the app) was
+  evaluated in spike S10 (`docs/spikes/notes/S10.md`): the proxy adds about 60 microseconds and halves the throughput of a trivial handler on
+  loopback (tolerable), bolt's file lock means a supervisor could not read the store while the app process holds it (a second open times out, read-only
+  included), and with Air's `stop_on_error`, a failing build stops the old binary and with it the panel, so the one real benefit, a panel that survives a
+  broken build, is real. It is not worth a supervisor, a proxy and a second process model for v1: what an agent needs when the build is broken is the
+  graph, the findings and the docs, and those come from source, not from the process. The answer is in the tool, in the backlog: a `govibe mcp` command
+  serving the graph tools over stdio from a scratch store, without the app running. Option C stays.
+- **Open source.** `README.md` is written for a visitor; `CONTRIBUTING.md` (how to work on the framework, the tests both ways, the gates, scratch
+  copies, the keystone, the release steps), `SECURITY.md` (how to report, what is and is not in scope: the dev tools are not meant to be exposed),
+  issue and pull request templates under `.github`, the versioning policy in `docs/public/UPGRADING.md` (semver; before 1.0 a minor may change the four
+  public packages, each change listed there; `internal/` changes freely), and `go doc` examples for `govibe`, `config` and `web` (`example_test.go` next to each;
+  `govibetest` documents its use in its package comment). The `ci` workflow gained an `api` job (`gorelease` against the last tag, once one exists), and `.github/workflows/release.yml` publishes a GitHub release
+  from the `UPGRADING.md` section of the tag when a `v*` tag is pushed. The history and the tree were scanned for private references: none beyond the
+  committers' own addresses in the git log.
 
 ## The project profile and the app's own graph
 Phase 3 of `docs/specs/SPEC_FRAMEWORK_EXTRACTION.md`. The graph, the findings, the reports, the docs and the agent tools are about the

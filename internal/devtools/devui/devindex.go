@@ -28,6 +28,22 @@ type DevInfo struct {
 	// Schedule reads the scheduler as it is now, for the scheduler card; nil leaves the
 	// card out.
 	Schedule func() schedview.Status
+	// AppPages, AppTools and AppProblems are what the application added to the panel
+	// through App.DevTools: its pages (linked), the names of its MCP tools, and what it
+	// tried to register and was refused.
+	AppPages    []DevPage
+	AppTools    []string
+	AppProblems []string
+}
+
+// DevPage is one page the application added to the panel.
+type DevPage struct {
+	Path, Title string
+}
+
+// HasAppDev reports whether the application added anything to the panel, or tried to.
+func (i DevInfo) HasAppDev() bool {
+	return len(i.AppPages) > 0 || len(i.AppTools) > 0 || len(i.AppProblems) > 0
 }
 
 // DevCommand is one command of the application.
@@ -176,6 +192,7 @@ const devIndexHTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"
 {{else}}<div class="card off"><h2>Database</h2><p>No database is configured. Set <code>MARIADB_DSN</code> to enable the explorer.</p></div>{{end}}
 {{if .MCP}}<div class="card"><h2><a href="/dev/mcp">MCP server</a></h2><p>For local agents: <code>http://{{.Host}}/dev/mcp</code>. Start with the <code>graph_schema</code> tool.</p></div>{{end}}
 {{with .Sched}}<div class="card{{if eq .State "none"}} off{{end}}"><h2><a href="/dev/schedule">Scheduler</a></h2><p>{{if eq .State "none"}}No command is scheduled. Give one a <code>Schedule</code> in <code>routes/console.go</code>.{{else}}{{.Scheduled}} scheduled of {{.Commands}} {{plural .Commands "command" "commands"}}{{if eq .State "running"}}, running{{else if eq .State "disabled"}}, disabled (<code>scheduler.enabled</code> is false){{else}}, not started in this process{{end}}.{{with $.SchedNext}} Next: <code>{{.Name}}</code> {{.NextIn}}.{{end}}{{end}}</p></div>{{end}}
+{{if .HasAppDev}}<div class="card"><h2>Your dev tools</h2><p>What this app adds to the panel through <code>App.DevTools</code>{{if .AppTools}}; its MCP tools: {{range $i, $t := .AppTools}}{{if $i}}, {{end}}<code>{{$t}}</code>{{end}}{{end}}.</p>{{if .AppPages}}<ul class="cmds">{{range .AppPages}}<li><a href="{{.Path}}">{{.Title}}</a> <code>{{.Path}}</code></li>{{end}}</ul>{{end}}{{if .AppProblems}}<ul class="cmds">{{range .AppProblems}}<li><span class="sev warning">refused</span> {{.}}</li>{{end}}</ul>{{end}}</div>{{end}}
 {{if .Commands}}<div class="card"><h2>Commands</h2><p>Run with <code>./{{.AppName}} &lt;name&gt;</code>.</p><ul class="cmds">{{range .Commands}}<li><code>{{.Name}}</code>{{if .Short}}: {{.Short}}{{end}}</li>{{end}}</ul></div>{{end}}
 </div>
 </main></body></html>`

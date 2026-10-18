@@ -322,10 +322,18 @@ func reservedPath(p string) bool {
 	return false
 }
 
+// appDevPrefix is where the framework mounts the pages an application adds to the dev
+// panel through App.DevTools: inside the reserved namespace, but the application's own.
+const appDevPrefix = "/dev/app"
+
 // routeOrigin says who registered a route: the framework when it did so before the
 // application's Routes ran (the build facts say which), or when the route is in a
-// namespace the framework reserves, and the application otherwise.
+// namespace the framework reserves (except /dev/app, the application's own dev pages),
+// and the application otherwise.
 func routeOrigin(facts BuildFacts, r routeinfo.Route) string {
+	if r.Path == appDevPrefix || strings.HasPrefix(r.Path, appDevPrefix+"/") {
+		return OriginApp
+	}
 	if facts.FrameworkRoutes[r.Key()] || reservedPath(r.Path) {
 		return OriginFramework
 	}

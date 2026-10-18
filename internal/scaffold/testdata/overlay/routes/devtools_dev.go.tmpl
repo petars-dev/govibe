@@ -1,0 +1,31 @@
+//go:build govibe_dev
+
+package routes
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/petars-dev/govibe"
+
+	"[[.Module]]/business/actions"
+)
+
+func init() { DevTools = registerDevTools }
+
+type greetingOut struct {
+	Message string `json:"message"`
+}
+
+// registerDevTools adds the keystone's dev tool and page: an MCP tool that previews the
+// greeting, and a page that shows it, both backed by the app's own action.
+func registerDevTools(rt *govibe.Runtime, dev *govibe.Dev) error {
+	dev.Tool(govibe.DevToolFunc("greeting_preview", "Preview the greeting the app serves.",
+		func(ctx context.Context, in struct{}) (greetingOut, error) {
+			return greetingOut{Message: actions.Hello()}, nil
+		}))
+	dev.Page("/greeting", "Greeting", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("<h1>" + actions.Hello() + "</h1>"))
+	}))
+	return nil
+}

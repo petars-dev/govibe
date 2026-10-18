@@ -8,12 +8,14 @@ import (
 	"strings"
 )
 
-// mcpLayer indexes the MCP tools the application registers with
-// mcp.AddTool(srv, &mcp.Tool{Name: ..., Description: ...}, handler). A tool is
-// traced to code by the function that registers it (`func --registers--> tool`):
-// a handler literal is a closure, and a closure resolves to its enclosing
-// function, so that is the registering function. Everything comes from the code
-// index, so the layer has no inputs of its own.
+// mcpLayer indexes the MCP tools the application registers: with
+// mcp.AddTool(srv, &mcp.Tool{Name: ..., Description: ...}, handler) on a server of
+// its own, or on the framework's dev server through App.DevTools, as
+// govibe.DevToolFunc("name", "description", handler) or a govibe.DevTool{...}
+// literal. A tool is traced to code by the function that registers it
+// (`func --registers--> tool`): a handler literal is a closure, and a closure
+// resolves to its enclosing function, so that is the registering function.
+// Everything comes from the code index, so the layer has no inputs of its own.
 type mcpLayer struct{}
 
 func (mcpLayer) name() string                       { return "mcp" }

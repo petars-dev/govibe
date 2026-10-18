@@ -68,6 +68,7 @@ func (b *Built) Inspect() Inspect {
 	doc.App.Contributes = routeinfo.InspectContributes{
 		Config: b.App.Config != nil, Migrations: b.App.Migrations != nil, Assets: b.App.Assets != nil,
 		Routes: b.App.Routes != nil, Commands: b.App.Commands != nil, Shutdown: b.App.Shutdown != nil,
+		DevTools: b.App.DevTools != nil,
 	}
 	doc.Framework.Module = FrameworkModule()
 	doc.Framework.Version = "(devel)"

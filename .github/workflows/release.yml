@@ -1,0 +1,47 @@
+name: release
+
+# A release is a tag on main. The workflow proves the tag the way ci does (both builds,
+# the tests both ways), requires the version's section in docs/public/UPGRADING.md, and
+# publishes a GitHub release that carries it. The module proxy serves the tag on its own.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and test both ways
+        run: |
+          go build ./... ./examples/hello/...
+          go build -tags govibe_dev ./... ./examples/hello/...
+          go test ./... ./examples/hello/...
+          go test -tags govibe_dev ./... ./examples/hello/...
+      - name: The tool reports the tag as its version
+        run: |
+          go install ./cmd/govibe
+          out=$("$(go env GOPATH)/bin/govibe" version)
+          echo "$out"
+          echo "$out" | grep -q "govibe ${GITHUB_REF_NAME} " || { echo "the tool does not report ${GITHUB_REF_NAME} (a dirty or untagged build?)"; exit 1; }
+      - name: Extract the notes of this version
+        run: |
+          awk -v v="${GITHUB_REF_NAME}" '
+            /^## / { on = ($2 == v) ; if (on) next }
+            on { print }
+          ' docs/public/UPGRADING.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "docs/public/UPGRADING.md has no section '## ${GITHUB_REF_NAME}': add the notes before tagging"; exit 1
+          fi
+          cat "$RUNNER_TEMP/notes.md"
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag

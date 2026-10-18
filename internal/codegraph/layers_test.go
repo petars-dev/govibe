@@ -325,8 +325,28 @@ func TestMCPLayerFixtureFacts(t *testing.T) {
 		t.Errorf("warnings: %v", out.warnings)
 	}
 	f := facts{out.quads}
-	if got := f.subjects(KindMCPTool); strings.Join(got, " ") != "tool:fixture_echo tool:fixture_ping" {
+	if got := f.subjects(KindMCPTool); strings.Join(got, " ") != "tool:fixture_cache_flush tool:fixture_echo tool:fixture_orders_count tool:fixture_ping" {
 		t.Errorf("tools = %v", got)
+	}
+	// The tools the app adds to the framework's dev server through App.DevTools: a typed
+	// DevToolFunc (its schema from the handler's second parameter) and an untyped DevTool
+	// literal (no schema), both registered by the function that holds them and both the app's.
+	for _, tool := range []string{"tool:fixture_orders_count", "tool:fixture_cache_flush"} {
+		if !f.has("func:routes.registerDevTools", "registers", iri(tool)) {
+			t.Errorf("registerDevTools should register %s", tool)
+		}
+		if got := f.one(t, tool, "path"); got != str("routes/devtools_dev.go") {
+			t.Errorf("%s path = %v", tool, got)
+		}
+		if got := f.one(t, tool, "origin"); got != str(OriginApp) {
+			t.Errorf("%s origin = %v", tool, got)
+		}
+	}
+	if got := f.one(t, "tool:fixture_orders_count", "input_schema"); got != str(`{"properties":{"status":{"description":"only orders in this status","type":"string"}},"type":"object"}`) {
+		t.Errorf("fixture_orders_count schema = %v", got)
+	}
+	if got := f.out("tool:fixture_cache_flush", "input_schema"); len(got) != 0 {
+		t.Errorf("an untyped DevTool has a schema: %v", got)
 	}
 	for _, tool := range []string{"tool:fixture_echo", "tool:fixture_ping"} {
 		if !f.has("func:devmcp.registerTools", "registers", iri(tool)) {

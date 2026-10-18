@@ -33,3 +33,22 @@ func TestDefaultBuildMountsNoDevTools(t *testing.T) {
 		t.Errorf("htmx = %d", code)
 	}
 }
+
+// A default build never calls App.DevTools: there is no panel to add to.
+func TestDefaultBuildNeverCallsDevTools(t *testing.T) {
+	isolate(t)
+	t.Setenv("APP_ENV", "dev")
+	app := probeApp()
+	app.DevTools = func(rt *Runtime, dev *Dev) error {
+		t.Error("DevTools was called in a default build")
+		return nil
+	}
+	b, err := Build(context.Background(), app, Options{Dev: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if code, _, _ := get(t, b.Router, "/dev/app/anything"); code != 404 {
+		t.Errorf("/dev/app/anything = %d", code)
+	}
+}

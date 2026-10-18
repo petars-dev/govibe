@@ -48,6 +48,9 @@ type InspectContributes struct {
 	Routes     bool `json:"routes"`
 	Commands   bool `json:"commands"`
 	Shutdown   bool `json:"shutdown"`
+	// DevTools is true when the binary that answers has an App.DevTools: a govibe_dev
+	// build with the app's dev file compiled in. A default build reports false.
+	DevTools bool `json:"dev_tools"`
 }
 
 type InspectApp struct {

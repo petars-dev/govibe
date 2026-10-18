@@ -1,0 +1,8 @@
+package routes
+
+import "github.com/petars-dev/govibe"
+
+// DevTools is what the app adds to the dev panel: its own MCP tools and pages, for the
+// agents and people working on it. A govibe_dev build sets it (devtools_dev.go); in a
+// default build it stays nil, and a production binary holds none of that code.
+var DevTools func(rt *govibe.Runtime, dev *govibe.Dev) error

@@ -1,5 +1,13 @@
 <func:devmcp.registerTools> <registers> <tool:fixture_echo> <layer:mcp> .
 <func:devmcp.registerTools> <registers> <tool:fixture_ping> <layer:mcp> .
+<func:routes.registerDevTools> <registers> <tool:fixture_cache_flush> <layer:mcp> .
+<func:routes.registerDevTools> <registers> <tool:fixture_orders_count> <layer:mcp> .
+<tool:fixture_cache_flush> <description> "Flush the cache." <layer:mcp> .
+<tool:fixture_cache_flush> <line> "36"^^<schema:Integer> <layer:mcp> .
+<tool:fixture_cache_flush> <name> "fixture_cache_flush" <layer:mcp> .
+<tool:fixture_cache_flush> <origin> "app" <layer:mcp> .
+<tool:fixture_cache_flush> <path> "routes/devtools_dev.go" <layer:mcp> .
+<tool:fixture_cache_flush> <type> <kind:mcp_tool> <layer:mcp> .
 <tool:fixture_echo> <description> "Echo a message. Read-only." <layer:mcp> .
 <tool:fixture_echo> <input_schema> "{\"properties\":{\"message\":{\"description\":\"text to echo back\",\"type\":\"string\"},\"repeat\":{\"description\":\"how many times to repeat it\",\"type\":\"integer\"}},\"required\":[\"message\"],\"type\":\"object\"}" <layer:mcp> .
 <tool:fixture_echo> <line> "31"^^<schema:Integer> <layer:mcp> .
@@ -7,6 +15,13 @@
 <tool:fixture_echo> <origin> "app" <layer:mcp> .
 <tool:fixture_echo> <path> "devmcp/devmcp.go" <layer:mcp> .
 <tool:fixture_echo> <type> <kind:mcp_tool> <layer:mcp> .
+<tool:fixture_orders_count> <description> "Count the orders, in one status when given." <layer:mcp> .
+<tool:fixture_orders_count> <input_schema> "{\"properties\":{\"status\":{\"description\":\"only orders in this status\",\"type\":\"string\"}},\"type\":\"object\"}" <layer:mcp> .
+<tool:fixture_orders_count> <line> "28"^^<schema:Integer> <layer:mcp> .
+<tool:fixture_orders_count> <name> "fixture_orders_count" <layer:mcp> .
+<tool:fixture_orders_count> <origin> "app" <layer:mcp> .
+<tool:fixture_orders_count> <path> "routes/devtools_dev.go" <layer:mcp> .
+<tool:fixture_orders_count> <type> <kind:mcp_tool> <layer:mcp> .
 <tool:fixture_ping> <description> "Check that the dev tooling is up." <layer:mcp> .
 <tool:fixture_ping> <input_schema> "{\"type\":\"object\"}" <layer:mcp> .
 <tool:fixture_ping> <line> "38"^^<schema:Integer> <layer:mcp> .

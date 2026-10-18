@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/cayleygraph/cayley/graph"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -26,7 +27,11 @@ func NewHandler(ex *dbexplorer.Explorer, qs graph.QuadStore, ix GraphIndexer, op
 	if len(options) > 0 {
 		opt = options[0]
 	}
-	srv := newServer(opt.AppName)
+	var appTools []string
+	for _, t := range opt.AppTools {
+		appTools = append(appTools, t.Name)
+	}
+	srv := newServer(opt.AppName, appTools)
 	if ex != nil {
 		registerDBTools(srv, ex)
 	}
@@ -35,6 +40,7 @@ func NewHandler(ex *dbexplorer.Explorer, qs graph.QuadStore, ix GraphIndexer, op
 	}
 	registerScheduleTools(srv, opt.Schedule)
 	registerAppResources(srv, opt)
+	registerAppTools(srv, opt.AppTools)
 
 	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{
 		// Each tool call is independent and side-effect-free (or a single,
@@ -44,11 +50,16 @@ func NewHandler(ex *dbexplorer.Explorer, qs graph.QuadStore, ix GraphIndexer, op
 	})
 }
 
-// newServer is the MCP server with no tools on it.
-func newServer(appName string) *mcp.Server {
+// newServer is the MCP server with no tools on it. appTools names the tools the
+// application adds, so the instructions can say they are there.
+func newServer(appName string, appTools []string) *mcp.Server {
 	title := "GoVibe Dev Tools"
 	if appName != "" {
 		title = appName + " dev tools (GoVibe)"
+	}
+	own := ""
+	if len(appTools) > 0 {
+		own = "This app adds tools of its own (App.DevTools), with the app's own code behind them: " + strings.Join(appTools, ", ") + ". "
 	}
 	return mcp.NewServer(&mcp.Implementation{
 		Name:        "govibe-dev-tools",
@@ -70,7 +81,7 @@ func newServer(appName string) *mcp.Server {
 			"The graph is brought up to date before each call; edits to docs and specs show up without a restart. " +
 			"schedule_status says what the app has scheduled (its commands with a Schedule), when each runs next and how its recent runs went. " +
 			"db_* tools introspect and query the app's MariaDB/MySQL database (read-only except db_insert_test_row/db_reset_test_data, " +
-			"which require mutations to be explicitly enabled). None of this is available in production.",
+			"which require mutations to be explicitly enabled). " + own + "None of this is available in production.",
 	})
 }
 
@@ -85,7 +96,7 @@ type ToolInfo struct {
 // publishes them in its manifest, so a project's graph can name the tools its dev
 // server offers without indexing the framework.
 func Tools(ctx context.Context) ([]ToolInfo, error) {
-	srv := newServer("")
+	srv := newServer("", nil)
 	// Registration only builds closures: nothing is read from the stores until a tool is called.
 	registerDBTools(srv, nil)
 	registerGraphTools(srv, nil, nil)

@@ -28,5 +28,6 @@ func main() {
 		Name:     "fixture",
 		Handler:  routes.New(db),
 		Commands: func() []stubfw.Command { return routes.Console(db) },
+		DevTools: routes.DevTools,
 	})
 }

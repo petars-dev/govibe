@@ -35,3 +35,9 @@
 <func:routes.New> <calls> <func:devmcp.NewHandler> <layer:calls> .
 <func:routes.New> <calls> <func:middleware.RequestLogger> <layer:calls> .
 <func:routes.New> <calls> <func:storage/orderstore.New> <layer:calls> .
+<func:routes.registerDevTools> <calls> <func:business/services/orders.New> <layer:calls> .
+<func:routes.registerDevTools> <calls> <func:business/services/orders.Service.List> <layer:calls> .
+<func:routes.registerDevTools> <calls> <func:storage/orderstore.New> <layer:calls> .
+<func:routes.registerDevTools> <calls_external> <ext:example.com/stubfw.Dev.Page> <layer:calls> .
+<func:routes.registerDevTools> <calls_external> <ext:example.com/stubfw.Dev.Tool> <layer:calls> .
+<func:routes.registerDevTools> <calls_external> <ext:example.com/stubfw.DevToolFunc> <layer:calls> .

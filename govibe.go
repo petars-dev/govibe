@@ -28,6 +28,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/petars-dev/govibe/internal/devext"
 	"github.com/petars-dev/govibe/internal/kernel"
 )
 
@@ -40,10 +41,45 @@ import (
 //	Routes     func(rt *Runtime, r chi.Router) error // the app's HTTP surface
 //	Commands   func(rt *Runtime) []Command           // the app's CLI commands, some of them scheduled
 //	Shutdown   func(ctx context.Context) error       // called after the server has stopped
+//	DevTools   func(rt *Runtime, dev *Dev) error     // the app's own dev tools and pages (govibe_dev builds)
 //
 // Routes and Commands must not open connections or read secrets while they
 // register: tooling calls them with no database (rt.DB is nil) to list what exists.
+//
+// DevTools is called only when the dev tools are mounted: a govibe_dev build outside
+// production. Keep it in a file with the govibe_dev build tag and hand it over through
+// a variable, so a production binary holds none of it:
+//
+//	// routes/devtools.go
+//	//go:build govibe_dev
+//	func init() { DevTools = registerDevTools }
+//
+//	// routes/console.go: var DevTools func(rt *govibe.Runtime, dev *govibe.Dev) error
+//	// main.go: DevTools: routes.DevTools (nil in a default build)
 type App = kernel.App
+
+// Dev is the dev panel as the app sees it, handed to App.DevTools: dev.Tool adds an
+// MCP tool to /dev/mcp (see DevToolFunc), dev.Page a page at /dev/app/<path> linked
+// from /dev, dev.Handle any other handler under /dev/app. A tool with a bad name is
+// refused and logged, never a panic.
+type Dev = kernel.Dev
+
+// DevTool is an MCP tool of the app's own: a name (lower-case, underscores; the
+// framework's graph_, db_ and schedule_ families are refused), a description an agent
+// reads, a zero value of the arguments struct (its json and jsonschema tags are the
+// schema), whether it mutates, and Run, which gets the arguments as JSON and returns
+// the result. DevToolFunc builds one with typed arguments.
+type DevTool = devext.Tool
+
+// DevToolFunc is a DevTool whose arguments and result are typed: In is decoded from
+// the call's arguments (a struct with json and jsonschema tags, or struct{} for none)
+// and Out is returned as the call's structured content.
+//
+//	dev.Tool(govibe.DevToolFunc("orders_summary", "Count the orders by status.",
+//		func(ctx context.Context, in struct{}) (orders.Summary, error) { return svc.Summary(ctx) }))
+func DevToolFunc[In, Out any](name, description string, run func(ctx context.Context, in In) (Out, error)) DevTool {
+	return devext.ToolFunc(name, description, run)
+}
 
 // Runtime is what the framework hands the app: the typed configuration, a logger
 // and the one database pool (nil when no DSN is configured). Nothing here is a

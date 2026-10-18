@@ -24,6 +24,7 @@ import (
 	"github.com/petars-dev/govibe/config"
 	"github.com/petars-dev/govibe/internal/codegraph"
 	"github.com/petars-dev/govibe/internal/dbexplorer"
+	"github.com/petars-dev/govibe/internal/devext"
 	"github.com/petars-dev/govibe/internal/devmcp"
 	"github.com/petars-dev/govibe/internal/devtools/devui"
 	"github.com/petars-dev/govibe/internal/devtools/schedview"
@@ -59,6 +60,10 @@ type Deps struct {
 	// /dev/schedule page, its "Run now" and the schedule_status tool read and drive it.
 	// Nil when no command is scheduled; the page then says so and how to declare one.
 	Scheduler schedview.Source
+	// App is what the application adds to the panel through App.DevTools: its own MCP
+	// tools (registered on /dev/mcp) and pages (served under /dev/app, linked from
+	// /dev). Nil, or empty, when it adds nothing.
+	App *devext.Dev
 }
 
 // Mount registers the dev tools and starts the indexer. It never fails the
@@ -194,6 +199,26 @@ func Mount(d Deps) (stop func()) {
 	r.Get("/dev/schedule/data", devui.DevScheduleData(scheduleStatus))
 	r.Post("/dev/schedule/run/{name}", devui.DevScheduleRun(sched))
 
+	// The app's own dev pages and handlers, under /dev/app. They are the app's code,
+	// mounted here so that they exist only where the panel does.
+	appDev := d.App
+	if appDev == nil {
+		appDev = devext.New()
+	}
+	if routes := appDev.Routes(); len(routes) > 0 {
+		r.Route(devext.PagePrefix, func(a chi.Router) {
+			a.Use(web.DevNoCache)
+			for _, rt := range routes {
+				if rt.Method == "" {
+					a.Handle(rt.Pattern, rt.Handler)
+				} else {
+					a.Method(rt.Method, rt.Pattern, rt.Handler)
+				}
+			}
+		})
+		logrus.WithField("pages", len(appDev.Pages())).Info("the app's own dev pages are mounted at " + devext.PagePrefix)
+	}
+
 	// MCP server (streamable HTTP) exposing the db_* and graph_* tools to local
 	// agents, mounted only once at least one backing store exists.
 	if explorer != nil || quadStore != nil {
@@ -204,7 +229,7 @@ func Mount(d Deps) (stop func()) {
 		if indexer != nil {
 			graphIndexer = indexer
 		}
-		mcpOpts := devmcp.Options{Root: d.Root, Inspect: d.Inspect, Docs: docs.Framework, Schedule: scheduleStatus}
+		mcpOpts := devmcp.Options{Root: d.Root, Inspect: d.Inspect, Docs: docs.Framework, Schedule: scheduleStatus, AppTools: appDev.Tools()}
 		if d.Inspect != nil {
 			mcpOpts.AppName = d.Inspect.App.Name
 		}
@@ -220,6 +245,13 @@ func Mount(d Deps) (stop func()) {
 			info.Commands = append(info.Commands, devui.DevCommand{Name: c.Name, Short: c.Short})
 		}
 	}
+	for _, p := range appDev.Pages() {
+		info.AppPages = append(info.AppPages, devui.DevPage{Path: devext.PagePrefix + p.Path, Title: p.Title})
+	}
+	for _, t := range appDev.Tools() {
+		info.AppTools = append(info.AppTools, t.Name)
+	}
+	info.AppProblems = appDev.Problems()
 	index := devui.DevIndex(info, indexer)
 	r.Get("/dev", index)
 	r.Get("/dev/", index)

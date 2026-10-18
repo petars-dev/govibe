@@ -1,14 +1,30 @@
 # GoVibe
 
-GoVibe is a pragmatic Go web framework for the AI era. An application is a small Go module that depends on it and contains only
-application code; the framework runs it. It embraces:
+[![ci](https://github.com/petars-dev/govibe/actions/workflows/ci.yml/badge.svg)](https://github.com/petars-dev/govibe/actions/workflows/ci.yml)
+[![graph](https://github.com/petars-dev/govibe/actions/workflows/graph.yml/badge.svg)](https://github.com/petars-dev/govibe/actions/workflows/graph.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/petars-dev/govibe.svg)](https://pkg.go.dev/github.com/petars-dev/govibe)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-- Server-rendered HTML with [templ] and progressive interactivity via vendored [htmx]
-- A minimal router ([chi]) and thin DB access ([sqlx] over `database/sql`)
-- Plain SQL migrations ([goose]) embedded into the binary
-- A single deployable binary embedding assets, settings and migrations (no Node runtime)
-- Explicit layering (controllers -> actions/services -> storage) designed for AI-assisted changes, with a dev panel, a project graph and an MCP server
-  that let an agent see the code it is changing
+GoVibe is a pragmatic Go web framework for the AI era. An application is a small Go module that depends on it and holds only
+application code; the framework runs it. It ships with a dev panel, a queryable graph of your project and an MCP server, so the
+agents working on your code can see what they are changing, and a gate that enforces the project's own rules in CI.
+
+- **Server-rendered HTML** with [templ] and progressive interactivity with [htmx] (served by the framework; no Node)
+- **A small stack**: [chi] for routing, [sqlx] over `database/sql`, plain SQL migrations with [goose], all embedded in **one binary**
+- **Explicit layering** (controllers and commands → actions and services → storage), written down in your app's `SKILL.md` and checked by the graph
+- **CLI commands and a scheduler**: a command is one declaration; a `Schedule` on it and the framework runs it while the app serves
+- **A dev panel about your app**: `/dev` with your docs, the project graph and its findings, the database explorer, the scheduler, and
+  `/dev/mcp` for local agents; compiled in only with a build tag, so production contains none of it
+- **Tooling that knows the project**: `govibe new`, `govibe make`, `govibe check`, `govibe doctor`, `govibe upgrade`
+
+## Quick start
+```sh
+go install github.com/petars-dev/govibe/cmd/govibe@latest
+govibe new github.com/acme/shop
+cd shop && make dev
+```
+`http://localhost:8080` is the Hello GoVibe page, `http://localhost:8080/dev` the dev panel. The new app's `SKILL.md` holds the rules it
+follows and what to delete to start your own. Inside the app the tool runs as `go tool govibe`, pinned in `go.mod` next to the framework.
 
 ## What an app looks like
 ```go
@@ -18,59 +34,53 @@ var configFS embed.FS
 func main() {
 	govibe.Main(govibe.App{
 		Name:       "shop",
-		Config:     configFS,         // env.yml, layered over the framework defaults
+		Config:     configFS,         // env.yml, layered over the framework's defaults
 		Migrations: migrations.FS,    // embedded goose SQL
 		Assets:     assets.FS,        // embedded static files, served at /assets
 		Routes:     routes.Register,  // func(rt *govibe.Runtime, r chi.Router) error
+		Commands:   routes.Console,   // func(rt *govibe.Runtime) []govibe.Command, some of them scheduled
 	})
 }
 ```
-The framework never imports the app, and the app imports only four packages: `govibe`, `config`, `web` and (in tests) `govibetest`.
-The reference app, [`examples/hello`](examples/hello), is exactly this: the Hello GoVibe demo, which every new app starts with.
+Every field is optional. The framework never imports the app, and the app imports only four packages of the framework: `govibe`,
+`config`, `web` and (in tests) `govibetest`. Business logic and storage import nothing from it. The reference app,
+[`examples/hello`](examples/hello), is exactly this.
 
-## Start an app
 ```sh
-go install github.com/petars-dev/govibe/cmd/govibe@latest
-govibe new github.com/acme/shop && cd shop && make dev
+go tool govibe make resource order                                   # migration, store, service, JSON controller, routes, docs
+go tool govibe make command items:prune --schedule "0 3 * * *"       # a scheduled command and a test on a fake clock
+go tool govibe check                                                 # the gate CI runs: zero findings in a new app
+./shop schedule list                                                 # what is scheduled and when it runs next, no database needed
 ```
-`govibe new` writes a module of your own that depends on the framework, runs `go mod tidy`, `templ generate`, a first commit and `govibe check`,
-and `make dev` serves the Hello GoVibe page at `http://localhost:8080` with the dev panel at `/dev`. The app's `SKILL.md` holds the rules and what to
-delete to start your own. (No version of the framework is published yet: until the first tag, create apps against this checkout with
-`make new MODULE=github.com/acme/shop DIR=../shop`, which passes `--replace`.)
+
+## Documentation
+- [Guide](docs/public/GUIDE.md): starting an app, the declaration, adding things, your own dev tools, layers, what you run
+- [Configuration](docs/public/CONFIGURATION.md): `env.yml`, the framework's keys, the project profile `govibe.yml`
+- [Commands and Scheduler](docs/public/COMMANDS_AND_SCHEDULER.md)
+- [Upgrading](docs/public/UPGRADING.md): the versioning policy and the notes per version
+- [Architecture](docs/public/ARCHITECTURE.md): how the framework is built; [Graph Schema](docs/public/GRAPH_SCHEMA.md) and
+  [Dev DB Explorer](docs/public/DEV_DB_EXPLORER.md) for the dev tooling
+- API reference on [pkg.go.dev](https://pkg.go.dev/github.com/petars-dev/govibe)
+
+In a dev build the same docs are served to you under `/dev/docs/govibe` and to agents as MCP resources; your own docs come first.
+
+## Status
+Pre-1.0: the public surface is four packages and one struct on purpose, and a minor version may still change it, with a note in
+[Upgrading](docs/public/UPGRADING.md). Releases are tags on `main`; the latest is on the
+[releases page](https://github.com/petars-dev/govibe/releases).
 
 ## This repository
-- the framework module, `github.com/petars-dev/govibe`: public packages `govibe`, `config`, `web`, `govibetest`; everything else is `internal/`
-- the tool, `cmd/govibe`: `govibe new` (a new application), `govibe make` (generators: page, resource, action, service, store, migration, middleware,
-  command, config, spec), `govibe check` (what an app's CI runs), `govibe doctor`, `govibe upgrade` (the managed files for a new version), `govibe graph index`
-  (the offline indexer and gate), `govibe generate`, and `govibe serve` / `govibe migrate`, which run the app in the current project; an app runs it as `go tool govibe`
-- `examples/hello`: the reference app, its own module (`go.work` joins it to the framework)
-- `docs`: how it is built (`docs/public/ARCHITECTURE.md`) and the specs that produced it (`docs/specs`)
+- the framework module, `github.com/petars-dev/govibe`: the public packages `govibe`, `config`, `web`, `govibetest`; everything else is `internal/`
+- the tool, `cmd/govibe`
+- `examples/hello`: the reference app and the demo every new app starts with (its own module; `go.work` joins it to the framework)
+- `docs/public`: the framework's docs; `docs/specs`: the specs that produced it (never shipped to apps)
 
-## Try it
-1. `make dev` runs the reference app with the dev tools compiled in (`go run -tags govibe_dev .`): `http://localhost:8080/` is the Hello GoVibe page.
-2. Explore the dev panel (it exists only in a build with the `govibe_dev` tag, never in production):
-   - The front door, `http://localhost:8080/dev`: the app, what is mounted and what to do first
-   - Docs: `http://localhost:8080/dev/docs/app` and `/dev/docs/specs` come first (your docs and specs); the framework's reference docs are a separate group under `/dev/docs/govibe`, every title prefixed `GoVibe:`
-   - Project graph: `http://localhost:8080/dev/graph` shows the app's own routes, code, tables and docs by default; the switch (My app, Framework, All) shows the framework it runs on, labelled
-   - Database explorer: `http://localhost:8080/dev/db` (needs `MARIADB_DSN`; see `docs/public/DEV_DB_EXPLORER.md`)
-   - Scheduler: `http://localhost:8080/dev/schedule` (scheduled commands, their next run and history, and a "Run now" button; see `docs/public/COMMANDS_AND_SCHEDULER.md`)
-   - MCP server for local agents: `http://localhost:8080/dev/mcp`
-3. `make test` and `make test-dev` run the tests without and with the dev tools; `make graph-check` and `make graph-check-app` are the CI gates;
-   `make keystone` scaffolds an app from the working tree and exercises it the way the `ci` workflow does.
-4. `make build` builds the reference app as a production binary (no dev tag): one file, no dev tooling linked.
+`make dev` runs the reference app with the dev tools compiled in; `make test` and `make test-dev` run the suite both ways; `make check` adds
+the graph gates; `make keystone` scaffolds an app from the working tree and exercises it the way CI does. Working on the framework itself:
+[CONTRIBUTING.md](CONTRIBUTING.md) and [SKILL.md](SKILL.md). Reporting a vulnerability: [SECURITY.md](SECURITY.md).
 
-## Configuration
-- An app's `env.yml` (its project root, embedded by `main.go`) is layered over the framework's defaults; values are `${ENV:default}` placeholders
-  resolved from the environment, e.g. `${PORT:8080}`. Your own settings go under a name of your own and are read with `rt.Config.Get` or `rt.Config.Unmarshal`.
-- `APP_ENV` controls behavior: local, dev, staging, prod/production. In local and dev the app's `./assets` directory is served from disk with no-cache headers.
-- `DATABASE_TYPE` (default `mysql`) selects the goose dialect; it is always passed explicitly, because goose defaults to postgres.
-- `govibe.yml` in the project root is the project profile: where the tools find settings, migrations and docs, which directory is which architecture layer, and per-rule switches (see `docs/public/CONFIGURATION.md`).
-- `DEV_DB_ALLOW_MUTATIONS` (default `false`) enables the `/dev/db` and MCP test-data mutation tools. It never takes effect in production.
-
-## Development loop with AI
-- `make air` runs the reference app with live reload (Air), rebuilding when the framework or the app changes.
-- After each change, update `docs/public/ARCHITECTURE.md` and the relevant `docs/specs/SPEC_{FEATURE}.md` with the status and any deviation. `SKILL.md` is the
-  contributor guide; the rules an application follows are in `examples/hello/SKILL.md`.
+## License
+[Apache-2.0](LICENSE).
 
 [templ]: https://templ.guide
 [htmx]: https://htmx.org

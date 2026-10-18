@@ -793,6 +793,8 @@ Each phase ends with the test suite green, the graph gate green, and a run from 
    - T7.4 Open source: rewritten README, CONTRIBUTING, SECURITY, issue and PR templates, the versioning policy, documentation for
      the four public packages on pkg.go.dev, a scan of the history and docs for private references (none found in the current tree).
    - T7.5 Tag `v0.1.0` and publish.
+   - **Status: done 2026-10-18, see "Phase 7 results"; T7.5 is prepared (the notes, the release workflow, the checklist) and the tag itself
+     is the owner's push, after the merge to `main`.**
 
 ## Spike results (Phase 0)
 All nine spikes ran in scratch copies of this repository (2026-10-11); the working tree, its dev server and its database were
@@ -839,7 +841,8 @@ the hint), AM8 (`internal/routeinfo`, and `codegraph.OptionsFromInspect` exports
 `all`, findings are computed once on `all` with the origin of the node they are about, `Hidden` accounts for what a scope drops; the one part not applied is retiring `dev_only`, see "Phase 3 results"),
 AM10 (framework-origin routes are skipped by `docs.route_undocumented`; a profile with no settings file makes the `config` layer `skipped`), AM11, AM13. Still open: AM1 to AM3 (Go version and tool pins,
 Phase 5) and AM12 (scheduler, Phase 4), AM14 (version skew, Phases 6 and 7), and the owner's sign-off of all fourteen. (After Phase 4: AM12 is applied, see "Phase 4 results".
-After Phase 5: AM1 to AM3 are applied as defaults, see "Phase 5 results"; only AM14 and the sign-off remain.)
+After Phase 5: AM1 to AM3 are applied as defaults, see "Phase 5 results"; only AM14 and the sign-off remain. After Phase 7: AM14 is applied, the doctor warns and
+the shim delegates, see "Phase 7 results"; only the owner's sign-off remains.)
 
 ## Phase 1 results (inside the repo, behavior-preserving)
 Done 2026-10-11. Everything is still at the repository root and one module; the framework's public packages (`govibe`,
@@ -1103,6 +1106,52 @@ phase indexed), by an offline test that writes every generator's output into a g
 - **No release exists yet,** so the version flow was proved with a manifest at `v0.1.0` against pins of `v0.2.0` and a pseudo-version, and with the keystone's `replace`. The first tag (Phase 7) will be the first real `go get` upgrade.
 - **Not run here:** the database tests, the GitHub Actions workflows themselves (the keystone was run as `go test` locally). `TestLockDBWithoutADatabaseIsRefused` failed only because a `hello` dev server was listening on 8080 during the runs (pre-existing, noted in Phase 5).
 
+## Phase 7 results (hardening, open-source readiness, options)
+Done 2026-10-18, on top of the committed Phase 6. The tool that judges a project is the version the project builds against even when a stale global
+`govibe` is what the user typed; an app can add its own MCP tools and pages to the panel without touching the framework; Option D is measured and
+decided against, with the cheaper route to its benefit on the backlog; and the repository reads as an open-source project with a release process.
+Verified by the suite (default build and `-tags govibe_dev`), by both gates at `--fail-on info` (the framework and `examples/hello`: 0 findings, empty
+baselines, with the docs of this phase indexed), by the keystone (`make keystone`, 76 s warm), extended with the app's own dev tool and page, and by the golden
+tests of the indexer on the extended fixture.
+
+| Task | Result |
+| --- | --- |
+| T7.1 version shim | `cmd/govibe/shim.go`: before cobra parses anything, `main` reads the nearest `go.mod` (from `--root`, `GOVIBE_ROOT` or the working directory up). When it requires the framework at a version other than this binary's and pins the tool (`tool .../cmd/govibe`), the tool runs `go tool govibe <the same arguments>` in the same directory with `GOVIBE_SHIMMED=1` (the child never shims again), prints one line on stderr saying both versions, and exits with the child's status. It never delegates for `new`, `version`, `help` and `completion` (the global tool's own jobs), when `go.mod` replaces the framework with a directory or pins `v0.0.0` (a checkout: `go tool govibe` would be this flow again), when the tool is not pinned, or with `GOVIBE_SHIM=off`. A `(devel)` tool in a released app delegates too. New `govibe version` prints the tool's version and, in a project, the version it pins. Unit tests cover every branch (`shim_test.go`); the keystone runs the tool as `go tool govibe` throughout, as before. AM14 is closed: the doctor warns, the shim acts |
+| T7.2 Option D | Spike S10 (`docs/spikes/notes/S10.md`), three measurements in scratch modules: the stdlib reverse proxy costs about 60 µs per request and 2.2 to 3.5 times the throughput of a trivial handler on loopback (p50 51 µs direct against 113 µs proxied; 18,000 against 8,300 req/s sequentially), which development would not feel; bolt's file lock refuses a second `Open` from another process, read-only included (a 500 ms timeout, measured), so a supervisor would have to own the graph store and host the whole dev stack, with the app process reduced to an introspection endpoint; and Air with `stop_on_error = true` (the scaffold's setting) stops the old binary on a failed build, so today a broken build is a dark panel. **Decision: Option C stays; Option D is not built** (D3 decided). What an agent needs when the build is broken (the graph, the findings, the rules, the docs) comes from source, not from the process, so the benefit goes on the backlog as `govibe mcp`: a stdio MCP server in the tool over a scratch store, no app running, no proxy, no supervisor |
+| T7.3 `App.DevTools` | `App.DevTools func(rt *Runtime, dev *Dev) error`, called by the kernel only when it mounts the dev tools (a `govibe_dev` build outside production), after `Routes` and `Commands`, with the same runtime. `Dev` (`internal/devext`, aliased as `govibe.Dev`; a collector with no dependency on the dev stack, so the public package links none of it) offers `Tool` (an MCP tool; `govibe.DevToolFunc[In, Out]` gives it typed arguments and the schema the SDK derives from them, as for the framework's own tools; names are validated, duplicates and the `graph_`, `db_` and `schedule_` families refused), `Page` (a page under `/dev/app`, linked from `/dev`) and `Handle` (any other handler there). `devtools.Mount` mounts the routes (`Deps.App`), `devmcp` registers the tools with read-only annotations unless `Mutates`, a result as structured content and text, an error or a panic as a failed call (`apptools.go`); `/dev` gains a "Your dev tools" card with the pages, the tool names and what was refused; the server's instructions name the app's tools. A failing `DevTools` is logged and leaves the app's part out; the panel comes up. The convention, documented in the guide, the app `SKILL.md` block and `govibe.go`: an untagged routes/devtools.go declares `var DevTools`, a tagged routes/devtools_dev.go sets it in `init` and holds the registrations, `main.go` passes `DevTools: routes.DevTools`, so a default build compiles none of it and the field is nil there (a test proves a default build never calls it). `inspect --json` reports `contributes.dev_tools`. The graph: the code index records a `DevToolFunc` call (schema from the handler's second parameter) or a `DevTool{...}` literal (no schema) like an `mcp.AddTool`, the `mcp` layer writes the tool node with origin `app`, its path, line and `registers` from the holding function, and `routeOrigin` gives `/dev/app/*` origin `app` inside the reserved namespace. The fixture gained the two forms and a page (routes/devtools.go and routes/devtools_dev.go on the stub framework, which gained `Dev`, `DevTool`, `DevToolFunc`); the goldens changed in `code`, `mcp`, `calls` and `externals` only, reviewed; three impact and layer tests updated for the two new tools. The keystone's overlay adds `greeting_preview` and `/dev/app/greeting` and asserts the page, the `/dev` listing, the tool's answer over `/dev/mcp`, `graph_context` on `tool:greeting_preview` (origin `app`) and the 404 in the production build |
+| T7.4 open source | `README.md` rewritten for a visitor (badges, quick start, the declaration, docs, status, the repository); `CONTRIBUTING.md` (setup, the make targets, the working rules, pull requests, the release steps); `SECURITY.md` (private reporting through GitHub advisories, supported versions, what the design promises: no dev tooling in a default build, no auth on the dev tools, scrubbed `inspect`); `.github/ISSUE_TEMPLATE/bug_report.yml`, `feature_request.yml`, `config.yml` and `.github/PULL_REQUEST_TEMPLATE.md`; the versioning policy at the top of `docs/public/UPGRADING.md` (semver; before 1.0 a minor may change the four public packages and what a generated app is given, each change listed; one version for tool and library; releases are tags on `main`); `go doc` examples for `govibe` (the declaration, `DevToolFunc`), `config` (`Load`, `Unmarshal`, `String`, with output) and `web` (`HTMXScript`, with output). The `ci` workflow gained the `api` job (`gorelease` against the last `v*` tag, a report until 1.0; nothing to compare before the first tag). **Scan:** `git log -p --all` and the tree were searched for addresses, home paths, hosts, DSNs and the private names of this machine: nothing beyond the two committers' own addresses in the authorship (which a public repository shows anyway), the fixture's deliberately fake secrets (`hunter2`, `s3cret`) and the removed `mail.smtp` defaults of Phase 1 in old commits. No rewrite needed |
+| T7.5 release | Prepared, not pushed: `docs/public/UPGRADING.md` has `## v0.1.0` (the extraction's notes plus this phase's) under an empty "Unreleased"; `.github/workflows/release.yml` runs on a `v*` tag, builds and tests both ways, checks that `govibe version` reports the tag, extracts the tag's section from the upgrade notes and publishes the GitHub release with it; the steps are in `CONTRIBUTING.md`. The tag is created on `main` after this branch merges: `git tag -a v0.1.0 -m v0.1.0 && git push origin v0.1.0`, then `go install .../cmd/govibe@v0.1.0 && govibe new` from an empty directory as the smoke test |
+
+**Done-when, checked.** The suite both ways, the gates at `--fail-on info`, the keystone with the dev tool, the goldens. A1 still holds (a new app has zero
+findings, with the `DevTools` field absent from its `main.go`: the demo does not use it); A3 and A8 gain the app's own tools, labelled `app`.
+
+**Decisions taken here**
+- **D3, decided: in-process (Option C).** Spike S10's numbers are in the table above and the note; `govibe mcp` replaces Option D on the backlog.
+- **The hand-over of `DevTools` is a variable set by a tagged file**, not an untagged twin (AM5: the indexer reads every file, and a twin would declare the
+  same function twice) and not a build-tagged field (impossible). The cost is one eight-line file; the benefit is that a default build has no dev code of the
+  app's and the graph sees one definition of everything.
+- **The app's dev routes live under `/dev/app`**, inside the reserved namespace, mounted by the framework: an app that registers there in `Routes` still fails
+  to boot, and the graph treats `/dev/app/*` as the app's own.
+- **The shim never delegates in a checkout.** With a `replace`, `go tool govibe` builds the tool from the same source the app uses; delegating would run the
+  same code a second time on every command. The doctor's note says the project builds against a checkout.
+- **`gorelease` reports, it does not fail,** until 1.0: the policy allows a minor to change the public surface, and the gate for that is the note in the
+  upgrade doc, which the release workflow requires.
+- **No generator for a dev tool** (`govibe make devtool`) in this phase: the convention is three short files and the guide shows them; a generator is on the
+  backlog if the pattern proves common.
+
+**Deviations and things to know**
+- **The `DevTools` field is reported by the build that answers:** `inspect --json` from a default build says `dev_tools: false` for an app that has one, because
+  the tagged file is not compiled. The tool runs `inspect` with the dev tag, so the graph and the doctor see it.
+- **An untyped `DevTool{...}` literal has no input schema in the graph** (its `Run` reads raw JSON); the MCP server registers it with an open object schema. Use
+  `DevToolFunc` for arguments an agent should see.
+- **`TestImpactOfAHandler` now lists the app's two dev tools** among what changing the Hello handler affects: the wiring package registers them, and without call
+  edges the reach is estimated from package imports, as the test's comment says. It is the existing estimate applied to new nodes, not a new rule.
+- **The README's install line is right after the tag:** `go install github.com/petars-dev/govibe/cmd/govibe@latest` resolves only once `v0.1.0` exists; until then
+  `make new MODULE=... DIR=...` from this checkout is the way, as before.
+- **Not run here:** the GitHub Actions workflows themselves (`release.yml` and the `api` job were written against the documented behaviour of `gh release create`
+  and `gorelease`; the keystone and the suite ran locally as `go test`), the database tests, and `TestLockDBWithoutADatabaseIsRefused`, which binds port 8080
+  (pre-existing, noted since Phase 5).
+
 ## Risks
 | Risk | Mitigation |
 | --- | --- |
@@ -1124,7 +1173,9 @@ phase indexed), by an offline test that writes every generator's output into a g
 | The demo's look breaks when the framework restyles its dev panel | The demo owns copies of its theme, styles and images; only htmx comes from the framework |
 
 ## Backlog
-- Out-of-process dev panel that survives a failing build (Option D), if Phase 7 says go.
+- `govibe mcp`: a stdio MCP server in the tool that indexes the project into a scratch store and serves the `graph_*` tools, `govibe://skill`,
+  `govibe://app/manifest` and the framework docs with no app running, whatever the state of the build (the benefit Option D promised; S10).
+- `govibe make devtool <name>`: the three files of an app dev tool (the hand-over variable, the tagged registration, a test), if the pattern proves common.
 - Persisted scheduler run history and retries; a real job queue is a separate feature.
 - `RunOnStart`, jitter and seconds-granularity schedules, if asked for.
 - Distributed task locks for databases other than MariaDB.
@@ -1143,7 +1194,7 @@ phase indexed), by an offline test that writes every generator's output into a g
 | --- | --- | --- |
 | D1 Module path | **Decided by the owner:** public and open source, `github.com/petars-dev/govibe` (renamed from `petars-dev/govibe`), Apache-2.0 | none |
 | D2 Dev tooling build tag | **Decided by the owner:** opt-in `govibe_dev`, so a default build cannot contain it | opt-out `govibe_prod` |
-| D3 Where the panel runs | inside the app process (Option C) | supervisor-hosted (Option D), Phase 7 |
+| D3 Where the panel runs | **Decided (Phase 7, spike S10):** inside the app process (Option C); Option D is not built, `govibe mcp` is the backlog item for a panel-less graph | supervisor-hosted (Option D), rejected |
 | D4 Modules | one module, `internal/` for everything not public | separate dev module (the app's `go.mod` still lists it) |
 | D5 App layout | top-level directories as in `SKILL.md` (no `internal/`), plus `commands/` | `internal/` prefix through `govibe.yml` layout overrides |
 | D6 Composition root | `main.go` plus `routes/` (`routes.go` for HTTP, `console.go` for commands) | a dedicated `app/` package |
@@ -1160,6 +1211,8 @@ phase indexed), by an offline test that writes every generator's output into a g
 | D17 Framework docs | embedded allowlist under `/dev/docs/govibe/`, prefixed `GoVibe:`; framework specs never shipped | ship everything; or no framework docs in the panel at all |
 | D18 Several app instances | **Decided by the owner:** no lock by default; the scheduler runs on every instance unless `--no-schedule`; `scheduler.lock: db` is opt-in | lock on by default when a database is configured (rejected) |
 | D19 Hello demo | **Decided by the owner:** every generated app contains the Hello GoVibe demo as plain owned code; `examples/hello` is its source of truth, synced into the template by `go generate`, CI fails on a stale copy | no demo, or an opt-in or opt-out flag (rejected) |
+| D21 App dev tools (Phase 7) | `App.DevTools` handed over through a variable set in a file tagged `govibe_dev`; pages under `/dev/app`; the `graph_`, `db_`, `schedule_` tool families reserved | an untagged twin (rejected by AM5), or app tools registered through a separate `devtools.go` the framework scans |
+| D22 The shim (Phase 7) | the global tool delegates to `go tool govibe` when the pin differs and the tool is pinned; never for `new`, `version`, `help`, in a checkout, or with `GOVIBE_SHIM=off` | warn only (the doctor already does), or a hard refusal |
 | D20 The demo's assets and dev links | the demo owns copies of its theme, styles, logo and hero image; htmx comes from the framework (`web.HTMXScript`); its `/dev` links sit inside `web.IfDev` | the demo loads the dev panel's theme from `/_govibe/static`, which couples an app page to the panel's CSS |
 
 ## Status Table
@@ -1184,8 +1237,8 @@ phase indexed), by an offline test that writes every generator's output into a g
 | Phase 4 commands and the scheduler (`schedule list`, `schedule run`, dev page, graph layer) | Yes | | Done 2026-10-15, see "Phase 4 results"; A9 is proved by tests on a fake clock and by real processes (the CI overlay job is Phase 5's keystone) |
 | Phase 5 `govibe new`, managed files, app `SKILL.md`, `govibe check`, keystone CI job | Yes | | Done 2026-10-17, see "Phase 5 results"; `govibe upgrade` (which rewrites the managed files) followed in Phase 6 (done) |
 | Phase 6 generators, `govibe upgrade`, `govibe doctor` | Yes | | Done 2026-10-17, see "Phase 6 results"; ten generators with golden tests, the upgrade with diffs and refusal, the doctor with build checks, the keystone extended |
-| Phase 7 version shim, Option D evaluation, `App.DevTools`, open-source readiness, first release | No | | Planned |
-| Out-of-process dev panel in v1 | No | Skipped | Deferred to the Phase 7 evaluation; in-process keeps today's behavior and a mechanical move |
+| Phase 7 version shim, Option D evaluation, `App.DevTools`, open-source readiness, first release | Yes | | Done 2026-10-18, see "Phase 7 results"; the `v0.1.0` tag is prepared (notes, release workflow, checklist) and is the owner's push after the merge |
+| Out-of-process dev panel (Option D) | No | Skipped | Decided in Phase 7 (spike S10): the proxy is cheap but the bolt lock makes it a move of the whole dev stack into a second process; `govibe mcp` on the backlog gives agents the graph without the app |
 | Separate dev module | No | Skipped | Does not shrink the app's `go.mod`; adds release overhead |
 | Runtime DI container | No | Skipped | Explicit constructors fit the layering rules and the indexer's static view |
 | Plugin or third-party extension API | No | Skipped | One extension point (`App`) in v1 |

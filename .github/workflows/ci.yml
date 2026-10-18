@@ -3,7 +3,8 @@ name: ci
 # The framework's tests, run both ways (the default build and the govibe_dev build the
 # dev tools are compiled into), the production check (a default build links and serves
 # no dev tooling, acceptance scenario A7 of SPEC_FRAMEWORK_EXTRACTION), the dev panel
-# check, and the keystone: the framework tests its own output (A1, A2, A4, A6, A7).
+# check, the API check against the last release, and the keystone: the framework tests
+# its own output (A1, A2, A4, A6, A7).
 on:
   push:
     branches: [main]
@@ -127,6 +128,25 @@ jobs:
           ask schedule_status '{}' | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["state"]=="none" and d["how_to_declare"], d'
           curl -s localhost:18081/dev/graph/data/status | python3 -c 'import sys,json; d=json.load(sys.stdin); assert "commands" in [l["name"] for l in d["freshness"]["layers"]], d'
 
+
+  api:
+    # The public surface against the last release: gorelease reports what changed in the
+    # public packages since the last tag (before 1.0 a minor may break them; the notes in
+    # docs/public/UPGRADING.md must say so). Nothing to compare until the first tag.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Compare the public API with the last release
+        run: |
+          base=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          if [ -z "$base" ]; then echo "no release yet: nothing to compare"; exit 0; fi
+          go run golang.org/x/exp/cmd/gorelease@latest -base="$base"
 
   keystone:
     # The framework tests its own output: `govibe new` from this checkout into a temp
