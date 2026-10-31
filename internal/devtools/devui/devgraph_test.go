@@ -21,7 +21,7 @@ const codegraphFixture = "../../codegraph/testdata/fixture"
 
 func reindexRouter(t *testing.T, root string) (http.Handler, func() int) {
 	t.Helper()
-	h, err := graphdb.Open(t.TempDir())
+	h, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatalf("open graph store: %v", err)
 	}
@@ -179,7 +179,7 @@ func copyTree(t *testing.T, src string) string {
 // graph on the next page load, without a restart.
 func TestDevGraphPageRefreshesStaleLayers(t *testing.T) {
 	root := copyTree(t, codegraphFixture)
-	h, err := graphdb.Open(t.TempDir())
+	h, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

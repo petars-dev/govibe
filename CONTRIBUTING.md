@@ -13,6 +13,7 @@ conventions is [SKILL.md](SKILL.md), and how the framework is built is [docs/pub
 Go 1.25 or newer. Clone, then:
 ```sh
 make dev          # the reference app (examples/hello) with the dev panel at http://localhost:8080/dev
+make test-short   # the inner loop: the suite minus the tests that build and run a whole app (a few seconds per package)
 make test         # the framework's tests and the example's, default build
 make test-dev     # the same with the dev tools compiled in (some tests exist only under the govibe_dev tag)
 make check        # both, plus the two graph gates

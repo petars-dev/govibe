@@ -121,7 +121,7 @@ func TestIndexerEndToEnd(t *testing.T) {
 		if err := h.Close(); err != nil {
 			t.Fatal(err)
 		}
-		h2, err := graphdb.Open(dir)
+		h2, err := graphdb.OpenScratch(dir)
 		if err != nil {
 			t.Fatal(err)
 		}

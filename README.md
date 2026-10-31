@@ -75,7 +75,7 @@ Pre-1.0: the public surface is four packages and one struct on purpose, and a mi
 - `examples/hello`: the reference app and the demo every new app starts with (its own module; `go.work` joins it to the framework)
 - `docs/public`: the framework's docs; `docs/specs`: the specs that produced it (never shipped to apps)
 
-`make dev` runs the reference app with the dev tools compiled in; `make test` and `make test-dev` run the suite both ways; `make check` adds
+`make dev` runs the reference app with the dev tools compiled in; `make test-short` is the quick loop, `make test` and `make test-dev` run the full suite both ways; `make check` adds
 the graph gates; `make keystone` scaffolds an app from the working tree and exercises it the way CI does. Working on the framework itself:
 [CONTRIBUTING.md](CONTRIBUTING.md) and [SKILL.md](SKILL.md). Reporting a vulnerability: [SECURITY.md](SECURITY.md).
 

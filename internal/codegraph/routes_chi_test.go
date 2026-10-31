@@ -64,7 +64,7 @@ func indexRepo(t *testing.T, opts codegraph.Options) (*codegraph.Report, func(st
 // the store, for tests that read raw quads.
 func indexRepoStore(t *testing.T, opts codegraph.Options) (*codegraph.Report, func(string) []string, *cayley.Handle) {
 	t.Helper()
-	h, err := graphdb.Open(t.TempDir())
+	h, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

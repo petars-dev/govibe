@@ -133,7 +133,7 @@ func strs(v any) []string {
 // router holding one of its real handlers (the htmx script the framework serves).
 func indexedHandler(t *testing.T) (http.Handler, *codegraph.Indexer) {
 	t.Helper()
-	store, err := graphdb.Open(t.TempDir())
+	store, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestEveryGraphToolIsListedWithGuidance(t *testing.T) {
 // Without an indexer the graph tools answer from the store as it is, and there
 // is nothing to reindex.
 func TestWithoutAnIndexerThereIsNoReindexTool(t *testing.T) {
-	store, err := graphdb.Open(t.TempDir())
+	store, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestGraphFindingsOverMCPReportALayeringViolation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	store, err := graphdb.Open(t.TempDir())
+	store, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

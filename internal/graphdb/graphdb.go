@@ -26,7 +26,17 @@ const DefaultDir = "docs/graph"
 var openTimeout = 5 * time.Second
 
 // Open initializes (on first run) and opens a bolt-backed Cayley quad store at dir.
-func Open(dir string) (*cayley.Handle, error) {
+func Open(dir string) (*cayley.Handle, error) { return open(dir, nil) }
+
+// OpenScratch is Open for a store nobody needs after the process ends: it skips the
+// fsync bolt does on every commit, so writes are several times faster, and a crash
+// may lose or corrupt the file. Tests use it for their throwaway stores; the graph a
+// dev server keeps under docs/graph is opened with Open.
+func OpenScratch(dir string) (*cayley.Handle, error) {
+	return open(dir, graph.Options{"nosync": true})
+}
+
+func open(dir string, opts graph.Options) (*cayley.Handle, error) {
 	type result struct {
 		h   *cayley.Handle
 		err error
@@ -37,7 +47,7 @@ func Open(dir string) (*cayley.Handle, error) {
 			ch <- result{nil, err}
 			return
 		}
-		h, err := cayley.NewGraph("bolt", dir, nil)
+		h, err := cayley.NewGraph("bolt", dir, opts)
 		ch <- result{h, err}
 	}()
 	select {

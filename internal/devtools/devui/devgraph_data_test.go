@@ -28,7 +28,7 @@ func dataRouter(t *testing.T, root string, db bool) (http.Handler, *codegraph.In
 // dataRouterWith is dataRouter with the indexer's options (a route table, say).
 func dataRouterWith(t *testing.T, opts codegraph.Options, db bool) (http.Handler, *codegraph.Indexer, func(quad.Quad)) {
 	t.Helper()
-	h, err := graphdb.Open(t.TempDir())
+	h, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

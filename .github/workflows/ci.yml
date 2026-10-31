@@ -9,6 +9,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch: # run it on any branch from the Actions tab, before a merge
 
 permissions:
   contents: read

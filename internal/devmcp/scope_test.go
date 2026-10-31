@@ -21,7 +21,7 @@ import (
 // scopedHandler is indexedHandler with the options an application's dev server passes.
 func scopedHandler(t *testing.T, opt Options) http.Handler {
 	t.Helper()
-	store, err := graphdb.Open(t.TempDir())
+	store, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

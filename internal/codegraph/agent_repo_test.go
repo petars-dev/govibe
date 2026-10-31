@@ -2,25 +2,51 @@ package codegraph_test
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/petars-dev/govibe/internal/codegraph"
+	"github.com/petars-dev/govibe/internal/graphdb"
 )
 
-// loadRepoModel indexes this repository (real code, a real chi router) and loads
-// the model the agent tools answer from.
+var repoModel struct {
+	once sync.Once
+	m    *codegraph.Model
+	err  error
+}
+
+// loadRepoModel is the model the agent tools answer from over this repository (real
+// code, a real chi router). Indexing the repository is the slowest setup in the package,
+// so it is done once and shared, like fixtureGraph: a test that gets it only reads it.
 func loadRepoModel(t *testing.T) *codegraph.Model {
 	t.Helper()
-	_, _, h := indexRepoStore(t, codegraph.Options{Router: miniRouter(), CommandSource: noCommands})
-	start := time.Now()
-	m, err := codegraph.Load(context.Background(), h.QuadStore)
-	if err != nil {
-		t.Fatal(err)
+	repoModel.once.Do(func() {
+		dir, err := os.MkdirTemp("", "codegraph-repo-")
+		if err != nil {
+			repoModel.err = err
+			return
+		}
+		defer os.RemoveAll(dir)
+		h, err := graphdb.OpenScratch(dir)
+		if err != nil {
+			repoModel.err = err
+			return
+		}
+		defer h.Close()
+		opts := codegraph.Options{Root: "../..", Router: miniRouter(), CommandSource: noCommands}
+		if _, err := codegraph.New(h.QuadStore, opts).Run(context.Background()); err != nil {
+			repoModel.err = fmt.Errorf("index the repository: %w", err)
+			return
+		}
+		repoModel.m, repoModel.err = codegraph.Load(context.Background(), h.QuadStore)
+	})
+	if repoModel.err != nil {
+		t.Fatal(repoModel.err)
 	}
-	t.Logf("loaded %d quads in %s", m.Quads(), time.Since(start))
-	return m
+	return repoModel.m
 }
 
 // The spec's acceptance questions, on this repository's own graph.

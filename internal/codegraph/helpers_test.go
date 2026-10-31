@@ -139,7 +139,7 @@ func (f facts) exists(subj string) bool {
 func openStore(t *testing.T) (*cayley.Handle, string) {
 	t.Helper()
 	dir := t.TempDir()
-	h, err := graphdb.Open(dir)
+	h, err := graphdb.OpenScratch(dir)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
