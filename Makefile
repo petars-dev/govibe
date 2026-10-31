@@ -14,7 +14,7 @@ DEV_TAGS := govibe_dev
 AIR_BIN ?= $(shell go env GOPATH)/bin/air
 TEMPL_BIN ?= $(shell go env GOPATH)/bin/templ
 
-.PHONY: dev run build tidy templ test test-dev check cli cli-generate graph-index graph-check graph-check-app air air-build docs docs-embed scaffold-sync new keystone
+.PHONY: dev run build tidy templ test test-short test-dev check cli cli-generate graph-index graph-check graph-check-app air air-build docs docs-embed scaffold-sync new keystone
 
 tidy:
 	go mod tidy
@@ -45,6 +45,11 @@ test:
 
 test-dev:
 	go test -tags $(DEV_TAGS) ./... ./$(APP_DIR)/...
+
+# The inner loop: the suite without the tests that build and run a whole app (they skip
+# under -short). `make check` before a push still runs everything.
+test-short:
+	go test -short ./... ./$(APP_DIR)/...
 
 check: test test-dev graph-check graph-check-app
 

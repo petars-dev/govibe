@@ -23,7 +23,7 @@ import (
 // the way routes.go does.
 func reportsRouter(t *testing.T, root string, opts codegraph.Options, dbUI bool) (http.Handler, *codegraph.Indexer) {
 	t.Helper()
-	h, err := graphdb.Open(t.TempDir())
+	h, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatalf("open graph store: %v", err)
 	}

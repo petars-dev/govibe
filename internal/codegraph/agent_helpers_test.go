@@ -66,7 +66,7 @@ func fixtureGraph(t *testing.T) *Model {
 			return
 		}
 		defer os.RemoveAll(dir)
-		h, err := graphdb.Open(dir)
+		h, err := graphdb.OpenScratch(dir)
 		if err != nil {
 			sharedFixture.err = err
 			return

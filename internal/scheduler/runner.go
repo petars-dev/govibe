@@ -143,7 +143,10 @@ type Runner struct {
 	started bool
 	closing bool
 	wg      sync.WaitGroup
-	active  atomic.Int32
+
+	idleMu   sync.Mutex
+	inFlight int           // runs started and not finished
+	idle     chan struct{} // closed when inFlight falls to zero; a new one when it rises again
 
 	runCtx    context.Context // the parent of every run; cancelled when a stop gives up waiting
 	cancelRun context.CancelFunc
@@ -426,7 +429,7 @@ func (r *Runner) dispatch(e *entry, due time.Time, trigger string) (<-chan Run, 
 	e.running++
 	e.mu.Unlock()
 	r.wg.Add(1)
-	r.active.Add(1)
+	r.runStarted()
 	r.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(r.runCtx)
@@ -447,7 +450,7 @@ func (r *Runner) dispatch(e *entry, due time.Time, trigger string) (<-chan Run, 
 // inside a command under test): the run is counted out, the lock given back, a record kept.
 func (r *Runner) exec(e *entry, due time.Time, trigger string, ctx context.Context, cancel context.CancelFunc, timedOut *atomic.Bool, deadline Timer, done chan<- Run) {
 	defer r.wg.Done()
-	defer r.active.Add(-1)
+	defer r.runEnded()
 	run := Run{Task: e.task.Name, Trigger: trigger, Due: due, Started: r.clk.Now()}
 	r.log.WithFields(logrus.Fields{"task": run.Task, "trigger": trigger}).Debug("task started")
 
@@ -650,12 +653,50 @@ func (r *Runner) Upcoming(name string, from time.Time, n int) ([]time.Time, erro
 	return e.spec.Upcoming(from, n), nil
 }
 
+// runStarted counts a run in; the first one in flight opens a fresh idle channel.
+func (r *Runner) runStarted() {
+	r.idleMu.Lock()
+	if r.inFlight == 0 {
+		r.idle = make(chan struct{})
+	}
+	r.inFlight++
+	r.idleMu.Unlock()
+}
+
+// runEnded counts a run out; the last one wakes whoever waits in waitIdle.
+func (r *Runner) runEnded() {
+	r.idleMu.Lock()
+	r.inFlight--
+	if r.inFlight == 0 {
+		close(r.idle)
+	}
+	r.idleMu.Unlock()
+}
+
 // waitIdle blocks, in real time, until no run is in flight or the budget is spent. A
-// Fake calls it between timers.
+// Fake calls it between timers. It waits on the idle channel, not by polling: a run
+// that takes no virtual time wakes it at once, so advancing a fake clock over
+// thousands of due times costs microseconds each, on a slow CI runner too.
 func (r *Runner) waitIdle(budget time.Duration) {
-	deadline := time.Now().Add(budget)
-	for r.active.Load() > 0 && time.Now().Before(deadline) {
-		time.Sleep(50 * time.Microsecond)
+	var deadline <-chan time.Time
+	for {
+		r.idleMu.Lock()
+		if r.inFlight == 0 {
+			r.idleMu.Unlock()
+			return
+		}
+		idle := r.idle
+		r.idleMu.Unlock()
+		if deadline == nil {
+			t := time.NewTimer(budget)
+			defer t.Stop()
+			deadline = t.C
+		}
+		select {
+		case <-idle:
+		case <-deadline:
+			return
+		}
 	}
 }
 

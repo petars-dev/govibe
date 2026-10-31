@@ -51,7 +51,7 @@ func TestTheManifestNamesTheFrameworksSettingsAndTools(t *testing.T) {
 // the dev server does, with the framework's manifest.
 func indexHello(t *testing.T) *codegraph.Model {
 	t.Helper()
-	h, err := graphdb.Open(t.TempDir())
+	h, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestAnAppIsIndexedAgainstTheFrameworkItDependsOn(t *testing.T) {
 // scoped re-reads the hello graph in a scope.
 func scoped(t *testing.T, scope codegraph.Scope) *codegraph.Model {
 	t.Helper()
-	h, err := graphdb.Open(t.TempDir())
+	h, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func scoped(t *testing.T, scope codegraph.Scope) *codegraph.Model {
 // indexHelloWithCalls indexes the example with the calls layer on, the way `--calls` does.
 func indexHelloWithCalls(t *testing.T) (*codegraph.Model, *codegraph.Report) {
 	t.Helper()
-	h, err := graphdb.Open(t.TempDir())
+	h, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestTheAppScopeHidesCallsIntoTheFramework(t *testing.T) {
 		t.Skip("type-checks the example app")
 	}
 	m, _ := indexHelloWithCalls(t)
-	h, err := graphdb.Open(t.TempDir())
+	h, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

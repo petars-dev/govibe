@@ -52,7 +52,7 @@ func (f *fakeIndexer) LayerNames() []string                    { return []string
 // Every graph_query first lets the graph catch up with edits; the indexer is
 // optional.
 func TestGraphQueryRefreshesFirst(t *testing.T) {
-	store, err := graphdb.Open(t.TempDir())
+	store, err := graphdb.OpenScratch(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

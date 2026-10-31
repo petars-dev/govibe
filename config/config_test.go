@@ -15,6 +15,7 @@ func app(yml string) fstest.MapFS {
 func TestDefaultsAlone(t *testing.T) {
 	t.Setenv("PORT", "")
 	t.Setenv("APP_ENV", "")
+	t.Setenv("MARIADB_DSN", "") // a developer's shell may export a real one
 	cfg, err := Load(nil)
 	if err != nil {
 		t.Fatal(err)

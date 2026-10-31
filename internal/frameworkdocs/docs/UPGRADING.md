@@ -29,6 +29,11 @@ the settings in `config/defaults.yml`). Everything under `internal/` can change 
 ## Unreleased
 - Nothing yet.
 
+## v0.1.1
+- The scheduler's fake clock no longer polls for a finished run between timers: the runner wakes it. Tests that advance a `govibetest` clock over
+  many due times are faster, and the scheduler's own test of that no longer fails on a slow CI runner (it took a millisecond per due time there).
+  Nothing to do; no public surface changed.
+
 ## v0.1.0
 The first release: the framework as a dependency, with the Hello GoVibe demo as every new app's start. Nothing to upgrade from; the notes record what
 the extraction changed for anyone who was tracking the repository before it.

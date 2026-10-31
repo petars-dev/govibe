@@ -620,6 +620,7 @@ func TestScheduleRunRefusesWhenThereIsNothingToRun(t *testing.T) {
 func TestLockDBWithoutADatabaseIsRefused(t *testing.T) {
 	isolate(t)
 	t.Setenv("SCHEDULER_LOCK", "db")
+	t.Setenv("PORT", freePort(t)) // serve binds before the lock check; never the developer's :8080
 	withClock(t, day0)
 	var rec recorder
 	for _, args := range [][]string{{"serve"}, {"schedule", "run"}} {

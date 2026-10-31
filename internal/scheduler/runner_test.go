@@ -870,11 +870,23 @@ func TestFakeClockOverManyDueTimesStaysLinear(t *testing.T) {
 	_ = r.Start()
 	start := time.Now()
 	clk.Advance(14 * 24 * time.Hour) // 20,160 due times
-	if took := time.Since(start); took > 12*time.Second {
-		t.Errorf("20,160 due times took %s", took)
-	}
+	took := time.Since(start)
 	if n != 20160 {
 		t.Errorf("ran %d times, want 20160", n)
+	}
+	// Linear means a fired timer leaves the list: after two weeks of a task that fires
+	// every minute the clock holds the one timer that is armed, not twenty thousand dead ones.
+	clk.mu.Lock()
+	armed := len(clk.timers)
+	clk.mu.Unlock()
+	if armed > 2 {
+		t.Errorf("the clock keeps %d timers after advancing, want the armed one", armed)
+	}
+	// And each due time is cheap in real time: a run that takes no virtual time wakes the
+	// clock at once. The budget is loose on purpose (a shared CI runner is slow and noisy);
+	// it catches a per-tick stall such as a sleep, not a slow machine.
+	if per := took / 20160; per > 500*time.Microsecond {
+		t.Errorf("20,160 due times took %s (%s each)", took, per)
 	}
 	stopAndMove(r, clk)
 }
