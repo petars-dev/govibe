@@ -327,9 +327,12 @@ func doctorBuild(ctx context.Context, o doctorOptions, root string, prof profile
 	return ds
 }
 
-// devOnlyRe names what only the dev tools may link (the keystone and the demo's
-// prod_test.go say the same).
-var devOnlyRe = regexp.MustCompile(`cayleygraph|modelcontextprotocol|golang\.org/x/tools|yuin/goldmark|alecthomas/chroma|petars-dev/govibe/internal/(devtools|codegraph|dbexplorer|devmcp|graphdb)`)
+// devOnlyRe names govibe's dev packages: every way into the dev tooling goes through
+// one of them, so an app linking none links none of the tooling. Their libraries (the
+// MCP SDK, goldmark, chroma, x/tools, cayley) are not named: an app may use them in
+// production itself. The framework's own leaks of those libraries are the keystone's
+// and CI's to catch. The demo's prod_test.go says the same.
+var devOnlyRe = regexp.MustCompile(`petars-dev/govibe/internal/(devtools|codegraph|dbexplorer|devmcp|graphdb)`)
 
 // checkEmbeds reports static files or migrations on disk that the app does not hand to
 // the framework.

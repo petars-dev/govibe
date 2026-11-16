@@ -280,7 +280,10 @@ func TestKeystone(t *testing.T) {
 	}
 }
 
-// devOnly names what only the dev tools may link (prod_test.go of the demo says the same).
+// devOnly names what only the dev tools may link: govibe's dev packages and the libraries
+// only they use, so a framework package that drags one into the default build fails
+// here. An app's own checks (doctor, its prod_test.go) name the packages alone, since
+// the app may use those libraries itself.
 var devOnly = regexp.MustCompile(`cayleygraph|modelcontextprotocol|golang\.org/x/tools|yuin/goldmark|alecthomas/chroma|petars-dev/govibe/internal/(devtools|codegraph|dbexplorer|devmcp|graphdb)`)
 
 type keystone struct {

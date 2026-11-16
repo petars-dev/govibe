@@ -1,6 +1,6 @@
 module github.com/petars-dev/govibe
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/a-h/templ v0.3.1020
@@ -9,6 +9,7 @@ require (
 	github.com/cayleygraph/quad v1.1.0
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-sql-driver/mysql v1.8.1
+	github.com/google/jsonschema-go v0.4.3
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pressly/goose/v3 v3.21.1
@@ -17,8 +18,8 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/yuin/goldmark v1.7.4
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
-	golang.org/x/mod v0.33.0
-	golang.org/x/tools v0.42.0
+	golang.org/x/mod v0.42.0
+	golang.org/x/tools v0.52.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -37,7 +38,6 @@ require (
 	github.com/gobuffalo/packr/v2 v2.7.1 // indirect
 	github.com/gogo/protobuf v1.3.0 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
-	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/hidal-go/hidalgo v0.0.0-20190814174001-42e03f3b5eaa // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/joho/godotenv v1.3.0 // indirect
@@ -61,8 +61,8 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.21.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.18.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.15.0 // indirect

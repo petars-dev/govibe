@@ -60,6 +60,15 @@ func TestDoctorReportsAndFails(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
 		}
 	}
+	// An app may link the dev tools' libraries itself (an MCP server of its own); only
+	// govibe's dev packages fail the build check.
+	out.Reset()
+	runDoctor(context.Background(), doctorOptions{root: root, inspect: fakeInspect, listDeps: func(ctx context.Context, root string) (string, error) {
+		return "fmt\ngithub.com/modelcontextprotocol/go-sdk/mcp\ngithub.com/yuin/goldmark\ngithub.com/petars-dev/govibe/web\n", nil
+	}}, &out)
+	if !strings.Contains(out.String(), "ok    build      the default build links no dev tooling") {
+		t.Errorf("an app's own MCP server is not dev tooling:\n%s", out.String())
+	}
 	// An app that does not boot fails the inspect check with its own words.
 	out.Reset()
 	err = runDoctor(context.Background(), doctorOptions{root: root, inspect: func(ctx context.Context, root string) (*routeinfo.Inspect, error) {

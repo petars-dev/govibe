@@ -7,12 +7,13 @@ import (
 	"testing"
 )
 
-// devOnly names what only the dev tools may link: their libraries and their packages.
-var devOnly = regexp.MustCompile(`cayleygraph|modelcontextprotocol|golang\.org/x/tools|yuin/goldmark|alecthomas/chroma|petars-dev/govibe/internal/(devtools|codegraph|dbexplorer|devmcp|graphdb)`)
+// devOnly names govibe's dev packages. Every way into the dev tooling goes through one
+// of them; the libraries they use (the MCP SDK, goldmark, chroma, x/tools, cayley) are
+// not named, since the app may use them in production itself.
+var devOnly = regexp.MustCompile(`petars-dev/govibe/internal/(devtools|codegraph|dbexplorer|devmcp|graphdb)`)
 
 // A production build links no dev tooling: not the panel, the graph, the MCP server
-// or the database explorer, nor any library only they use, and none of the panel's
-// files (acceptance scenario A7). The default build is what ships; govibe_dev is
+// or the database explorer, and none of the panel's files (acceptance scenario A7). The default build is what ships; govibe_dev is
 // opt-in, so this holds by construction and fails the moment something breaks it.
 func TestDefaultBuildLinksNoDevTools(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", "-tags", "", ".").CombinedOutput()
