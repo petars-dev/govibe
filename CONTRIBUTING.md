@@ -10,7 +10,7 @@ conventions is [SKILL.md](SKILL.md), and how the framework is built is [docs/pub
   queues. An issue is still welcome if you think one of these should change.
 
 ## Setting up
-Go 1.25 or newer. Clone, then:
+Go 1.26 or newer. Clone, then:
 ```sh
 make dev          # the reference app (examples/hello) with the dev panel at http://localhost:8080/dev
 make test-short   # the inner loop: the suite minus the tests that build and run a whole app (a few seconds per package)

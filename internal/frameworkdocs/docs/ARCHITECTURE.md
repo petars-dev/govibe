@@ -176,9 +176,9 @@ repository it gets holds only application code.
   database in `env.yml`; `--replace <checkout>` builds the app against a checkout of the framework instead of a release (contributors, and the keystone
   job): the tool refuses to proceed without it when it was itself built from a checkout, because the app could not fetch the framework at that version.
   The subprocesses run with `GOWORK=off`, so a new module is built on its own even inside a workspace.
-- **Pins (AM1 to AM3 of the spec, applied as defaults).** The generated `go.mod` writes the `go` line explicitly (the framework's own, `1.25.0`; `go mod
+- **Pins (AM1 to AM3 of the spec, applied as defaults).** The generated `go.mod` writes the `go` line explicitly (the framework's own, `1.26.0`; `go mod
   init` would write the local toolchain's), requires the framework at the tool's version, chi, templ at the framework's version (`v0.3.1020`) and air at
-  `v1.67.0` (the last release on `go 1.25`; a newer templ or air raises the app's `go` line, and `@latest` would do so silently), and declares templ, air and
+  `v1.67.0` (a newer templ or air raises the app's `go` line, and `@latest` would do so silently), and declares templ, air and
   the framework's tool as `tool` directives, so `go tool templ`, `go tool air` and `go tool govibe` run the pinned versions. A test checks the pins
   against the framework's `go.mod`. Air as a tool costs about 80 indirect modules in the app's `go.mod` (hugo among them); none is linked into the app.
 - **Managed files** (the app's Makefile, .air.toml, the workflow under .github/workflows, and the block of its SKILL.md between `<!-- govibe:managed:start -->` and

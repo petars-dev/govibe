@@ -10,7 +10,7 @@ the settings in `config/defaults.yml`). Everything under `internal/` can change 
 - **From `v1.0.0`**, the public surface changes only with a major version; a minor adds, a patch fixes.
 - **One version.** The tool and the library are released together and must match: `go.mod` pins both (`require` and `tool`), `govibe doctor` warns
   when they differ, and a global `govibe` of another version hands its commands to the pinned one.
-- **Dependencies.** The Go version a generated app gets is the framework's own (`go 1.25.0`); the tools it pins (templ, air) are the versions this
+- **Dependencies.** The Go version a generated app gets is the framework's own (`go 1.26.0`); the tools it pins (templ, air) are the versions this
   release tested; htmx is served by the framework and its version is per release.
 - **Releases** are git tags on `main`, each with a section below and a GitHub release that carries it. The `ci` workflow checks the API against the
   last tag with `gorelease` before a release is cut.

@@ -39,11 +39,11 @@ import (
 var templates embed.FS
 
 // The versions a generated app pins. The `go` line is the framework's own (a test checks
-// it against go.mod), and so is templ's; air is pinned at the last release that keeps that
+// it against go.mod), and so is templ's; air is pinned at a release that keeps that
 // `go` line (a newer air or templ raises it, and `go get -tool x@latest` would do so
 // silently). The framework itself is required at the tool's version.
 const (
-	GoVersion    = "1.25.0"
+	GoVersion    = "1.26.0"
 	TemplVersion = "v0.3.1020"
 	AirVersion   = "v1.67.0"
 	ChiVersion   = "v5.1.0"
